@@ -31,4 +31,5 @@ Projects for the **Micro-8**, an 8-bit retro computer programmed in its own C-li
 ## Notes
 
 - Source lines must stay below 159 characters (the machine's read limit) and files must use LF line endings.
+- Precompiled `.BIN` files are compiled for **Micro-8 OS 0.8.0**. Other OS versions: recompile the source.
 - Compile on the machine with `compile FILE.SRC`, then `run FILE.BIN`.
