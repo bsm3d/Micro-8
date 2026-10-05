@@ -37,7 +37,3 @@ The song is 17 bars played as 34 positions, 16 rows per bar at 6 frames per row,
 
 1. Copy `SIDRUSH.BIN` (precompiled, **compiled for Micro-8 OS 0.8.0**) or `SIDRUSH.SRC` to the SD card. The FM instruments `bass01.ins` and `lead02.ins` are loaded from `/tools/sounded/sounds` (shipped with SOUNDED).
 2. On the machine: `run sidrush.bin`, or `compile sidrush.src` first to rebuild it (e.g. on another OS version).
-
-## Tracker project
-
-`SIDRUSH.M8S` (with `.EXT.json` and `.NOTES.json` for Micro-8 Studio) is the same music as a tracker project: FM1 bass, FM2 lead, DRM drums, SYN arpeggio, 17 patterns, 34 song positions, tempo 150. Open it with the [Tracker](../Tracker) player. The demo itself does not need it.
