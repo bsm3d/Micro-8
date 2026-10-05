@@ -1,0 +1,598 @@
+// MICRO-8 TRACKER - lecteur seul (exemple a coller dans un jeu ou une demo)
+// Benoit (BSM) Saint-Moulin - www.bsm3d.com
+//
+// Liste les morceaux NOM.M8S du dossier (format de TRACKER.SRC / TRACKER3.SRC, voir leur
+// README), haut/bas pour
+// choisir, ENTREE pour jouer, ECHAP pour revenir a la liste. Aucune des fonctions
+// d'edition (grille, souris,
+// ecrans) n'est necessaire pour la lecture, seulement une vingtaine de petites fonctions.
+//
+// sng[] (384 octets) : 4 tempo  5 longueur du morceau  6 boucle  7 mode de note  8
+// decalage de note (+64)
+//   10.. instrument  18.. octave  26.. panoramique  34.. volume  42.. muette  50 onde
+//   voix 0  84..91 blocs lies  51..58 enveloppes
+//   59..63 filtre  64..66 LFO  69 onde voix 1  128.. bloc a chaque position  256..
+//   transposition (+64)
+// pat (24576 octets, page 0x90) : 64 blocs de 16 pas x 8 pistes x (note, instrument,
+// velocite).
+// bank (540 octets) : les 10 instruments FM du projet, 54 parametres chacun (ymGetParam).
+// NOM.M8S : voir oneName() plus bas (format compact).
+
+byte sng[384];
+text pname={8};
+byte bank[540];
+int lastIns[8];
+int tempo=120;
+int stepMs=125;
+nat carry=0;
+int playBlk=0;
+int playRow=0;
+int playPos=0;
+bool playing=false;
+
+int cg(int i) {
+	return sng[i];
+}
+
+int ci(int v,int lo,int hi) {
+	if(v<lo) return lo;
+	if(v>hi) return hi;
+	return v;
+}
+
+// une case (bloc, pas, piste, champ : 0 note, 1 instrument, 2 velocite)
+int pget(int b,int s,int t,int f) {
+	nat i=(nat)b;
+	i=i*16+(nat)s;
+	i=i*8+(nat)t;
+	i=i*3+(nat)f;
+	return peek(0x3000+i,0x90);
+}
+
+void cs(int i,int v) {
+	sng[i]=(byte)v;
+}
+
+// touches 0-9 (codes du clavier de la machine)
+byte dkey[10]={25,1,21,2,22,3,23,4,24,5};
+
+int keyDigit(int k) {
+	for(int i=0;i<10;i++) {
+		if(dkey[i]==k) return i;
+	}
+	return -1;
+}
+
+// un .M8S endommage ou d'une autre version ne doit jamais envoyer a la puce une valeur
+// hors de sa plage
+void fixSng() {
+	cs(5,ci(cg(5),0,128));
+	cs(6,ci(cg(6),0,1));
+	cs(7,ci(cg(7),0,1));
+	for(int t=0;t<8;t++) {
+		cs(10+t,ci(cg(10+t),0,9));
+		cs(18+t,ci(cg(18+t),0,7));
+		cs(26+t,ci(cg(26+t),0,3));
+		cs(34+t,ci(cg(34+t),0,127));
+		cs(42+t,ci(cg(42+t),0,1));
+	}
+	for(int i=51;i<59;i++) cs(i,ci(cg(i),0,15));
+	cs(50,ci(cg(50),0,3));
+	cs(69,ci(cg(69),0,3));
+	cs(59,ci(cg(59),0,1));
+	cs(60,ci(cg(60),0,3));
+	cs(61,ci(cg(61),0,3));
+	cs(64,ci(cg(64),0,3));
+	cs(65,ci(cg(65),0,15));
+	cs(66,ci(cg(66),0,15));
+	for(int i=0;i<128;i++) cs(128+i,ci(cg(128+i),0,63));
+}
+
+int slen() {
+	return ci(cg(5),0,128);
+}
+
+int spat(int i) {
+	return sng[128+i];
+}
+
+// transposition d'une position, deja centree sur 0 (stockee +64)
+int strans(int i) {
+	int v=sng[256+i];
+	return v-64;
+}
+
+// vrai si le bloc b prolonge le bloc b-1 (octets 84..91, un bit par bloc ; decalage par
+// un byte)
+bool cont(int b) {
+	if(b<=0||b>63) return false;
+	int v=sng[84+b/8];
+	byte s=(byte)(b%8);
+	return ((v>>s)&1)!=0;
+}
+
+void applyVoice(int t) {
+	if(t<6) {
+		ymVoice((byte)t,(byte)cg(10+t),(byte)cg(18+t),(byte)cg(26+t),(byte)cg(34+t));
+		lastIns[t]=cg(10+t);
+	} else if(t==6) {
+		int p=cg(40)/8;
+		synVoice(0,(byte)cg(50),(byte)cg(24),(byte)cg(32),(byte)p);
+	} else {
+		int p=cg(41)/8;
+		synVoice(1,(byte)cg(69),(byte)cg(25),(byte)cg(33),(byte)p);
+	}
+}
+
+void applySynth() {
+	synEnv(0,(byte)cg(51),(byte)cg(52),(byte)cg(53),(byte)cg(54));
+	synEnv(1,(byte)cg(55),(byte)cg(56),(byte)cg(57),(byte)cg(58));
+	synLFO(0,(byte)cg(64),(byte)cg(65),(byte)cg(66));
+	synFilter(cg(59)!=0,(byte)cg(60),(byte)cg(61));
+	poke(0x111D,(byte)cg(62));
+	poke(0x111E,(byte)cg(63));
+	applyVoice(6);
+	applyVoice(7);
+}
+
+void initSound() {
+	ymInit(0);
+	// les 10 instruments par defaut (ceux de DEMOS/ORGAN) : apres ymInit, la banque de la
+	// machine est vide ; celle d'un projet charge les remplace ensuite (applyBank)
+	ymLoad("/tools/sounded/sounds/bass01.ins",0);
+	ymLoad("/tools/sounded/sounds/bass02.ins",1);
+	ymLoad("/tools/sounded/sounds/bass03.ins",2);
+	ymLoad("/tools/sounded/sounds/lead01.ins",3);
+	ymLoad("/tools/sounded/sounds/lead02.ins",4);
+	ymLoad("/tools/sounded/sounds/lead03.ins",5);
+	ymLoad("/tools/sounded/sounds/lead04.ins",6);
+	ymLoad("/tools/sounded/sounds/pad01.ins",7);
+	ymLoad("/tools/sounded/sounds/pad02.ins",8);
+	ymLoad("/tools/sounded/sounds/pick01.ins",9);
+	synInit(0);
+	for(int t=0;t<8;t++) lastIns[t]=-1;
+	for(int t=0;t<6;t++) applyVoice(t);
+	applySynth();
+}
+
+// NOM.M8S, compresse comme sur C64 (format decrit dans micro8_tracker/README.md) :
+//   "M8S1" ; le morceau : 16 octets (un bit par octet non nul de sng[0..127]) puis ces
+//   octets, les sng[5] numeros
+//   de bloc du morceau, puis 0, ou 1 et leurs transpositions ; les instruments : 2 octets
+//   (un bit par emplacement
+//   FM enregistre) puis 54 octets chacun ; les patterns, bloc par bloc (les vides sont
+//   sautes) : le numero du bloc,
+//   un octet (un bit par piste non vide), puis pour chaque piste non vide, soit 254 et la
+//   piste deja ecrite qu'elle
+//   repete (bloc*8+piste sur 2 octets, transposition+128), soit le nombre d'evenements et
+//   chacun : pas (0-15)
+//   +16 si l'instrument change +32 si la velocite change, la note, puis l'instrument et
+//   la velocite s'ils changent ;
+//   255 pour finir
+byte cbits[16];
+byte bitv[8]={1,2,4,8,16,32,64,128};
+byte magic[4]={77,56,83,49};
+byte iobuf[128];
+int iopos;
+int iolen;
+nat fpos;
+nat rsize;
+byte ferr;
+int nt;
+int ni;
+int nv;
+
+void oneName(text f) {
+	concat(f,pname);
+	concat(f,".M8S");
+}
+
+nat cellAddr(int b,int t,int k) {
+	return 0x3000+(nat)b*384+(nat)k*24+(nat)t*3;
+}
+
+// une case (note, instrument, velocite) dans nt, ni, nv
+void rd(int b,int t,int k) {
+	nat a=cellAddr(b,t,k);
+	nt=peek(a,0x90);
+	ni=peek(a+1,0x90);
+	nv=peek(a+2,0x90);
+}
+
+void wr(int b,int t,int k) {
+	nat a=cellAddr(b,t,k);
+	poke(a,(byte)nt,0x90);
+	poke(a+1,(byte)ni,0x90);
+	poke(a+2,(byte)nv,0x90);
+}
+
+bool slotUsed(int i) {
+	for(int p=0;p<54;p++) {
+		if(bank[i*54+p]!=0) return true;
+	}
+	return false;
+}
+
+bool has(int m,int i) {
+	return (m/bitv[i])%2==1;
+}
+
+// un emplacement tout a zero garde l'instrument de la machine
+void applyBank() {
+	for(int i=0;i<10;i++) {
+		if(slotUsed(i)) {
+			for(int p=0;p<54;p++) ymSetParam((byte)i,(byte)p,bank[i*54+p]);
+		}
+	}
+}
+
+int get1() {
+	if(ferr!=0) return 0;
+	if(iopos>=iolen) {
+		if(fpos>=rsize) {
+			ferr=253;
+			return 0;
+		}
+		nat n=rsize-fpos;
+		if(n>128) n=128;
+		fRead(0,&iobuf,fpos,n);
+		ferr=_fError;
+		fpos=fpos+n;
+		iolen=(int)n;
+		iopos=0;
+	}
+	int v=iobuf[iopos];
+	iopos++;
+	return v;
+}
+
+// nom du fichier, partage par les fonctions de chargement et de sauvegarde : pas de
+// text local, la machine ne libere pas sa place dans la pile du compilateur
+text fnm={16};
+
+// charge NOM.M8S dans sng[], les patterns et bank[] ; 0 si tout va bien (applyBank()
+// apres initSound())
+byte loadFiles() {
+	memSet(&fnm,17,0);
+	oneName(fnm);
+	import(fnm,&iobuf,4);
+	if(_fError!=0) return _fError;
+	for(int i=0;i<4;i++) {
+		if(iobuf[i]!=magic[i]) return 255;
+	}
+	fOpen(0,fnm);
+	rsize=fSize(0);
+	fpos=4;
+	iopos=0;
+	iolen=0;
+	ferr=0;
+	memSet(&sng,256,0);
+	memSet(&sng+256,128,64);
+	memSet(0x3000,24576,0,0x90);
+	memSet(&bank,540,0);
+	for(int i=0;i<16;i++) cbits[i]=(byte)get1();
+	for(int i=0;i<128;i++) {
+		if(has(cbits[i/8],i%8)) sng[i]=(byte)get1();
+	}
+	int len=ci(sng[5],0,128);
+	for(int i=0;i<len;i++) sng[128+i]=(byte)get1();
+	if(get1()==1) {
+		for(int i=0;i<len;i++) sng[256+i]=(byte)get1();
+	}
+	int m0=get1();
+	int m1=get1();
+	for(int i=0;i<10;i++) {
+		if((i<8&&has(m0,i))||(i>=8&&has(m1,i-8))) {
+			for(int p=0;p<54;p++) bank[i*54+p]=(byte)get1();
+		}
+	}
+	for(int kb=0;kb<64&&ferr==0;kb++) {
+		int b=get1();
+		if(b==255) break;
+		if(b>63) ferr=254;
+		int tm=get1();
+		for(int t=0;t<8&&ferr==0;t++) {
+			if(has(tm,t)) {
+				int h=get1();
+				if(h==254) {
+					int j=get1();
+					j=j+get1()*256;
+					int d=get1()-128;
+					if(j>=b*8+t) ferr=252;
+					for(int k=0;k<16&&ferr==0;k++) {
+						rd(j/8,j%8,k);
+						if(nt!=0&&nt!=255) nt=nt+d;
+						if(nt<0||nt>255) ferr=251;
+						wr(b,t,k);
+					}
+				} else if(h<=16) {
+					ni=0;
+					nv=0;
+					for(int k=0;k<h;k++) {
+						int e=get1();
+						nt=get1();
+						if((e/16)%2==1) ni=get1();
+						if((e/32)%2==1) nv=get1();
+						wr(b,t,e%16);
+					}
+				} else ferr=250;
+			}
+		}
+	}
+	fClose(0);
+	if(ferr==0&&(cg(0)!='M'||cg(1)!='8'||cg(2)!='T'||cg(3)!='1')) ferr=255;
+	return ferr;
+}
+
+void noteOff(int t) {
+	if(t<6) ymNoteOff((byte)t);
+	else {
+		int sv=t-6;
+		synNoteOff((byte)sv);
+	}
+}
+
+void stopAll() {
+	for(int t=0;t<8;t++) noteOff(t);
+}
+
+// note d'API (1..120 -> numero Micro-8, decale par sng[8])
+int apiNote(int v) {
+	return ci(v-1+cg(8)-64,0,127);
+}
+
+void playNote(int t,int v,int vel,int ins) {
+	int vc=ci(vel,0,127);
+	int ic=ci(ins,0,9);
+	int n=apiNote(v);
+	int mode=cg(7);
+	if(t<6) {
+		int oc=cg(18+t);
+		if(mode==1) oc=ci(n/12,0,7);
+		if(ic!=lastIns[t]||mode==1) {
+			ymVoice((byte)t,(byte)ic,(byte)oc,(byte)cg(26+t),(byte)cg(34+t));
+			lastIns[t]=ic;
+		}
+		if(mode==1) n=n%12;
+		ymNoteOn((byte)t,(byte)n,(byte)vc);
+	} else {
+		int sv=t-6;
+		// the FPGA restarts an envelope / a DPCM sample on a rising trigger: off first, like
+		// the SD card's DRUMBOX
+		synNoteOff((byte)sv);
+		int wave=cg(50);
+		if(sv==1) wave=cg(69);
+		if(wave==3) synNoteOn((byte)sv,(byte)ci(v-1,0,19),(byte)vc);
+		else if(mode==1) {
+			int p=cg(34+t)/8;
+			int nn12=n%12;
+			synVoice((byte)sv,(byte)wave,(byte)ci(n/12,0,7),(byte)cg(26+t),(byte)p);
+			synNoteOn((byte)sv,(byte)nn12,(byte)vc);
+		} else synNoteOn((byte)sv,(byte)n,(byte)vc);
+	}
+}
+
+void calcStep() {
+	tempo=ci(tempo,40,255);
+	stepMs=15000/tempo;
+}
+
+// les 8 pistes d'un pas : 255 = note off, 0 = rien ; la transposition ne joue que sur les
+// pistes FM
+void triggerRow(int b,int s) {
+	int tr=strans(playPos);
+	for(int t=0;t<8;t++) {
+		int v=pget(b,s,t,0);
+		if(cg(42+t)!=0) v=0;
+		if(v==255) noteOff(t);
+		else if(v!=0) {
+			if(t<6) v=ci(v+tr,1,120);
+			playNote(t,v,pget(b,s,t,2),pget(b,s,t,1));
+		}
+	}
+}
+
+// pas suivant : la position (un bloc de 16 pas) est deja developpee dans sng[128..], meme
+// pour un pattern
+// long - pas besoin de connaitre les blocs qui se suivent, juste avancer dans le morceau.
+// Un morceau d'une seule
+// position (projet de TRACKER.SRC 0.1, ou pattern seul) : son pattern est joue en entier,
+// blocs suivants compris.
+void advance() {
+	playRow++;
+	if(playRow<16) return;
+	playRow=0;
+	if(slen()<=1) {
+		if(cont(playBlk+1)) playBlk++;
+		else {
+			playBlk=spat(0);
+			if(cg(6)==0) playing=false;
+		}
+		return;
+	}
+	playPos++;
+	if(playPos>=slen()) {
+		playPos=0;
+		if(cg(6)==0) playing=false;
+	}
+	playBlk=spat(playPos);
+}
+
+void startPlay() {
+	playPos=0;
+	playBlk=spat(0);
+	playRow=0;
+	calcStep();
+	carry=(nat)stepMs;
+	clkSet();
+	playing=true;
+}
+
+void tickPlay() {
+	nat now=_mSec;
+	nat s=(nat)stepMs;
+	if(now+carry<s) return;
+	carry=now+carry-s;
+	if(carry>s) carry=0;
+	clkSet();
+	triggerRow(playBlk,playRow);
+	advance();
+	if(!playing) stopAll();
+}
+
+// ------------------------------------------------------------------ choix du morceau
+// les fichiers .M8S du dossier courant (32 au plus) : leur nom sans l'extension, 8
+// caracteres et un 0 chacun
+byte songList[288];
+int nSongs=0;
+text dname={13};
+nat dsize;
+
+bool isM8S() {
+	int dot=-1;
+	int n=0;
+	while(n<13) {
+		byte ch=peek(&dname+(nat)n);
+		if(ch==0) break;
+		if(ch=='.') dot=n;
+		n++;
+	}
+	if(dot<1||dot>8||n!=dot+4) return false;
+	byte a=peek(&dname+(nat)(dot+1));
+	byte b=peek(&dname+(nat)(dot+2));
+	byte c=peek(&dname+(nat)(dot+3));
+	return (a=='M'||a=='m')&&b=='8'&&(c=='S'||c=='s');
+}
+
+void findSongs() {
+	nSongs=0;
+	fOpDir(".");
+	if(_fError!=0) return;
+	while(nSongs<32) {
+		bool isDir=fRdDir(&dname,&dsize);
+		if(peek(&dname)==0) break;
+		if(!isDir&&isM8S()) {
+			int k=0;
+			byte ch=peek(&dname);
+			while(k<8&&ch!='.') {
+				songList[nSongs*9+k]=ch;
+				k++;
+				ch=peek(&dname+(nat)k);
+			}
+			songList[nSongs*9+k]=0;
+			nSongs++;
+		}
+	}
+}
+
+void useSong(int i) {
+	for(int k=0;k<9;k++) poke(&pname+(nat)k,songList[i*9+k]);
+}
+
+void clearBelow(int row) {
+	nat at=(nat)(row*80);
+	memSet(0x1200+at,3200-at,' ');
+	memSet(0x1E80+at,3200-at,0x01);
+}
+
+void drawList(int sel) {
+	clearBelow(4);
+	for(int i=0;i<nSongs;i++) {
+		useSong(i);
+		curPos(4,(byte)(5+i));
+		print(pname);
+		if(i==sel) memSet(0x1E80+(nat)((5+i)*80+2),12,0x52);
+	}
+}
+
+// les pistes : leur numero, ou - si elle est muette
+void drawMutes() {
+	curPos(2,7);
+	print("tracks ");
+	for(int t=0;t<8;t++) {
+		byte c=(byte)(49+t);
+		if(cg(42+t)!=0) c='-';
+		poke(0x1200+7*80+9+(nat)(t*2),c);
+	}
+}
+
+void playSong() {
+	clearBelow(2);
+	curPos(2,2);
+	print("MICRO-8 PLAYER - ",pname);
+	if(loadFiles()!=0) {
+		curPos(2,4);
+		print("Could not load ",pname,".M8S - ESC: back to the list");
+		while(getKeyDwn()!=12) {}
+		return;
+	}
+	fixSng();
+	tempo=cg(4);
+	initSound();
+	applyBank();
+	for(int t=0;t<6;t++) applyVoice(t);
+	startPlay();
+	curPos(2,4);
+	print("Playing - 1-8: mute  LEFT/RIGHT: position  ESC: back to the list");
+	drawMutes();
+	int k=0;
+	while(k!=12) {
+		k=getKeyDwn();
+		int d=keyDigit(k);
+		if(d>=1&&d<=8) {
+			// piste muette tout de suite : sa note en cours est coupee
+			cs(41+d,1-cg(41+d));
+			if(cg(41+d)!=0) noteOff(d-1);
+			drawMutes();
+		} else if((k==57||k==59)&&slen()>1) {
+			// position voisine tout de suite, au meme pas
+			if(k==57) playPos=(playPos+slen()-1)%slen();
+			else playPos=(playPos+1)%slen();
+			playBlk=spat(playPos);
+		}
+		if(playing) tickPlay();
+		curPos(2,6);
+		print("position ",playPos," pattern ",playBlk," step ",playRow,"  ");
+	}
+	stopAll();
+}
+
+// ------------------------------------------------------------------ programme
+memSet(0x1200,3200,' ');
+memSet(0x1E80,3200,0x01);
+findSongs();
+int sel=0;
+bool done=false;
+while(!done) {
+	clearBelow(0);
+	curPos(2,2);
+	print("MICRO-8 PLAYER - UP/DOWN: choose  ENTER: play  ESC: quit");
+	if(nSongs==0) {
+		curPos(2,4);
+		print("No .M8S song in this folder - copy one next to PLAYER.BIN");
+		while(getKeyDwn()!=12) {}
+		done=true;
+	} else {
+		drawList(sel);
+		int k=0;
+		while(k!=37&&k!=12) {
+			k=getKeyDwn();
+			if(k==77&&sel>0) {
+				sel--;
+				drawList(sel);
+			} else if(k==80&&sel<nSongs-1) {
+				sel++;
+				drawList(sel);
+			}
+		}
+		if(k==12) done=true;
+		else {
+			useSong(sel);
+			playSong();
+		}
+	}
+}
+memSet(0x1200,3200,' ');
+memSet(0x1E80,3200,0x01);
+curPos(0,0);
+print("Bye.");

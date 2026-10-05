@@ -1,0 +1,1923 @@
+// MICRO-8 TRACKER 0.1
+// Benoit (BSM) Saint-Moulin
+// www.bsm3d.com
+// 8 pistes : 6 voix FM (YM2612), voix 0 du synt (batterie ou oscillateur),
+// voix 1 du synth.
+// Pas de morceau : un pattern (jusqu'a 256 pas sur plusieurs blocs) joue en boucle.
+// Les octets 128.. et 256.. de sng[] restent a zero (reserves pour un morceau, lus
+// par Micro-8 Studio) mais ne sont pas geres ici.
+
+byte sng[384];
+byte bak[384];
+byte bank[540];
+byte nn[12]={'C','C','D','D','E','F','F','G','G','A','A','B'};
+byte ns[12]={'-','#','-','#','-','-','#','-','#','-','#','-'};
+text tname[8]={"FM1","FM2","FM3","FM4","FM5","FM6","DRM","SYN"};
+text tabs[5]={"PATTERN","SETUP","FILE","HELP","ABOUT"};
+int tabx[6]={20,28,34,39,44,49};
+
+// codes des touches : notes (Z a I), chiffres (0 a 9), lettres (A a Z)
+byte nkey[25]={72,32,52,14,73,53,15,74,34,54,16,75,41,21,62,2,42,63,3,43,23,64,4,44,65};
+byte dkey[10]={25,1,21,2,22,3,23,4,24,5};
+byte akey[26]={13,74,73,14,42,33,15,34,65,16,35,17,75,
+                54,45,66,41,63,32,43,44,53,62,52,64,72};
+
+// valeurs par defaut de sng[50] a sng[67]
+byte dflt[18]={3,0,8,8,4,0,8,8,4,0,0,0,128,64,3,4,0,0};
+int lastIns[8];
+int vu[8];
+byte tbuf[32];
+int tempo=120;
+int stepMs=125;
+nat carry=0;
+
+// ligne ou commence la grille (les rangees au dessus : entetes + equaliseur)
+int gY=7;
+int curPat=0;
+int curRow=0;
+int curTrk=0;
+int curFld=0;
+int top=0;            // premiere ligne de la grille (negative en debut de lecture)
+int vline=0;          // ligne jouee qui continue de compter quand le pattern boucle
+int octv=4;
+int insv=0;
+int velv=100;
+int stepv=1;
+int clipLen=0;
+int scr=0;
+int setSel=1;
+int trkSel=0;
+
+int playBlk=0;
+int playRow=0;
+int playHead=0;
+int playLine=0;
+int cue=-1;
+int shown=-1;
+int pend=-1;
+int prevTrk=-1;
+bool playing=false;
+bool follow=true;
+bool quit=false;
+bool mFctn=false;
+bool mShift=false;
+bool mCtrl=false;
+int fctnUps=0;
+int shiftUps=0;
+int ctrlUps=0;
+bool fctnOnce=false;
+bool shiftOnce=false;
+bool ctrlOnce=false;
+int repKey=0;
+nat repNext=0;
+text pname={8};
+text insName={31};
+text msg={80};
+
+// ecran SETUP : libelle, octet de sng[], par piste ou non, maximum
+text plab[25]={"TRACK","INSTRUMENT (0-9)","VOICE OCTAVE","PAN 0-3","VOLUME",
+	"DRM/SYN0 WAVE","SYN1 WAVE","ENV0 ATTACK","ENV0 DECAY","ENV0 SUSTAIN","ENV0 RELEASE",
+	"ENV1 ATTACK","ENV1 DECAY","ENV1 SUSTAIN","ENV1 RELEASE","FILTER ON","FILTER MODE",
+	"CUTOFF CONTROL","CUTOFF","RESONANCE","LFO0 WAVE","LFO0 FREQ","LFO0 AMPLITUDE",
+	"NOTE MODE 0/1","NOTE OFFSET"};
+int pbase[25]={0,10,18,26,34,50,69,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,7,8};
+int ptrk[25]={0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+int phi[25]={7,9,7,3,127,3,3,15,15,15,15,15,15,15,15,1,3,3,255,255,3,15,15,1,127};
+
+// ------------------------------------------------------------------ outils
+int cg(int i)
+{
+	return sng[i];
+}
+
+void cs(int i,int v)
+{
+	sng[i]=(byte)v;
+}
+
+int ci(int v,int lo,int hi)
+{
+	if(v<lo) return lo;
+	if(v>hi) return hi;
+	return v;
+}
+
+void setMsg(text s)
+{
+	poke(&msg,0);
+	concat(msg,s);
+}
+
+void putc(int x,int y,int ch,int col)
+{
+	nat a=(nat)y*80+(nat)x;
+	poke(0x1200+a,(byte)ch);
+	poke(0x1E80+a,(byte)col);
+}
+
+void putn(int x,int y,int v,int w,int col)
+{
+	int q=ci(v,0,32767);
+	for(int i=w-1;i>=0;i--)
+	{
+		if(q>0||i==w-1) putc(x+i,y,'0'+q%10,col);
+		else putc(x+i,y,' ',col);
+		q=q/10;
+	}
+}
+
+int hd(int v)
+{
+	if(v<10) return '0'+v;
+	return 'A'+v-10;
+}
+
+void puth2(int x,int y,int v,int col)
+{
+	putc(x,y,hd((v>>4)&15),col);
+	putc(x+1,y,hd(v&15),col);
+}
+
+// texte s en (x,y) sur w cases
+void puts(int x,int y,text s,int w,int col)
+{
+	areaSet(0x1200,80,x,y,w,1,' ');
+	curPos((byte)x,(byte)y);
+	print(s);
+	areaSet(0x1E80,80,x,y,w,1,(byte)col);
+}
+
+void clearLine(int y)
+{
+	areaSet(0x1200,80,0,y,80,1,' ');
+	areaSet(0x1E80,80,0,y,80,1,0x52);
+}
+
+// ------------------------------------------------------------------ blocs et patterns
+nat pidx(int b,int s,int t,int f)
+{
+	nat i=(nat)b;
+	i=i*16+(nat)s;
+	i=i*8+(nat)t;
+	i=i*3+(nat)f;
+	return i;
+}
+
+int pget(int b,int s,int t,int f)
+{
+	return peek(0x3000+pidx(b,s,t,f),0x90);
+}
+
+void copyBlock(int src,int dst)
+{
+	memCpy(0x3000+pidx(src,0,0,0),0x3000+pidx(dst,0,0,0),384,0x90);
+}
+
+// vide = aucune note
+bool blockEmpty(int b)
+{
+	nat a=0x3000+pidx(b,0,0,0);
+	for(int i=0;i<128;i++)
+	{
+		if(peek(a+(nat)(i*3),0x90)!=0) return false;
+	}
+	return true;
+}
+
+// vrai si le bloc b prolonge le bloc b-1
+bool cont(int b)
+{
+	if(b<=0||b>63) return false;
+	int v=sng[84+b/8];
+	byte s=(byte)(b%8);
+	return ((v>>s)&1)!=0;
+}
+
+void setCont(int b,bool on)
+{
+	int i=84+b/8;
+	byte s=(byte)(b%8);
+	int m=1<<s;
+	int v=sng[i];
+	int r=v|m;
+	if(!on) r=v&(255-m);
+	sng[i]=(byte)r;
+}
+
+int headOf(int b)
+{
+	while(b>0&&cont(b)) b--;
+	return b;
+}
+
+int blocks(int p)
+{
+	int n=1;
+	while(p+n<64&&cont(p+n)) n++;
+	return n;
+}
+
+int plen(int p)
+{
+	return blocks(p)*16;
+}
+
+// case d'un pattern par sa ligne (0 a plen-1)
+int rget(int p,int r,int t,int f)
+{
+	return pget(p+r/16,r%16,t,f);
+}
+
+void rset(int p,int r,int t,int f,int v)
+{
+	poke(0x3000+pidx(p+r/16,r%16,t,f),(byte)v,0x90);
+}
+
+// pattern suivant (d>0) ou precedent, -1 s'il n'y en a pas
+int nextPat(int p,int d)
+{
+	if(d>0)
+	{
+		if(p+blocks(p)>63) return -1;
+		return p+blocks(p);
+	}
+	if(p==0) return -1;
+	return headOf(p-1);
+}
+
+bool isDrum(int t)
+{
+	return (t==6&&cg(50)==3)||(t==7&&cg(69)==3);
+}
+
+// courbe de l'enveloppe (attaque, decroissance, maintien, chute) dans une case de w x h
+// caracteres ;
+// le plateau de maintien est affiche sur une largeur fixe, juste pour montrer son niveau
+void drawEnv(int x,int y,int w,int h,int a,int d,int s,int r)
+{
+	areaSet(0x1200,80,x,y,w,h,' ');
+	areaSet(0x1E80,80,x,y,w,h,0x52);
+	int total=a+d+4+r;
+	if(total<1) total=1;
+	for(int cx=0;cx<w;cx++)
+	{
+		int t=cx*total/w;
+		int lvl=15;
+		if(t<a)
+		{
+			if(a>0) lvl=t*15/a;
+		}
+		else if(t<a+d)
+		{
+			lvl=s;
+			if(d>0) lvl=15-(t-a)*(15-s)/d;
+		}
+		else if(t<a+d+4) lvl=s;
+		else
+		{
+			lvl=0;
+			if(r>0) lvl=ci(s-(t-a-d-4)*s/r,0,15);
+		}
+		int cy=y+h-1-lvl*(h-1)/15;
+		putc(x+cx,cy,'*',0x59);
+	}
+}
+
+// ------------------------------------------------------------------ clavier
+int keyNote(int k)
+{
+	for(int i=0;i<25;i++)
+	{
+		if(nkey[i]==k) return i;
+	}
+	return -1;
+}
+
+int keyDigit(int k)
+{
+	for(int i=0;i<10;i++)
+	{
+		if(dkey[i]==k) return i;
+	}
+	return -1;
+}
+
+int keyChar(int k)
+{
+	int d=keyDigit(k);
+	if(d>=0) return '0'+d;
+	for(int i=0;i<26;i++)
+	{
+		if(akey[i]==k) return 'A'+i;
+	}
+	if(k==76) return '.';
+	if(k==6) return '-';
+	if(k==56) return '/';
+	return 0;
+}
+
+int waitKey()
+{
+	int k=getKeyDwn();
+	while(k==0) k=getKeyDwn();
+	return k;
+}
+
+// saisie d'une ligne dans tbuf[] (maxLen <= 31) ; renvoie sa longueur, -1 si ESC
+int readLine(int x,int y,int maxLen)
+{
+	int len=0;
+	while(true)
+	{
+		areaSet(0x1200,80,x,y,maxLen+1,1,' ');
+		areaSet(0x1E80,80,x,y,maxLen+1,1,0xB1);
+		for(int i=0;i<len;i++) putc(x+i,y,tbuf[i],0xB1);
+		putc(x+len,y,'_',0xB1);
+		int k=waitKey();
+		if(k==37) return len;
+		if(k==12) return -1;
+		if(k==7&&len>0) len--;
+		int c=keyChar(k);
+		if(c!=0&&len<maxLen)
+		{
+			tbuf[len]=(byte)c;
+			len++;
+		}
+	}
+	return -1;
+}
+
+void bufToText(nat addr,int len)
+{
+	for(int i=0;i<len;i++) poke(addr+(nat)i,tbuf[i]);
+	poke(addr+(nat)len,0);
+}
+
+// Y ou O pour oui
+bool askYes(text q)
+{
+	clearLine(37);
+	puts(0,37,q,79,0x5B);
+	int k=waitKey();
+	clearLine(37);
+	return k==64||k==45;
+}
+
+// ------------------------------------------------------------------ son
+void applyVoice(int t)
+{
+	if(t<6)
+	{
+		ymVoice((byte)t,(byte)cg(10+t),(byte)cg(18+t),(byte)cg(26+t),(byte)cg(34+t));
+		lastIns[t]=cg(10+t);
+	}
+	else if(t==6)
+	{
+		int p=cg(40)/8;
+		synVoice(0,(byte)cg(50),(byte)cg(24),(byte)cg(32),(byte)p);
+	}
+	else
+	{
+		int p=cg(41)/8;
+		synVoice(1,(byte)cg(69),(byte)cg(25),(byte)cg(33),(byte)p);
+	}
+}
+
+void applySynth()
+{
+	synEnv(0,(byte)cg(51),(byte)cg(52),(byte)cg(53),(byte)cg(54));
+	synEnv(1,(byte)cg(55),(byte)cg(56),(byte)cg(57),(byte)cg(58));
+	synLFO(0,(byte)cg(64),(byte)cg(65),(byte)cg(66));
+	synFilter(cg(59)!=0,(byte)cg(60),(byte)cg(61));
+	poke(0x111D,(byte)cg(62));
+	poke(0x111E,(byte)cg(63));
+	applyVoice(6);
+	applyVoice(7);
+}
+
+void initSound()
+{
+	ymInit(0);
+	// les 10 instruments par defaut (ceux de DEMOS/ORGAN) : apres ymInit, la banque de la
+	// machine est vide ; celle d'un projet charge les remplace ensuite (applyBank)
+	ymLoad("/tools/sounded/sounds/bass01.ins",0);
+	ymLoad("/tools/sounded/sounds/bass02.ins",1);
+	ymLoad("/tools/sounded/sounds/bass03.ins",2);
+	ymLoad("/tools/sounded/sounds/lead01.ins",3);
+	ymLoad("/tools/sounded/sounds/lead02.ins",4);
+	ymLoad("/tools/sounded/sounds/lead03.ins",5);
+	ymLoad("/tools/sounded/sounds/lead04.ins",6);
+	ymLoad("/tools/sounded/sounds/pad01.ins",7);
+	ymLoad("/tools/sounded/sounds/pad02.ins",8);
+	ymLoad("/tools/sounded/sounds/pick01.ins",9);
+	synInit(0);
+	for(int t=0;t<8;t++) lastIns[t]=-1;
+	for(int t=0;t<6;t++) applyVoice(t);
+	applySynth();
+}
+
+void noteOff(int t)
+{
+	if(t<6) ymNoteOff((byte)t);
+	else
+	{
+		int sv=t-6;
+		synNoteOff((byte)sv);
+	}
+}
+
+void stopAll()
+{
+	for(int t=0;t<8;t++) noteOff(t);
+}
+
+void playNote(int t,int v,int vel,int ins)
+{
+	int vc=ci(vel,0,127);
+	int ic=ci(ins,0,9);
+	int n=ci(v-1+cg(8)-64,0,127);
+	int mode=cg(7);
+	if(t<6)
+	{
+		int oc=cg(18+t);
+		if(mode==1) oc=ci(n/12,0,7);
+		if(ic!=lastIns[t]||mode==1)
+		{
+			ymVoice((byte)t,(byte)ic,(byte)oc,(byte)cg(26+t),(byte)cg(34+t));
+			lastIns[t]=ic;
+		}
+		if(mode==1) n=n%12;
+		ymNoteOn((byte)t,(byte)n,(byte)vc);
+	}
+	else
+	{
+		int sv=t-6;
+		// the FPGA restarts an envelope / a DPCM sample on a rising trigger: off first, like
+		// the SD card's DRUMBOX
+		synNoteOff((byte)sv);
+		int wave=cg(50);
+		if(sv==1) wave=cg(69);
+		if(wave==3) synNoteOn((byte)sv,(byte)ci(v-1,0,19),(byte)vc);
+		else if(mode==1)
+		{
+			int p=cg(34+t)/8;
+			int nn12=n%12;
+			synVoice((byte)sv,(byte)wave,(byte)ci(n/12,0,7),(byte)cg(26+t),(byte)p);
+			synNoteOn((byte)sv,(byte)nn12,(byte)vc);
+		}
+		else synNoteOn((byte)sv,(byte)n,(byte)vc);
+	}
+	vu[t]=1+vc/32;
+}
+
+// ------------------------------------------------------------------ projet
+void defaults()
+{
+	memSet(&sng,384,0);
+	cs(0,'M');
+	cs(1,'8');
+	cs(2,'T');
+	cs(3,'1');
+	cs(4,120);
+	cs(5,1);
+	cs(6,1);
+	cs(8,64);
+	for(int t=0;t<8;t++)
+	{
+		cs(10+t,t);
+		cs(18+t,5);
+		cs(26+t,3);
+		cs(34+t,100);
+		cs(76+t,t);
+	}
+	cs(82,9);   // canaux MIDI pour Studio (batterie sur le canal 9)
+	for(int i=0;i<18;i++) sng[50+i]=dflt[i];
+	for(int i=0;i<128;i++) sng[256+i]=64;
+	tempo=120;
+}
+
+void calcStep()
+{
+	tempo=ci(tempo,40,255);
+	stepMs=15000/tempo;
+}
+
+// ------------------------------------------------------------------ affichage
+// premiere ligne montree : en lecture suivie, la ligne jouee reste au milieu et la grille
+// defile ; sinon la page de 16 lignes du curseur
+int viewTop()
+{
+	if(playing&&follow&&playHead==curPat) return vline-8;
+	return curRow/16*16;
+}
+
+void put3(int x,int y,int a,int b,int c,int col)
+{
+	putc(x,y,a,col);
+	putc(x+1,y,b,col);
+	putc(x+2,y,c,col);
+}
+
+void drawCell(int r,int t,int y)
+{
+	int x=3+t*9;
+	int v=rget(curPat,r,t,0);
+	int c1=0x52;
+	int c2=0x54;
+	int c3=0x59;
+	if(v==0)
+	{
+		c1=0x56;
+		c2=0x56;
+		c3=0x56;
+	}
+	if(v==0) put3(x,y,'-','-','-',c1);
+	else if(v==255) put3(x,y,'O','F','F',c1);
+	else if(isDrum(t))
+	{
+		putc(x,y,'D',c1);
+		putn(x+1,y,v-1,2,c1);
+	}
+	else put3(x,y,nn[(v-1)%12],ns[(v-1)%12],'0'+(v-1)/12,c1);
+	put3(x+3,y,' ','-',' ',c2);
+	putc(x+8,y,' ',0x52);
+	if(v==0||v==255) put3(x+5,y,' ','-','-',c3);
+	else
+	{
+		putc(x+4,y,'0'+rget(curPat,r,t,1),c2);
+		putc(x+5,y,' ',c3);
+		puth2(x+6,y,rget(curPat,r,t,2),c3);
+	}
+	if(scr==0&&r==curRow&&t==curTrk)
+	{
+		if(curFld==0) areaSet(0x1E80,80,x,y,3,1,0xB1);
+		else if(curFld==1) areaSet(0x1E80,80,x+4,y,1,1,0xB1);
+		else areaSet(0x1E80,80,x+6,y,2,1,0xB1);
+	}
+}
+
+// la marque de lecture '>' ; y = 0..15 dans la grille
+void mark(int y,bool on)
+{
+	if(y<0) return;
+	if(on) putc(2,gY+y,'>',0x5D);
+	else putc(2,gY+y,' ',0x52);
+}
+
+void drawRow(int r)
+{
+	int n=plen(curPat);
+	// en lecture suivie, apres la fin du pattern la grille montre son tour suivant : une ligne
+	// du pattern se trouve a sa place dans la fenetre (r peut etre la ligne ou sa place)
+	bool wrap=playing&&follow&&playHead==curPat;
+	if(wrap&&r>=0) r=top+((r-top)%n+n)%n;
+	if(r<top||r>=top+16) return;
+	int y=gY+r-top;
+	int rr=r;
+	if(wrap&&rr>=0) rr=rr%n;
+	// avant le debut ou apres la fin du pattern : une ligne vide
+	if(rr<0||rr>=n)
+	{
+		areaSet(0x1200,80,0,y,75,1,' ');
+		areaSet(0x1E80,80,0,y,75,1,0x52);
+		return;
+	}
+	int col=0x5F;
+	if(rr%4==0) col=0x52;
+	puth2(0,y,rr,col);
+	mark(r-top,playing&&r-top==shown);
+	for(int t=0;t<8;t++) drawCell(rr,t,y);
+}
+
+void drawGrid()
+{
+	for(int i=0;i<16;i++) drawRow(top+i);
+}
+
+// equaliseur : une colonne par piste, sur les 4 lignes entre les entetes et la grille -
+// un bloc plein par
+// segment allume plutot qu'une seule ligne, pour se voir de loin
+void drawVu(int t)
+{
+	int x=3+t*9;
+	for(int i=0;i<4;i++)
+	{
+		int y=gY-4+i;
+		int col=0x52;
+		if(vu[t]>=4-i) col=0x59;
+		areaSet(0x1200,80,x,y,6,1,' ');
+		areaSet(0x1E80,80,x,y,6,1,(byte)col);
+	}
+}
+
+// ce qui joue : >P03:2A->05 (pattern:ligne, pattern en attente apres un ,/.)
+void drawBadge()
+{
+	areaSet(0x1200,80,59,1,21,1,' ');
+	areaSet(0x1E80,80,59,1,21,1,0x5D);
+	if(!playing)
+	{
+		puts(59,1,"STOP",4,0x5F);
+		return;
+	}
+	putc(59,1,'>',0x5D);
+	putc(60,1,'P',0x5D);
+	puth2(61,1,playHead,0x5D);
+	putc(63,1,':',0x5D);
+	puth2(64,1,playLine,0x5D);
+	if(cue>=0)
+	{
+		putc(66,1,'-',0x5D);
+		putc(67,1,'>',0x5D);
+		puth2(68,1,cue,0x5D);
+	}
+}
+
+void drawStatus()
+{
+	puts(0,1,"PAT    LEN     BPM     OCT   INS   VEL     STEP",51,0x5B);
+	puth2(4,1,curPat,0x52);
+	putn(11,1,plen(curPat),3,0x52);
+	putn(19,1,tempo,3,0x52);
+	putn(27,1,octv,1,0x52);
+	putn(33,1,insv,1,0x52);
+	putn(39,1,velv,3,0x52);
+	putn(48,1,stepv,2,0x52);
+	if(follow) puts(51,1,"FOLLOW",7,0x5B);
+	else puts(51,1," ",7,0x52);
+	drawBadge();
+	puts(0,38,msg,79,0x5F);
+}
+
+// combien des 64 blocs contiennent des notes - le vrai budget du morceau sur cette
+// machine
+int blocksUsed()
+{
+	int n=0;
+	for(int b=0;b<64;b++)
+	{
+		if(!blockEmpty(b)) n=n+1;
+	}
+	return n;
+}
+
+// blocksUsed() regarde chaque pas de chaque bloc (8192 peeks) : trop lourd pour le
+// refaire a chaque
+// redessin. Un cache mis a jour toutes les 3 secondes depuis la boucle principale suffit
+// largement pour
+// un chiffre juste informatif.
+int blkCache=0;
+nat blkNext=3000;
+
+// sous la grille : la page d'un pattern long (si plus d'un bloc), et le budget de blocs
+// utilises
+void drawPageInfo()
+{
+	int y=gY+16;
+	clearLine(y);
+	int n=blocks(curPat);
+	if(n>1)
+	{
+		puts(0,y,"PAGE",4,0x5B);
+		int pg=curRow/16;
+		if(playing&&follow&&playHead==curPat) pg=playLine/16;
+		putn(5,y,pg+1,2,0x52);
+		putc(7,y,'/',0x52);
+		putn(8,y,n,2,0x52);
+		puts(12,y,"SHIFT+UP/DOWN: PAGE",19,0x5F);
+	}
+	puts(35,y,"BLOCKS USED",11,0x5B);
+	putn(47,y,blkCache,2,0x52);
+	puts(49,y,"/64",3,0x52);
+}
+
+void updateBlocksUsed()
+{
+	if(_mSec<blkNext) return;
+	blkNext=_mSec+3000;
+	blkCache=blocksUsed();
+	if(scr==0) drawPageInfo();
+}
+
+void drawSetupRow(int i)
+{
+	int y=4+i;
+	int col=0x52;
+	if(i==setSel) col=0xB1;
+	puts(2,y,plab[i],22,col);
+	if(i==0)
+	{
+		puts(26,y,tname[trkSel],4,col);
+		return;
+	}
+	int idx=pbase[i];
+	if(ptrk[i]==1) idx=idx+trkSel;
+	int v=cg(idx);
+	areaSet(0x1200,80,26,y,6,1,' ');
+	areaSet(0x1E80,80,26,y,6,1,(byte)col);
+	if(i==24)
+	{
+		if(v<64) putc(26,y,'-',col);
+		putn(27,y,ci(v-64,64-v,127),3,col);
+	}
+	else putn(26,y,v,4,col);
+}
+
+void drawEnvs()
+{
+	puts(40,3,"ENV0",4,0x5B);
+	drawEnv(40,4,34,9,cg(51),cg(52),cg(53),cg(54));
+	puts(40,14,"ENV1",4,0x5B);
+	drawEnv(40,15,34,9,cg(55),cg(56),cg(57),cg(58));
+}
+
+void drawSetup()
+{
+	for(int i=0;i<25;i++) drawSetupRow(i);
+	drawEnvs();
+}
+
+void drawFile()
+{
+	puts(2,4,"NAME",4,0x5B);
+	puts(8,4,pname,8,0x52);
+	puts(2,6,"S save  L load  R rename  N new",31,0x52);
+}
+
+// trois colonnes verticales (une par groupe de touches) plutot qu'un pave de texte
+// deux colonnes verticales (touches -> action), avec de la marge entre elles - pas un
+// pave de texte
+void drawHelp()
+{
+	puts(2,3,"PATTERN",7,0x5B);
+	puts(2,4,"Z-M Q-I    notes",16,0x52);
+	puts(2,5,"1          note off",19,0x52);
+	puts(2,6,"BKSP       clear cell",21,0x52);
+	puts(2,7,"- =        octave",17,0x52);
+	puts(2,8,", .        prev/next pattern",28,0x52);
+	puts(2,9,"[ ]        instrument",21,0x52);
+	puts(2,10,"; '        velocity",19,0x52);
+
+	puts(2,13,"PATTERN FCTN+",13,0x5B);
+	puts(2,14,"C V K      copy/paste/clear",27,0x52);
+	puts(2,15,"L          pattern length",25,0x52);
+	puts(2,16,"- =        edit step",20,0x52);
+	puts(2,17,"F          follow playback",26,0x52);
+	puts(2,18,"LEFT/RIGHT transpose track",26,0x52);
+	puts(2,19,"UP/DN      change cell value",28,0x52);
+	puts(2,20,"1-8        mute track",20,0x52);
+
+	puts(42,3,"ANY SCREEN",10,0x5B);
+	puts(42,4,"SPACE      play/stop pattern",28,0x52);
+	puts(42,5,"9 / 0      tempo -/+",20,0x52);
+	puts(42,6,"TAB        next screen",22,0x52);
+	puts(42,7,"CTRL       same as FCTN",23,0x52);
+	puts(42,8,"FCTN+ESC   quit",15,0x52);
+
+	puts(42,11,"ABOUT",5,0x5B);
+	puts(42,12,"credits and version (this tracker)",34,0x52);
+}
+
+void drawAbout()
+{
+	puts(25,12,"___- Micro-8 Tracker 0.1 -___",29,0x5B);
+	puts(25,14,"(C) Benoit (BSM) Saint-Moulin",29,0x52);
+	puts(32,15,"www.bsm3d.com",13,0x5D);
+}
+
+void drawPatternScreen()
+{
+	top=viewTop();
+	for(int t=0;t<8;t++)
+	{
+		int x=3+t*9;
+		int col=0x5B;
+		if(cg(42+t)!=0) col=0x56;
+		puts(x,2,tname[t],3,col);
+		drawVu(t);
+	}
+	drawGrid();
+	drawPageInfo();
+}
+
+void drawScreen()
+{
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x52);
+	puts(0,0,"MICRO-8 TRACKER",15,0x5B);
+	for(int i=0;i<5;i++)
+	{
+		int c=0x5F;
+		if(scr==i) c=0xB1;
+		puts(tabx[i],0,tabs[i],tabx[i+1]-tabx[i]-1,c);
+	}
+	if(scr==0) drawPatternScreen();
+	else if(scr==1) drawSetup();
+	else if(scr==2) drawFile();
+	else if(scr==3) drawHelp();
+	else drawAbout();
+	drawStatus();
+	if(scr==0)
+		puts(0,39,"Z-M Q-I notes  ,. pat  CTRL/FCTN+UP/DN value  TAB next screen",78,0x5F);
+	else if(scr==1) puts(0,39,"LEFT/RIGHT change (SHIFT x8, CTRL x2)  L load .INS",78,0x5F);
+	else puts(0,39,"TAB next screen",78,0x5F);
+}
+
+// ------------------------------------------------------------------ lecture
+// pas suivant : le bloc suivant du pattern, ou celui en attente (,/. pendant la lecture)
+// une fois boucle
+void advance()
+{
+	playRow++;
+	if(playRow<16) return;
+	playRow=0;
+	int h=headOf(playBlk);
+	if(playBlk+1<h+blocks(h)) playBlk++;
+	else if(cue>=0)
+	{
+		playBlk=cue;
+		cue=-1;
+	}
+	else playBlk=h;
+}
+
+void startPlay()
+{
+	playBlk=curPat;
+	playRow=0;
+	playHead=headOf(playBlk);
+	playLine=(playBlk-playHead)*16;
+	vline=playLine;
+	curRow=ci(curRow,0,plen(curPat)-1);
+	shown=-1;
+	cue=-1;
+	calcStep();
+	carry=(nat)stepMs;
+	clkSet();
+	playing=true;
+	pend=-1;
+	drawScreen();
+}
+
+void stopPlay()
+{
+	playing=false;
+	pend=-1;
+	cue=-1;
+	stopAll();
+	for(int t=0;t<8;t++) vu[t]=0;
+	drawScreen();
+}
+
+void tickPlay()
+{
+	nat now=_mSec;
+	nat s=(nat)stepMs;
+	if(now+carry<s) return;
+	carry=now+carry-s;
+	if(carry>s) carry=0;
+	clkSet();
+	for(int t=0;t<8;t++)
+	{
+		if(vu[t]>0) vu[t]--;
+	}
+	// la ligne courante : une piste muette ne joue rien
+	for(int t=0;t<8;t++)
+	{
+		int v=pget(playBlk,playRow,t,0);
+		if(cg(42+t)!=0) v=0;
+		if(v==255) noteOff(t);
+		else if(v!=0) playNote(t,v,pget(playBlk,playRow,t,2),pget(playBlk,playRow,t,1));
+	}
+	playHead=headOf(playBlk);
+	playLine=(playBlk-playHead)*16+playRow;
+	// suivre la lecture : le pattern qui joue (sauf s'il y en a un en attente) et sa page
+	bool full=false;
+	if(follow&&curPat!=playHead&&curPat!=cue)
+	{
+		curPat=playHead;
+		curRow=ci(curRow,0,plen(curPat)-1);
+		full=true;
+	}
+	// la ligne virtuelle : +1 a chaque pas, meme quand le pattern repart a 0 ; elle ne recale
+	// que sur un autre pattern, un saut, ou au bout d'environ une heure
+	int n=plen(playHead);
+	if(full||vline>30000) vline=playLine;
+	else if(playLine==(vline+1)%n) vline++;
+	else if(playLine!=vline%n) vline=playLine;
+	int nt=viewTop();
+	// une ligne plus loin : la grille defile d'une ligne au lieu d'etre redessinee
+	bool roll=!full&&nt==top+1;
+	if(nt!=top&&!roll) full=true;
+	int oldShown=shown;
+	advance();
+	if(scr!=0)
+	{
+		drawBadge();
+		return;
+	}
+	for(int t=0;t<8;t++) drawVu(t);
+	if(roll)
+	{
+		top=nt;
+		// ligne par ligne, de haut en bas : chaque copie ne recouvre pas sa source
+		for(int i=0;i<15;i++)
+		{
+			nat a=(nat)((gY+i)*80);
+			memCpy(0x1200+a+80,0x1200+a,75);
+			memCpy(0x1E80+a+80,0x1E80+a,75);
+		}
+		drawRow(top+15);
+		oldShown--;
+		// redessin en cours (une ligne par tour) : les lignes pas encore faites ont monte
+		if(pend>0) pend--;
+	}
+	if(full) top=nt;
+	shown=-1;
+	int pv=playLine;
+	if(follow) pv=vline;
+	if(playHead==curPat&&pv>=top&&pv<top+16) shown=pv-top;
+	if(full)
+	{
+		pend=0;
+		drawPageInfo();
+	}
+	else
+	{
+		mark(oldShown,false);
+		mark(shown,true);
+	}
+	drawStatus();
+}
+
+// ------------------------------------------------------------------ fichiers
+// un .M8S endommage ou d'une autre version ne doit jamais envoyer a la puce une valeur
+// hors de sa plage
+void fixSng()
+{
+	cs(5,ci(cg(5),0,128));
+	cs(6,ci(cg(6),0,1));
+	cs(7,ci(cg(7),0,1));
+	for(int t=0;t<8;t++)
+	{
+		cs(10+t,ci(cg(10+t),0,9));
+		cs(18+t,ci(cg(18+t),0,7));
+		cs(26+t,ci(cg(26+t),0,3));
+		cs(34+t,ci(cg(34+t),0,127));
+		cs(42+t,ci(cg(42+t),0,1));
+	}
+	for(int i=51;i<59;i++) cs(i,ci(cg(i),0,15));
+	cs(50,ci(cg(50),0,3));
+	cs(69,ci(cg(69),0,3));
+	cs(59,ci(cg(59),0,1));
+	cs(60,ci(cg(60),0,3));
+	cs(61,ci(cg(61),0,3));
+	cs(64,ci(cg(64),0,3));
+	cs(65,ci(cg(65),0,15));
+	cs(66,ci(cg(66),0,15));
+	for(int i=0;i<128;i++) cs(128+i,ci(cg(128+i),0,63));
+}
+
+// NOM.M8S, compresse comme sur C64 (format decrit dans micro8_tracker/README.md) :
+//   "M8S1" ; le morceau : 16 octets (un bit par octet non nul de sng[0..127]) puis ces
+//   octets, les sng[5] numeros
+//   de bloc du morceau, puis 0, ou 1 et leurs transpositions ; les instruments : 2 octets
+//   (un bit par emplacement
+//   FM enregistre) puis 54 octets chacun ; les patterns, bloc par bloc (les vides sont
+//   sautes) : le numero du bloc,
+//   un octet (un bit par piste non vide), puis pour chaque piste non vide, soit 254 et la
+//   piste deja ecrite qu'elle
+//   repete (bloc*8+piste sur 2 octets, transposition+128), soit le nombre d'evenements et
+//   chacun : pas (0-15)
+//   +16 si l'instrument change +32 si la velocite change, la note, puis l'instrument et
+//   la velocite s'ils changent ;
+//   255 pour finir
+byte cbits[16];
+byte bitv[8]={1,2,4,8,16,32,64,128};
+byte magic[4]={77,56,83,49};
+byte iobuf[128];
+int iopos;
+int iolen;
+nat fpos;
+nat rsize;
+byte ferr;
+int nt;
+int ni;
+int nv;
+
+void oneName(text f)
+{
+	concat(f,pname);
+	concat(f,".M8S");
+}
+
+nat cellAddr(int b,int t,int k)
+{
+	return 0x3000+(nat)b*384+(nat)k*24+(nat)t*3;
+}
+
+// une case (note, instrument, velocite) dans nt, ni, nv
+void rd(int b,int t,int k)
+{
+	nat a=cellAddr(b,t,k);
+	nt=peek(a,0x90);
+	ni=peek(a+1,0x90);
+	nv=peek(a+2,0x90);
+}
+
+void wr(int b,int t,int k)
+{
+	nat a=cellAddr(b,t,k);
+	poke(a,(byte)nt,0x90);
+	poke(a+1,(byte)ni,0x90);
+	poke(a+2,(byte)nv,0x90);
+}
+
+bool slotUsed(int i)
+{
+	for(int p=0;p<54;p++)
+	{
+		if(bank[i*54+p]!=0) return true;
+	}
+	return false;
+}
+
+bool has(int m,int i)
+{
+	return (m/bitv[i])%2==1;
+}
+
+// un emplacement tout a zero garde l'instrument de la machine
+void applyBank()
+{
+	for(int i=0;i<10;i++)
+	{
+		if(slotUsed(i))
+		{
+			for(int p=0;p<54;p++) ymSetParam((byte)i,(byte)p,bank[i*54+p]);
+		}
+	}
+}
+
+int usedIdx[512];
+int usedSig[512];
+int nUsed;
+int cnt[8];
+
+void flushOut()
+{
+	if(iolen>0&&ferr==0)
+	{
+		fWrite(0,&iobuf,fpos,(nat)iolen);
+		ferr=_fError;
+		fpos=fpos+(nat)iolen;
+	}
+	iolen=0;
+}
+
+void put1(int v)
+{
+	iobuf[iolen]=(byte)v;
+	iolen++;
+	if(iolen==128) flushOut();
+}
+
+int trkCount(int b,int t)
+{
+	int n=0;
+	nat a=cellAddr(b,t,0);
+	for(int k=0;k<16;k++)
+	{
+		if(peek(a,0x90)!=0||peek(a+1,0x90)!=0||peek(a+2,0x90)!=0) n++;
+		a=a+24;
+	}
+	return n;
+}
+
+// la premiere vraie note de la piste (ni vide ni OFF), 0 sinon
+int firstNote(int b,int t)
+{
+	for(int k=0;k<16;k++)
+	{
+		rd(b,t,k);
+		if(nt!=0&&nt!=255) return nt;
+	}
+	return 0;
+}
+
+// une empreinte qui ne change pas quand la piste est transposee
+int trkSig(int b,int t)
+{
+	int f=firstNote(b,t);
+	int s=0;
+	for(int k=0;k<16;k++)
+	{
+		rd(b,t,k);
+		if(nt!=0&&nt!=255) nt=nt-f+128;
+		s=(s+(k+1)*(nt+1)+ni*3+nv)%16000;
+	}
+	return s;
+}
+
+// la transposition qui donne la piste (b,t) a partir de la piste j, ou -999
+int trkMatch(int j,int b,int t)
+{
+	int d=firstNote(b,t)-firstNote(j/8,j%8);
+	if(d<-127||d>127) return -999;
+	for(int k=0;k<16;k++)
+	{
+		rd(j/8,j%8,k);
+		int x=nt;
+		int i=ni;
+		int v=nv;
+		rd(b,t,k);
+		if(i!=ni||v!=nv) return -999;
+		if(x!=0&&x!=255) x=x+d;
+		if(nt!=x) return -999;
+	}
+	return d;
+}
+
+void putTrack(int b,int t)
+{
+	int s=trkSig(b,t);
+	usedSig[nUsed]=s;
+	for(int k=0;k<nUsed;k++)
+	{
+		if(usedSig[k]==s)
+		{
+			int d=trkMatch(usedIdx[k],b,t);
+			if(d!=-999)
+			{
+				put1(254);
+				put1(usedIdx[k]%256);
+				put1(usedIdx[k]/256);
+				put1(d+128);
+				k=nUsed;
+				s=-1;
+			}
+		}
+	}
+	if(s>=0)
+	{
+		put1(cnt[t]);
+		int pi=0;
+		int pv=0;
+		for(int k=0;k<16;k++)
+		{
+			rd(b,t,k);
+			if(nt!=0||ni!=0||nv!=0)
+			{
+				int e=k;
+				if(ni!=pi) e=e+16;
+				if(nv!=pv) e=e+32;
+				put1(e);
+				put1(nt);
+				if(ni!=pi) put1(ni);
+				if(nv!=pv) put1(nv);
+				pi=ni;
+				pv=nv;
+			}
+		}
+	}
+	usedIdx[nUsed]=b*8+t;
+	nUsed++;
+}
+
+// nom du fichier, partage par les fonctions de chargement et de sauvegarde : pas de
+// text local, la machine ne libere pas sa place dans la pile du compilateur
+text fnm={16};
+
+// le fichier est d'abord efface : fOpen ne raccourcit pas un fichier existant
+byte saveOne()
+{
+	memSet(&fnm,17,0);
+	oneName(fnm);
+	for(int i=0;i<10;i++)
+	{
+		for(int p=0;p<54;p++) bank[i*54+p]=ymGetParam((byte)i,(byte)p);
+	}
+	fDel(fnm);
+	fOpen(0,fnm);
+	ferr=_fError;
+	if(ferr!=0) return ferr;
+	fpos=0;
+	iolen=0;
+	for(int i=0;i<4;i++) put1(magic[i]);
+	memSet(&cbits,16,0);
+	for(int i=0;i<128;i++)
+	{
+		if(sng[i]!=0) cbits[i/8]=cbits[i/8]+bitv[i%8];
+	}
+	for(int i=0;i<16;i++) put1(cbits[i]);
+	for(int i=0;i<128;i++)
+	{
+		if(sng[i]!=0) put1(sng[i]);
+	}
+	int len=ci(sng[5],0,128);
+	int tr=0;
+	for(int i=0;i<len;i++)
+	{
+		put1(sng[128+i]);
+		if(sng[256+i]!=64) tr=1;
+	}
+	put1(tr);
+	for(int i=0;i<len*tr;i++) put1(sng[256+i]);
+	int mask=0;
+	for(int i=0;i<10;i++)
+	{
+		if(slotUsed(i)) mask=mask+(i/8)*255*bitv[i%8]+bitv[i%8];
+	}
+	put1(mask%256);
+	put1(mask/256);
+	for(int i=0;i<10;i++)
+	{
+		if(slotUsed(i))
+		{
+			for(int p=0;p<54;p++) put1(bank[i*54+p]);
+		}
+	}
+	nUsed=0;
+	for(int b=0;b<64;b++)
+	{
+		int tm=0;
+		for(int t=0;t<8;t++)
+		{
+			cnt[t]=trkCount(b,t);
+			if(cnt[t]>0) tm=tm+bitv[t];
+		}
+		if(tm>0)
+		{
+			put1(b);
+			put1(tm);
+			for(int t=0;t<8;t++)
+			{
+				if(cnt[t]>0) putTrack(b,t);
+			}
+		}
+	}
+	put1(255);
+	flushOut();
+	fClose(0);
+	return ferr;
+}
+
+int get1()
+{
+	if(ferr!=0) return 0;
+	if(iopos>=iolen)
+	{
+		if(fpos>=rsize)
+		{
+			ferr=253;
+			return 0;
+		}
+		nat n=rsize-fpos;
+		if(n>128) n=128;
+		fRead(0,&iobuf,fpos,n);
+		ferr=_fError;
+		fpos=fpos+n;
+		iolen=(int)n;
+		iopos=0;
+	}
+	int v=iobuf[iopos];
+	iopos++;
+	return v;
+}
+
+// charge NOM.M8S dans sng[], les patterns et bank[] ; 0 si tout va bien (applyBank()
+// apres initSound())
+byte loadFiles()
+{
+	memSet(&fnm,17,0);
+	oneName(fnm);
+	import(fnm,&iobuf,4);
+	if(_fError!=0) return _fError;
+	for(int i=0;i<4;i++)
+	{
+		if(iobuf[i]!=magic[i]) return 255;
+	}
+	fOpen(0,fnm);
+	rsize=fSize(0);
+	fpos=4;
+	iopos=0;
+	iolen=0;
+	ferr=0;
+	memSet(&sng,256,0);
+	memSet(&sng+256,128,64);
+	memSet(0x3000,24576,0,0x90);
+	memSet(&bank,540,0);
+	for(int i=0;i<16;i++) cbits[i]=(byte)get1();
+	for(int i=0;i<128;i++)
+	{
+		if(has(cbits[i/8],i%8)) sng[i]=(byte)get1();
+	}
+	int len=ci(sng[5],0,128);
+	for(int i=0;i<len;i++) sng[128+i]=(byte)get1();
+	if(get1()==1)
+	{
+		for(int i=0;i<len;i++) sng[256+i]=(byte)get1();
+	}
+	int m0=get1();
+	int m1=get1();
+	for(int i=0;i<10;i++)
+	{
+		if((i<8&&has(m0,i))||(i>=8&&has(m1,i-8)))
+		{
+			for(int p=0;p<54;p++) bank[i*54+p]=(byte)get1();
+		}
+	}
+	for(int kb=0;kb<64&&ferr==0;kb++)
+	{
+		int b=get1();
+		if(b==255) break;
+		if(b>63) ferr=254;
+		int tm=get1();
+		for(int t=0;t<8&&ferr==0;t++)
+		{
+			if(has(tm,t))
+			{
+				int h=get1();
+				if(h==254)
+				{
+					int j=get1();
+					j=j+get1()*256;
+					int d=get1()-128;
+					if(j>=b*8+t) ferr=252;
+					for(int k=0;k<16&&ferr==0;k++)
+					{
+						rd(j/8,j%8,k);
+						if(nt!=0&&nt!=255) nt=nt+d;
+						if(nt<0||nt>255) ferr=251;
+						wr(b,t,k);
+					}
+				} else if(h<=16)
+				{
+					ni=0;
+					nv=0;
+					for(int k=0;k<h;k++)
+					{
+						int e=get1();
+						nt=get1();
+						if((e/16)%2==1) ni=get1();
+						if((e/32)%2==1) nv=get1();
+						wr(b,t,e%16);
+					}
+				}
+				else ferr=250;
+			}
+		}
+	}
+	fClose(0);
+	if(ferr==0&&(cg(0)!='M'||cg(1)!='8'||cg(2)!='T'||cg(3)!='1')) ferr=255;
+	return ferr;
+}
+
+void saveProject()
+{
+	cs(4,tempo);
+	// pas de morceau ici : la position unique du morceau designe le pattern affiche, que
+	// PLAYER et Studio rejouent
+	if(cg(5)<=1) cs(128,curPat);
+	byte e=saveOne();
+	if(e==0) setMsg("SAVED");
+	else setMsg("SAVE FAILED");
+}
+
+void loadProject()
+{
+	memCpy(&sng,&bak,384);
+	byte e=loadFiles();
+	if(e==0)
+	{
+		fixSng();
+		tempo=cg(4);
+		calcStep();
+		curPat=headOf(cg(128));
+		curRow=0;
+		initSound();
+		applyBank();
+		for(int t=0;t<6;t++) applyVoice(t);
+		setMsg("LOADED");
+	}
+	else
+	{
+		memCpy(&bak,&sng,384);
+		setMsg("LOAD FAILED");
+	}
+}
+
+void newProject()
+{
+	defaults();
+	memSet(0x3000,24576,0,0x90);
+	calcStep();
+	curPat=0;
+	curRow=0;
+	curTrk=0;
+	curFld=0;
+	initSound();
+	setMsg("NEW PROJECT");
+}
+
+void loadIns()
+{
+	stopPlay();
+	puts(0,37,"INS FILE:",9,0x5B);
+	int n=readLine(10,37,30);
+	setMsg("CANCELLED");
+	if(n>0)
+	{
+		bufToText(&insName,n);
+		ymLoad(insName,(byte)cg(10+trkSel));
+		if(_fError==0) setMsg("INS LOADED");
+		else setMsg("INS NOT LOADED");
+		lastIns[trkSel]=-1;
+	}
+	drawScreen();
+}
+
+void renameProject()
+{
+	puts(0,37,"NAME:",5,0x5B);
+	int n=readLine(6,37,8);
+	if(n>0) bufToText(&pname,n);
+	drawScreen();
+}
+
+// ------------------------------------------------------------------ outils de pattern
+// longueur du pattern p (n blocs) : les blocs gagnes doivent etre libres (pas dans un
+// autre pattern long) ;
+// s'ils ont des notes, on demande. Raccourcir garde les notes.
+void setLength(int p,int n)
+{
+	int old=blocks(p);
+	if(p+n>64)
+	{
+		setMsg("NO ROOM");
+		return;
+	}
+	bool notes=false;
+	for(int b=p+old;b<p+n;b++)
+	{
+		if(blocks(b)>1)
+		{
+			setMsg("USED BY ANOTHER PATTERN");
+			return;
+		}
+		if(!blockEmpty(b)) notes=true;
+	}
+	if(notes&&!askYes("BLOCKS HOLD NOTES, KEEP THEM? (Y/N)"))
+	{
+		setMsg("CANCELLED");
+		return;
+	}
+	for(int b=p+1;b<p+old;b++) setCont(b,false);
+	for(int b=p+1;b<p+n;b++) setCont(b,true);
+	curRow=ci(curRow,0,plen(p)-1);
+	setMsg("LENGTH CHANGED");
+}
+
+void transposeTrack(int d)
+{
+	if(isDrum(curTrk))
+	{
+		setMsg("NO TRANSPOSE ON DRUMS");
+		return;
+	}
+	for(int r=0;r<plen(curPat);r++)
+	{
+		int v=rget(curPat,r,curTrk,0);
+		if(v>=1&&v<=120) rset(curPat,r,curTrk,0,ci(v+d,1,120));
+	}
+}
+
+// ------------------------------------------------------------------ ecran PATTERN
+// autre pattern : en lecture d'un pattern seul, il est mis en attente ; en lecture du
+// morceau, le suivi s'arrete
+void gotoPattern(int p)
+{
+	if(p<0) return;
+	curPat=p;
+	curRow=ci(curRow,0,plen(p)-1);
+	if(playing)
+	{
+		// joue tout de suite, au meme pas de la mesure (saut direct, sans attendre la fin du
+		// pattern)
+		cue=-1;
+		int h=headOf(playBlk);
+		if(p!=h)
+		{
+			int at=((playBlk-h)*16+playRow)%(blocks(p)*16);
+			playBlk=p+at/16;
+			playRow=at%16;
+		}
+	}
+	drawPatternScreen();
+	drawStatus();
+}
+
+// FCTN ou CTRL + haut/bas : note (demi-ton, SHIFT : octave ; une case vide prend le C de
+// l'octave),
+// instrument ou velocite (SHIFT : 16) de la case sous le curseur ; la note s'entend a
+// l'arret
+void cellStep(int d)
+{
+	int v=rget(curPat,curRow,curTrk,0);
+	if(curFld==0&&v!=255)
+	{
+		if(v==0)
+		{
+			v=ci(octv*12+1,1,120);
+			if(isDrum(curTrk)) v=1;
+			rset(curPat,curRow,curTrk,1,insv);
+			rset(curPat,curRow,curTrk,2,velv);
+		}
+		else if(isDrum(curTrk)) v=ci(v+d,1,20);
+		else if(mShift) v=ci(v+d*12,1,120);
+		else v=ci(v+d,1,120);
+		rset(curPat,curRow,curTrk,0,v);
+		if(!playing)
+		{
+			playNote(curTrk,v,rget(curPat,curRow,curTrk,2),rget(curPat,curRow,curTrk,1));
+			prevTrk=curTrk;
+		}
+	}
+	else if(v!=0&&v!=255)
+	{
+		if(curFld==1) rset(curPat,curRow,curTrk,1,ci(rget(curPat,curRow,curTrk,1)+d,0,9));
+		else
+		{
+			if(mShift) d=d*16;
+			rset(curPat,curRow,curTrk,2,ci(rget(curPat,curRow,curTrk,2)+d,1,127));
+		}
+	}
+}
+
+void keyPatternFctn(int k)
+{
+	int n=blocks(curPat);
+	int d=keyDigit(k);
+	if(d>=1&&d<=8)
+	{
+		// piste muette tout de suite : sa note en cours est coupee
+		cs(41+d,1-cg(41+d));
+		if(cg(41+d)!=0) noteOff(d-1);
+	}
+	else if(k==73)
+	{
+		clipLen=n;
+		for(int j=0;j<n;j++) copyBlock(curPat+j,64+j);
+		setMsg("COPIED");
+	}
+	else if(k==53)
+	{
+		for(int j=0;j<ci(clipLen,0,n);j++) copyBlock(64+j,curPat+j);
+		setMsg("PASTED");
+	}
+	else if(k==35)
+	{
+		memSet(0x3000+pidx(curPat,0,0,0),(nat)(384*n),0,0x90);
+		setMsg("CLEARED");
+	}
+	else if(k==17)
+	{
+		// 16 -> 64 -> 128 -> 256 -> 16 pas
+		if(playing) stopPlay();
+		if(n==16) setLength(curPat,1);
+		else if(n==1) setLength(curPat,4);
+		else setLength(curPat,n*2);
+	}
+	else if(k==33) follow=!follow;
+	else if(k==6) stepv=ci(stepv-1,0,16);
+	else if(k==26) stepv=ci(stepv+1,0,16);
+	else if(k==57||k==59)
+	{
+		int step=1;
+		if(mShift) step=12;
+		if(k==57) step=-step;
+		transposeTrack(step);
+	}
+	else if(k==77) cellStep(1);
+	else if(k==80) cellStep(-1);
+	drawPatternScreen();
+	drawStatus();
+}
+
+// ecrit une note (255 = note off) sous le curseur et descend du pas d'edition
+void enterNote(int v,int vel)
+{
+	rset(curPat,curRow,curTrk,0,v);
+	if(v!=255)
+	{
+		rset(curPat,curRow,curTrk,1,insv);
+		rset(curPat,curRow,curTrk,2,vel);
+	}
+	curRow=(curRow+stepv)%plen(curPat);
+}
+
+// apres un deplacement : la page entiere si elle change, sinon les deux lignes touchees
+void redrawRows(int oldRow)
+{
+	if(viewTop()!=top)
+	{
+		top=viewTop();
+		drawGrid();
+		drawPageInfo();
+	}
+	else
+	{
+		drawRow(oldRow);
+		drawRow(curRow);
+	}
+	drawStatus();
+}
+
+void keyPattern(int k)
+{
+	if(mFctn||(mCtrl&&(k==77||k==80)))
+	{
+		keyPatternFctn(k);
+		return;
+	}
+	int len=plen(curPat);
+	int oldRow=curRow;
+	int n=keyNote(k);
+	int d=keyDigit(k);
+	if(k==77&&mShift) curRow=ci(curRow-16,0,len-1);
+	else if(k==80&&mShift) curRow=ci(curRow+16,0,len-1);
+	else if(k==77) curRow=(curRow+len-1)%len;
+	else if(k==80) curRow=(curRow+1)%len;
+	else if(k==57||k==59)
+	{
+		// gauche / droite : note, instrument, velocite, puis la piste voisine
+		if(k==57) curFld--;
+		else curFld++;
+		if(curFld<0) curTrk=(curTrk+7)%8;
+		if(curFld>2) curTrk=(curTrk+1)%8;
+		curFld=(curFld+3)%3;
+	}
+	else if(k==7)
+	{
+		rset(curPat,curRow,curTrk,0,0);
+		rset(curPat,curRow,curTrk,1,0);
+		rset(curPat,curRow,curTrk,2,0);
+	}
+	else if(k==55||k==76)
+	{
+		if(k==55) gotoPattern(nextPat(curPat,-1));
+		else gotoPattern(nextPat(curPat,1));
+		return;
+	}
+	else if(k==46) insv=ci(insv-1,0,9);
+	else if(k==67) insv=ci(insv+1,0,9);
+	else if(k==36) velv=ci(velv-4,1,127);
+	else if(k==27) velv=ci(velv+4,1,127);
+	else if(curFld==0)
+	{
+		if(k==6) octv=ci(octv-1,0,8);
+		else if(k==26) octv=ci(octv+1,0,8);
+		else if(k==1) enterNote(255,0);
+		else if(n>=0)
+		{
+			int v=ci(octv*12+n+1,1,120);
+			if(isDrum(curTrk)) v=ci(n+1,1,20);
+			enterNote(v,velv);
+			if(!playing)
+			{
+				playNote(curTrk,v,velv,insv);
+				prevTrk=curTrk;
+			}
+		}
+	}
+	else if(curFld==1)
+	{
+		if(d>=0) rset(curPat,curRow,curTrk,1,d);
+	}
+	else if(k==6||k==26)
+	{
+		int step=4;
+		if(mShift) step=16;
+		if(k==6) step=-step;
+		rset(curPat,curRow,curTrk,2,ci(rget(curPat,curRow,curTrk,2)+step,1,127));
+	}
+	redrawRows(oldRow);
+}
+
+// ------------------------------------------------------------------ ecran SETUP
+void changeParam(int i,int d)
+{
+	if(i==0)
+	{
+		trkSel=ci(trkSel+d,0,7);
+		drawSetup();
+		return;
+	}
+	int idx=pbase[i];
+	if(ptrk[i]==1) idx=idx+trkSel;
+	cs(idx,ci(cg(idx)+d,0,phi[i]));
+	if(i>=1&&i<=4) applyVoice(trkSel);
+	else if(i>=5&&i<=22) applySynth();
+	drawSetupRow(i);
+	if(i>=7&&i<=14) drawEnvs();
+}
+
+void keySetup(int k)
+{
+	int old=setSel;
+	int step=1;
+	if(mShift) step=8;
+	if((mFctn||mCtrl)&&k==77) changeParam(setSel,step);
+	else if((mFctn||mCtrl)&&k==80) changeParam(setSel,-step);
+	else if(k==77) setSel=(setSel+24)%25;
+	else if(k==80) setSel=(setSel+1)%25;
+	else if(k==57)
+	{
+		if(mCtrl) step=step*2;   // CTRL+LEFT/RIGHT held : fast mode, twice the step
+		changeParam(setSel,-step);
+	}
+	else if(k==59)
+	{
+		if(mCtrl) step=step*2;
+		changeParam(setSel,step);
+	}
+	else if(k==6) changeParam(setSel,-step);
+	else if(k==26) changeParam(setSel,step);
+	else if(k==17) loadIns();
+	if(old!=setSel)
+	{
+		drawSetupRow(old);
+		drawSetupRow(setSel);
+	}
+}
+
+// ------------------------------------------------------------------ ecran FILE
+void keyFile(int k)
+{
+	if(k==63)
+	{
+		renameProject();
+		return;
+	}
+	if(k!=32&&k!=17&&k!=54) return;
+	stopPlay();
+	if(k==32) saveProject();
+	else if(k==17) loadProject();
+	else newProject();
+	drawScreen();
+}
+
+// ------------------------------------------------------------------ touches communes
+void chgTempo(int d)
+{
+	if(mShift) d=d*10;
+	tempo=tempo+d;
+	calcStep();
+	cs(4,tempo);
+	drawStatus();
+}
+
+void doKey(int k)
+{
+	if(prevTrk>=0&&!playing)
+	{
+		noteOff(prevTrk);
+		prevTrk=-1;
+	}
+	if(k==12)
+	{
+		if(mFctn) quit=true;
+		else if(playing) stopPlay();
+	}
+	else if(k==31)
+	{
+		scr=(scr+1)%5;
+		drawScreen();
+	}
+	else if(k==78)
+	{
+		if(playing) stopPlay();
+		else startPlay();
+	}
+	// 9 et 0 : tempo, sauf sur le champ instru ou avec FCTN
+	else if((k==5||k==25)&&!mFctn&&!(scr==0&&curFld==1))
+	{
+		if(k==5) chgTempo(-1);
+		else chgTempo(1);
+	}
+	else if(scr==0) keyPattern(k);
+	else if(scr==1) keySetup(k);
+	else if(scr==2) keyFile(k);
+}
+
+// FCTN et SHIFT. Appuis et relachements arrivent dans deux files : apres une action
+// longue, on peut lire le
+// relachement avant l'appui. L'appui ne vaut alors que pour la touche suivante (sinon il
+// resterait pour toujours).
+void onKey(int k)
+{
+	if(k==79)
+	{
+		mFctn=true;
+		if(fctnUps>0)
+		{
+			fctnUps--;
+			fctnOnce=true;
+		}
+		return;
+	}
+	if(k==51||k==58)
+	{
+		mShift=true;
+		if(shiftUps>0)
+		{
+			shiftUps--;
+			shiftOnce=true;
+		}
+		return;
+	}
+	if(k==11)
+	{
+		mCtrl=true;
+		if(ctrlUps>0)
+		{
+			ctrlUps--;
+			ctrlOnce=true;
+		}
+		return;
+	}
+	doKey(k);
+	if(k==57||k==59||k==77||k==80)
+	{
+		repKey=k;
+		repNext=_mSec+400;
+	}
+	if(fctnOnce) mFctn=false;
+	if(shiftOnce) mShift=false;
+	if(ctrlOnce) mCtrl=false;
+	fctnOnce=false;
+	shiftOnce=false;
+	ctrlOnce=false;
+}
+
+// une touche enfoncee par tour de boucle, apres avoir lu les touches relachees
+void handleKeys()
+{
+	int k=getKeyUp();
+	while(k!=0)
+	{
+		if(k==79&&mFctn&&!fctnOnce) mFctn=false;
+		else if(k==79) fctnUps++;
+		if((k==51||k==58)&&mShift&&!shiftOnce) mShift=false;
+		else if(k==51||k==58) shiftUps++;
+		if(k==11&&mCtrl&&!ctrlOnce) mCtrl=false;
+		else if(k==11) ctrlUps++;
+		k=getKeyUp();
+	}
+	k=getKeyDwn();
+	if(k!=0) onKey(k);
+}
+
+// fleche gardee enfoncee (clavier) : repetition apres 0,4 s, toutes les 70 ms
+void keyRepeat()
+{
+	if(repKey==0) return;
+	if(_keyDwn!=repKey)
+	{
+		repKey=0;
+		return;
+	}
+	if(repNext>_mSec+1000) repNext=_mSec;
+	if(_mSec<repNext) return;
+	repNext=_mSec+70;
+	doKey(repKey);
+}
+
+// ------------------------------------------------------------------ programme
+pname="NEWSONG";
+defaults();
+memSet(0x3000,24576,0,0x90);
+calcStep();
+initSound();
+setMsg("READY");
+drawScreen();
+while(!quit)
+{
+	handleKeys();
+	keyRepeat();
+	updateBlocksUsed();
+	if(playing) tickPlay();
+	
+	// apres changement de page en lecture, une ligne de la grille par boucle
+	if(pend>=0)
+	{
+		if(scr==0) drawRow(top+pend);
+		pend++;
+		if(pend>15) pend=-1;
+	}
+}
+stopAll();
+memSet(0x1200,3200,' ');
+memSet(0x1E80,3200,0x01);
+curPos(0,0);
+print("Bye.");
