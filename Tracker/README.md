@@ -13,6 +13,7 @@ A pattern tracker for the Micro-8, written in Lofi.
 | File | Role |
 |---|---|
 | `TRACKER.SRC` | The tracker: 8 tracks, patterns of 16 to 256 steps looping (no song mode yet), screens PATTERN, SETUP, FILE, HELP and ABOUT |
+| `TRACKER.BIN` | Precompiled `TRACKER.SRC`, **compiled for Micro-8 OS 0.8.0** (run it directly, or recompile the source on your OS version) |
 | `PLAYER.SRC` | Standalone player, no editing: lists the `.M8S` projects of its folder and plays the chosen one. Small enough to copy into a game or demo |
 
 ## Tracks
@@ -28,7 +29,7 @@ Both synth voices share a filter, two envelopes and an LFO (set on the SETUP scr
 ## Getting started
 
 1. Copy `TRACKER.SRC` and `PLAYER.SRC` to the SD card, for example in `/TOOLS/TRACKER`.
-2. On the machine: `cd /tools/tracker`, `compile tracker.src`, `run tracker.bin`. The 10 default FM instruments are loaded from `/tools/sounded/sounds`.
+2. On the machine (OS 0.8.0): `cd /tools/tracker`, `compile tracker.src`, `run tracker.bin`. The 10 default FM instruments are loaded from `/tools/sounded/sounds`.
 3. Notes follow MIDI numbers: note 69 on an octave-5 voice is A 440 Hz.
 4. To play a project without the tracker: `compile player.src`, `run player.bin`, then pick the song from the list.
 
