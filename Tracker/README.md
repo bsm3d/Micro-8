@@ -1,12 +1,16 @@
 # Micro-8 Tracker 0.1
 
-<p align="center"><img src="img/tracker.png" alt="Micro-8 Tracker, SETUP screen" width="640"></p>
+<p align="center"><img src="img/pattern.png" alt="Micro-8 Tracker, PATTERN screen" width="640"></p>
 
 **MICRO-8 TRACKER 0.1**, by Benoit (BSM) Saint-Moulin, [www.bsm3d.com](https://www.bsm3d.com)
 
 A pattern tracker for the Micro-8, written in Lofi.
 
 **8 tracks: 6 FM voices (YM2612), 2 synths (drums and VA).**
+
+## Screenshots
+
+<p align="center"><img src="img/setup.png" alt="SETUP screen" width="480"> <img src="img/about.png" alt="ABOUT screen" width="480"></p>
 
 ## Files
 
