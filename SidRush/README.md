@@ -35,8 +35,8 @@ The song is 17 bars played as 34 positions, 16 rows per bar at 6 frames per row,
 
 ## Running it
 
-1. Copy `SIDRUSH.SRC` to the SD card. The FM instruments `bass01.ins` and `lead02.ins` are loaded from `/tools/sounded/sounds` (shipped with SOUNDED).
-2. On the machine: `compile sidrush.src`, then `run sidrush.bin`.
+1. Copy `SIDRUSH.BIN` (precompiled, **compiled for Micro-8 OS 0.8.0**) or `SIDRUSH.SRC` to the SD card. The FM instruments `bass01.ins` and `lead02.ins` are loaded from `/tools/sounded/sounds` (shipped with SOUNDED).
+2. On the machine: `run sidrush.bin`, or `compile sidrush.src` first to rebuild it (e.g. on another OS version).
 
 ## Tracker project
 
