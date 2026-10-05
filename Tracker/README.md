@@ -55,7 +55,7 @@ Both synth voices share a filter, two envelopes and an LFO (set on the SETUP scr
 | `TAB` | Next screen |
 | `FCTN+Esc` | Quit |
 
-On the DRM track, note keys pick one of the 20 drum sounds. On SETUP, `L` loads an `.INS` file into the track's slot and `S` saves the edited instrument. On FILE, `S` saves, `L` loads, `R` renames and `N` starts a new project.
+On the DRM track, note keys pick one of the 20 drum sounds. On SETUP, `L` loads an `.INS` file into the track's slot and `S` saves the edited instrument. On FILE, `S` saves, `L` lists the `.M8S` songs of the folder (UP/DOWN choose, ENTER loads, ESC cancels), `R` renames and `N` starts a new project.
 
 ## Project files
 

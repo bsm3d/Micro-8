@@ -1384,6 +1384,104 @@ void saveProject()
 	else setMsg("SAVE FAILED");
 }
 
+// song list: the .M8S files of the current folder (24 at most), name without extension,
+// 8 characters and a 0 each
+byte songList[216];
+int nSongs=0;
+text dname={13};
+nat dsize;
+
+bool isM8S()
+{
+	int dot=-1;
+	int n=0;
+	while(n<13)
+	{
+		byte ch=peek(&dname+(nat)n);
+		if(ch==0) break;
+		if(ch=='.') dot=n;
+		n++;
+	}
+	if(dot<1||dot>8||n!=dot+4) return false;
+	byte a=peek(&dname+(nat)(dot+1));
+	byte b=peek(&dname+(nat)(dot+2));
+	byte c=peek(&dname+(nat)(dot+3));
+	return (a=='M'||a=='m')&&b=='8'&&(c=='S'||c=='s');
+}
+
+void findSongs()
+{
+	nSongs=0;
+	fOpDir(".");
+	if(_fError!=0) return;
+	while(nSongs<24)
+	{
+		bool isDir=fRdDir(&dname,&dsize);
+		if(peek(&dname)==0) return;
+		if(!isDir&&isM8S())
+		{
+			int k=0;
+			byte ch=peek(&dname);
+			while(k<8&&ch!='.')
+			{
+				songList[nSongs*9+k]=ch;
+				k++;
+				ch=peek(&dname+(nat)k);
+			}
+			songList[nSongs*9+k]=0;
+			nSongs++;
+		}
+	}
+}
+
+void drawSongs(int sel)
+{
+	for(int i=0;i<nSongs;i++)
+	{
+		int col=0x52;
+		if(i==sel) col=0xB1;
+		areaSet(0x1200,80,2,8+i,10,1,' ');
+		areaSet(0x1E80,80,2,8+i,10,1,(byte)col);
+		for(int k=0;k<8;k++)
+		{
+			byte ch=songList[i*9+k];
+			if(ch!=0) putc(2+k,8+i,ch,col);
+		}
+	}
+}
+
+// lists the songs of the folder; UP/DOWN choose, ENTER loads, ESC cancels. The choice goes to pname.
+bool pickSong()
+{
+	findSongs();
+	if(nSongs==0)
+	{
+		setMsg("NO SONG FOUND");
+		return false;
+	}
+	puts(2,7,"UP/DOWN choose  ENTER load  ESC cancel",38,0x5B);
+	int sel=0;
+	drawSongs(sel);
+	int k=0;
+	while(k!=37&&k!=12)
+	{
+		k=getKeyDwn();
+		if(k==77&&sel>0)
+		{
+			sel--;
+			drawSongs(sel);
+		}
+		else if(k==80&&sel<nSongs-1)
+		{
+			sel++;
+			drawSongs(sel);
+		}
+	}
+	if(k==12) return false;
+	for(int j=0;j<9;j++) poke(&pname+(nat)j,songList[sel*9+j]);
+	return true;
+}
+
 void loadProject()
 {
 	memCpy(&sng,&bak,384);
@@ -1762,7 +1860,10 @@ void keyFile(int k)
 	if(k!=32&&k!=17&&k!=54) return;
 	stopPlay();
 	if(k==32) saveProject();
-	else if(k==17) loadProject();
+	else if(k==17)
+	{
+		if(pickSong()) loadProject();
+	}
 	else newProject();
 	drawScreen();
 }
