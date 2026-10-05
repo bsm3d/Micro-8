@@ -55,7 +55,7 @@ On the DRM track, note keys pick one of the 20 drum sounds. On SETUP, `L` loads 
 
 ## Project files
 
-A project is a single compressed `NAME.M8S` file: tracks are event lists, and a track already written elsewhere (even transposed) is a 4-byte reference, like the transposed patterns of Future Composer. Format: header `M8S1`, song data, FM instruments (54 parameters each), patterns, end marker `255`. The Sid Rush project (17 patterns, 34 song positions) takes 782 bytes.
+A project is a single compressed `NAME.M8S` file: tracks are event lists, and a track already written elsewhere (even transposed) is a 4-byte reference, like the transposed patterns of Future Composer. Format: header `M8S1`, song data, FM instruments (54 parameters each), patterns, end marker `255`. The Sid Rush music (17 patterns, 34 song positions) takes 782 bytes.
 
 The tracker, the player and Micro-8 Studio all read and write the same files.
 
