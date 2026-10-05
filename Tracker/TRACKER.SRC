@@ -1,11 +1,11 @@
 // MICRO-8 TRACKER 0.1
 // Benoit (BSM) Saint-Moulin
 // www.bsm3d.com
-// 8 pistes : 6 voix FM (YM2612), voix 0 du synt (batterie ou oscillateur),
-// voix 1 du synth.
-// Pas de morceau : un pattern (jusqu'a 256 pas sur plusieurs blocs) joue en boucle.
-// Les octets 128.. et 256.. de sng[] restent a zero (reserves pour un morceau, lus
-// par Micro-8 Studio) mais ne sont pas geres ici.
+// 8 tracks: 6 FM voices (YM2612), synth voice 0 (drums or oscillator),
+// synth voice 1 (VA).
+// No song mode: one pattern (up to 256 steps over several blocks) loops.
+// Bytes 128.. and 256.. of sng[] stay zero (reserved for a song, read by
+// Micro-8 Studio) but are not handled here.
 
 byte sng[384];
 byte bak[384];
