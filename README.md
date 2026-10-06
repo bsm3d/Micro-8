@@ -5,7 +5,8 @@
 Projects for the **Micro-8**, an 8-bit retro computer programmed in its own C-like language, **Lofi**.
 
 - Micro-8: [www.micro-8.com](https://www.micro-8.com)
-- Author: BSM
+- The Micro-8 is © Franck Sauer
+- Author : BSM
 
 ## The Micro-8 at a glance
 
