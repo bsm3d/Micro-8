@@ -13,10 +13,13 @@ de l'application.
 
 ## Téléchargement
 
+Les binaires sont distribués via les [Releases GitHub](https://github.com/bsm3d/Micro-8/releases/tag/v1.0.0)
+de ce dépôt (ce dossier ne contient que la documentation et les exemples).
+
 | Fichier | Usage |
 |---|---|
-| `Micro8Studio-1.0.0-Setup.exe` | Installeur Windows 64 bits (recommandé). Aucun droit administrateur requis. |
-| `Micro8Studio-1.0.0-win64-portable.zip` | Version portable : décompresser et lancer, sans installation. |
+| [`Micro8Studio-1.0.0-Setup.exe`](https://github.com/bsm3d/Micro-8/releases/download/v1.0.0/Micro8Studio-1.0.0-Setup.exe) | Installeur Windows 64 bits (recommandé). Aucun droit administrateur requis. |
+| [`Micro8Studio-1.0.0-win64-portable.zip`](https://github.com/bsm3d/Micro-8/releases/download/v1.0.0/Micro8Studio-1.0.0-win64-portable.zip) | Version portable : décompresser et lancer, sans installation. |
 
 Aucune installation de Python ni d'autre dépendance n'est nécessaire : tout est inclus.
 
