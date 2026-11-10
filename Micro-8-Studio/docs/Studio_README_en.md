@@ -15,9 +15,8 @@
 ## 1. Overview
 
 An IDE for the Micro-8 and its Lofi language: editor, live analyzer, emulator with debugger, image converter.
-Same look as the Spectra Workbench: **dark** and **light** themes (View > Dark / Light Theme, or Preferences), a
-splash screen with real progress steps at startup (`--no-splash` to skip it), and an **About** box (Help > About)
-in the suite's style.
+**Dark** and **light** themes (View > Dark / Light Theme, or Preferences), a splash screen with real progress
+steps at startup (`--no-splash` to skip it), and an **About** box (Help > About).
 
 Unzip the portable version anywhere (a drive, a USB stick) and run `Micro8Studio.exe`, nothing to install; the
 installer places the same files under Program Files or a folder of your choice. The folder holds `Examples\`
@@ -324,10 +323,10 @@ plays into the running program, through `midiUpdt()`, as on the machine.
 
 ## 6. Icons & Narrow Windows
 
-- **Hand-drawn icons**, in the Spectra Workbench style: line-drawn glyphs on a 24×24 grid (1.6 px strokes,
-  rounded caps), inked from the theme (light gray on dark, near-black on light), normal / hover / disabled
-  states, no image files and no Unicode symbols in buttons. The toolbar, drawing tools, editors, tabs (a drawn
-  dot marks a modified tab), Problems and the program outline all use them; they follow theme changes.
+- **Hand-drawn icons**: line-drawn glyphs on a 24×24 grid (1.6 px strokes, rounded caps), inked from the theme
+  (light gray on dark, near-black on light), normal / hover / disabled states, no image files and no Unicode
+  symbols in buttons. The toolbar, drawing tools, editors, tabs (a drawn dot marks a modified tab), Problems and
+  the program outline all use them; they follow theme changes.
 - **Narrow window**: every editor scrolls instead of being clipped, toolbars wrap onto several lines, the sound
   editor stacks its areas (voices, operators, keyboard, oscilloscope) by width, the bottom panels scroll.
   `Ctrl+Shift+M` (Focus Mode) hides every panel.
