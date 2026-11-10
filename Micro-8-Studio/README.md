@@ -34,8 +34,6 @@ No Python installation or other dependency is needed: everything is included.
   tools).
 - [`docs/Micro-8_User_Manual.md`](docs/Micro-8_User_Manual.md): the reference manual for the Micro-8 console
   (Lofi language, API, hardware).
-- [`docs/Tracker_README.md`](docs/Tracker_README.md): the Micro-8 music tracker bundled in Studio, its project
-  format and programs.
 
 The [`Tracker/`](../Tracker) and [`SidRush/`](../SidRush) folders of this repository hold the corresponding
 Lofi sample programs.
