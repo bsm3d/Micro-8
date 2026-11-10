@@ -7,8 +7,7 @@ analyzer for the Lofi language, debugger (breakpoints, step), hardware-accurate 
 digital synth, tiles, sprites, raster, mouse, gamepad, MIDI), and dedicated tools (music tracker, sprite / tile /
 screen / sound / image editors).
 
-This repository distributes the **compiled** application. No source code, console ROMs or FPGA code are
-included.
+This repository distributes the **compiled** application.
 
 ## Download
 
