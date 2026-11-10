@@ -49,5 +49,4 @@ Lofi sample programs.
 Includes [Nuked-OPN2](https://github.com/nukeykt/Nuked-OPN2) (LGPL 2.1, (c) Nuke.YKT) for exact YM2612
 emulation.
 
-The Micro-8 console's ROMs and firmware are the property of Franck Sauer, provided with his agreement; they are
-never distributed in the clear and are only decrypted in memory, inside the application.
+The Micro-8 console's are the property of Franck Sauer.
