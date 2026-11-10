@@ -1,0 +1,162 @@
+
+//Scrolling tiles demo with sprites priorities and horizontal flip
+
+nat gfxModes=0x2f00; //graphics modes register
+poke(gfxModes,0b00011101); //enable sprites, tiles and bitmap
+
+nat tilPal=0x1170; //tiles palette
+nat bmpPal=0x11a0; //bitmap palette
+nat sprPalA=0x11d0; //first sprite palette
+nat sprPalB=0x2fa0; //second sprite palette
+
+byte sprPage=0x20; //default page for sprites in XSRAM: 0x08000
+byte bmpPage=0x60; //default page for bitmap in XSRAM: 0x18000
+byte tilPage=0x00; //default page for tiles in XSRAM: 0x00000
+
+nat cpuWindow=0x3000; //default memory mapping (where the cpu sees XSRAM)
+
+nat tileBufferA=0x2b00; //hardware tile double buffers (draw and display)
+nat tileBufferB=0x2d00;
+nat statusReg=0x2f0b;
+
+
+//load background image
+import("res/mountain.bmp", cpuWindow, 48000, bmpPage);
+import("res/mountain.pal", bmpPal, 48);
+
+//load tiles data (tileset & palette)
+import("res/tileset.tls", cpuWindow, 16384, tilPage);
+import("res/tileset.pal", tilPal, 48);
+
+//load level data
+byte level[1920]; //80*24
+import("res/level.lvl", &level, 1920);
+
+//load sprites data
+import("res/sprites.spr", cpuWindow, 16384, sprPage);
+import("res/sprites.pla", sprPalA, 48);
+import("res/sprites.plb", sprPalB, 48);
+
+//Set sprites palettes and priorities
+for(byte i; i<32; i++)
+{
+	sprPal(i,i<16);
+	sprPrio(i,i<16);
+}
+
+//Precompute a table of positions for sprites
+real pi=3.1416;
+int posX[256];
+int posY[256];
+
+for(int i; i<256; i++)
+{
+	posX[i]=424+(int)(sin((real)i/256*2*pi)*350.0);//sprite positions are subpixel @800x480
+	posY[i]=261+(int)(sin((real)i/256*4*pi)*210.0);
+}
+
+int pixelOffsetX;
+int pixelOffsetY;
+int tileOffsetX=1;
+int tileOffsetY=7;
+int speedX=1;
+int speedY=1;
+
+void scroll(int offsetX, int offsetY)
+{
+	poke(0x2f01, (byte)offsetX); //tile subpixel hardware scrolling
+	poke(0x2f02, (byte)offsetY);
+}
+
+bool swapState;
+nat tileDrawBuffer=tileBufferB;
+
+void swapTileBuffers()
+{
+	if(swapState)
+	{
+		tileDrawBuffer=tileBufferA;
+		poke(statusReg,peek(statusReg) | 0b00000100);//display buffer B
+	}
+	else
+	{
+		tileDrawBuffer=tileBufferB;
+		poke(statusReg,peek(statusReg) & 0b11111011);//display buffer A
+	}
+	swapState = !swapState;
+}
+
+bool update=true;//update @ first frame
+byte frame;
+while(_keyDwn != 12)// -------MAIN LOOP--------
+{
+	pixelOffsetX += speedX;
+	pixelOffsetY += speedY;
+
+	//check tile hardware subpixel scrolling limits
+	if(pixelOffsetX==32)
+	{
+		pixelOffsetX=0;
+		tileOffsetX++;
+		update = true;
+	}
+	if(pixelOffsetX==-1)
+	{
+		pixelOffsetX=31;
+		tileOffsetX--;
+		update = true;
+	}
+
+	if(pixelOffsetY==32)
+	{
+		pixelOffsetY=0;
+		tileOffsetY++;
+		update = true;
+	}
+	if(pixelOffsetY==-1)
+	{
+		pixelOffsetY=31;
+		tileOffsetY--;
+		update = true;
+	}
+	
+	//change direction when reaching end of map
+	if(tileOffsetX==56 || tileOffsetX==0) speedX = -speedX;
+	if(tileOffsetY==9 || tileOffsetY==0) speedY = -speedY;
+
+	//when we reach hardware scrolling limits, we copy buffer during frame
+	if(update)
+	{
+		areaCpy(&level,80,tileOffsetX,tileOffsetY,27,16,tileDrawBuffer,32,0,0);
+	}
+
+	//set sprites position and references
+	for(byte id; id<32; id++)
+	{
+		byte i=frame+id*7;
+		sprPos(id,posX[i],posY[i]);//set deferred position
+		sprRef(id,(i>>2)%2);//set deferred reference
+		if(posX[i]<posX[i-1])sprFlip(id,true,false);
+		else sprFlip(id,false,false);
+	}
+	
+	vSync();//wait for vsync
+	//we are now in vertical blanking
+
+	sprUpdt();//update sprite deferred data
+
+	scroll(pixelOffsetX, pixelOffsetY);//update hardware scrolling
+	if(update)
+	{
+		swapTileBuffers();
+		update=false;
+	}
+	tilePanDwn(80);//waterfall soft tile pan in tileset
+
+	frame++;
+}
+
+
+
+
+

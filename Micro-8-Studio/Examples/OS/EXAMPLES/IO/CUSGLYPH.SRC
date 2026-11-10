@@ -1,0 +1,50 @@
+
+//This example shows how to create a custom glyph in the character set.
+//
+//Glyphs are 10x12 pixels and pixels are addressed linearly
+
+
+byte id=0xf5; //id code of the glyph we want to override (see manual)
+
+//for convenience we use a text array to reprent the new glyph:
+
+text t[12]={"         ",
+				"        ",
+				"       ",
+				"       ",
+				"        ",
+				"        ",
+				"        ",
+				"         ",
+				"      ",
+				"     ",
+				"     ",
+				"       "};
+
+
+//now scan text array to generate glyph pixels
+
+nat addr=id*10*12;//compute the linear address of the glyph to be replaced
+
+text tline={10};//buffer for storing line contents
+
+for(byte y; y<#t; y++)//for each line
+{
+	tline=t[y];//get the actual text line contents from the text ref in the array
+	for(byte x; x<#tline; x++)//scan the line to check for plain squares
+	{
+		bool bit=peek(&tline+x)=='';
+		glyphSet(addr++,bit);//set/clear bit and increment address
+	}
+}
+
+memSet(0x1200,3200,' ');//clear char buffer
+for(int i; i<100; i++)
+{
+	curPos(rnd(0,79),rnd(0,39));
+	print("f5");//display the new glyph at random positions
+}
+
+
+
+

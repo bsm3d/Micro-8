@@ -1,0 +1,11 @@
+
+//Displays all available glyphs
+
+nat charIndexBuffer = 0x1200;
+memSet(charIndexBuffer,3200,' ');//clear
+
+for(nat i; i<256; i++)
+{
+	poke(charIndexBuffer+i,(byte)i);
+}
+

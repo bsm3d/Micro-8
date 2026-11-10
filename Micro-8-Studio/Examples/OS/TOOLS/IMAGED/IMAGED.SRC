@@ -1,0 +1,2638 @@
+
+//   ü §§í§• §å §  §
+//   ° í íñó ® ® ®
+
+//Micro-8 Built-in bitmap editor program
+//This program is provided 'as is' without warranty of any kind.
+//You are free to use, copy, modify, distribute, license, sell.
+
+//Version 1.5 Franck Sauer 2026
+
+//------------------Init
+
+bool DEBUG=false;
+void DEBUG_STEP() {while(_keyDwn!=78){} while(_keyUp!=78){}}//space to step
+
+//init registers
+import("/system/reginit.dat",0x1100,0);
+
+type vec2{int x; int y;};
+//the first version of the tool was written before custom types were
+//introduced. Todo port all couples to vec2 types.
+
+int mx; int my;//lowres pos x,y
+int px; int py;//previous lowres pos x,y
+
+int tx; int ty;//transformed pos
+int ptx; int pty;//previous transformed pos
+
+bool UI=true;//UI visibility
+byte brush = 1;
+int lastButton;
+
+type mouseButton
+{
+	bool pressed;
+	bool held;
+	bool released;
+	bool wasHeld;
+};
+
+mouseButton LMB;
+mouseButton MMB;
+mouseButton RMB;
+
+byte speedDivider = 1;//medium speed by default
+mouseSens(speedDivider);
+
+bool FCTN;
+bool SHIFT;
+bool ALT;
+bool flipHorizontalIcon;
+bool flipVerticalIcon;
+bool rotateLeftIcon;
+bool rotateRightIcon;
+bool copyIcon;
+
+bool zoom;//Zoom mode on/off
+bool inZoom;//cursor is in zoom window
+byte zoomSpeed=16;
+int zoomOutPosx;
+byte zoomFactor=2;//start factor
+int zoomOriginX;
+int zoomOriginY;
+
+int colorPosX=20;//position of the color picker boxes
+int colorPosY=263+12;
+
+byte toolCharPosX=2;
+byte toolCharPosY=5;
+
+int toolPosX=toolCharPosX*10;
+int toolPosY=toolCharPosY*12;
+
+byte currentTool=1;//default is draw
+
+int toolX1; int toolX2;
+int toolY1; int toolY2;
+bool toolHold;
+
+byte colEdPosX=7;//position of the color editor
+byte colEdPosY=28;
+
+int colEdWinX=colEdPosX*10;//position of the window of the color editor
+int colEdWinY=colEdPosY*12;
+
+byte msgPosX=16;
+byte msgPosY=36;
+
+nat gfxModes=0x2f00;
+nat tileBufferA=0x2b00;
+nat bmpPal=0x11a0;
+nat tilePal=0x1170;
+nat spritePal=0x11d0;//used for displaying the color picker boxes
+nat spritePalB=0x2fa0;//unused for now
+nat textPal=0x1140;
+nat scratchPad=0xf000;//2KiB scratchPad. Always visible.
+nat cpuWinOrg=0x3000;
+byte sprPage=0x19;//25KiB above tiles (we only use 196 tiles)
+byte bmpPage=0x22;//9KiB above sprites (36 sprites available)
+byte zoomOutPage=0x51;//display page when in zoom (window copied from main)
+byte undoTilesPage=0x80;
+
+byte MAIN_IMG=1;
+byte WORK_IMG=2;
+byte currentImage=MAIN_IMG;
+
+void charCol(byte x, byte y, byte col)//change character foreground color
+{
+	nat address=0x1e80+x+y*80;
+	poke(address,peek(address)&0xf0|col);
+}
+
+void backCol(byte x, byte y, byte col)//change character background color
+{
+	nat address=0x1e80+x+y*80;
+	poke(address,peek(address)&0x0f|col<<4);
+}
+
+void clrBmp()
+{
+	memSet(cpuWinOrg,48000,0,bmpPage);//clear bitmap
+}
+
+clrBmp();
+
+text mainImage="tmp/main.bmp";
+text workImage="tmp/work.bmp";
+export(workImage,cpuWinOrg,48000,bmpPage);//clear (export empty)
+
+poke(0x2f16,bmpPage);//draw
+poke(0x2f05,bmpPage);//display (scanout)
+
+void toggleImage()
+{
+	if(zoom)poke(0x2f05,zoomOutPage);//zoomout bitmap scanout
+	else poke(0x2f05,bmpPage);//regular bitmap scanout
+
+	if(currentImage==MAIN_IMG)
+	{
+		export(mainImage,cpuWinOrg,48000,bmpPage);
+		import(workImage,cpuWinOrg,48000,bmpPage);
+		currentImage=WORK_IMG;
+	}
+	else if(currentImage==WORK_IMG)
+	{
+		export(workImage,cpuWinOrg,48000,bmpPage);
+		import(mainImage,cpuWinOrg,48000,bmpPage);
+		currentImage=MAIN_IMG;
+  	}
+}
+
+byte color = 1;
+byte eraser = 0;
+byte shape=1;//default square
+bool paint;
+
+byte brushSizes[8]={1,2,3,4,6,9,13,20};
+
+bool grid;
+
+memSet(0x1200,3200,' ');//clear char glyph and color buffer
+memSet(0x1e80,3200,0);
+memSet(tileBufferA,1024,0);//clear tile buffers A & B (512 bytes each)
+
+void clrTls()
+{
+	memSet(cpuWinOrg,16384,0,0);//clear tileset
+}
+clrTls();
+
+void clrMsg()
+{
+	areaSet(0x1200,80,msgPosX,msgPosY,80-msgPosX,1,0);
+	areaSet(0x1e80,80,msgPosX,msgPosY,80-msgPosX,1,0x01);
+}
+
+byte sysCol[48];//backup system text colors to a byte array
+memCpy(textPal,&sysCol,48);//src,dest,size
+
+//text col 15 is used for windows background
+//text col 3 is used as a substitute for sprite col 0 (transparent)
+//text col 4 is used to display current paint color in the col editor
+//text col 6 is used to display current eraser color in the col editor
+//text col 7 is used for dimmed (unavailable) tools
+
+poke(textPal+15,5);//R    Change color used for windows background
+poke(textPal+16+15,5);//G
+poke(textPal+32+15,5);//B
+
+poke(textPal+7,4);//R
+poke(textPal+16+7,4);//G
+poke(textPal+32+7,4);//B
+
+//lets hide all sprites (in case another app using sprites has been previously launched)
+for(byte i; i<32; i++) sprPos(i,0,0);
+sprUpdt();
+
+
+ptrShape(1);//reticle
+poke(gfxModes, 0b00011111);//turn on text,bitmap,sprites,tiles & opaque
+
+//Any color change has to be reflected to all used palettes
+void copyPalettes()
+{
+	//copy bitmap palette to tile palette
+	for(byte i; i<48; i++) poke(tilePal+i,peek(bmpPal+i));
+	//copy bitmap palette to sprite palette A
+	for(byte i; i<48; i++) poke(spritePal+i,peek(bmpPal+i));
+	//copy color 0 to text color 3 for use as substitute to sprite col 0 in the color picker
+	poke(textPal+3,peek(bmpPal));
+	poke(textPal+16+3,peek(bmpPal+16));
+	poke(textPal+32+3,peek(bmpPal+32));
+
+	//copy current paint color to text col 4
+	poke(textPal+4,peek(bmpPal+color));
+	poke(textPal+16+4,peek(bmpPal+16+color));
+	poke(textPal+32+4,peek(bmpPal+32+color));
+
+	//copy current eraser color to text col 6
+	poke(textPal+6,peek(bmpPal+eraser));
+	poke(textPal+16+6,peek(bmpPal+16+eraser));
+	poke(textPal+32+6,peek(bmpPal+32+eraser));
+}
+copyPalettes();
+
+//------------File management
+
+text bmpFullPath={64};//arbitrary value, can be larger if necessary
+text palFullPath={64};
+text folder={32};
+folder="images";//default folder
+
+text fileName={8};//name without extension (file must be in the same folder)
+fileName="untitled";
+text fileName2={8};
+fileName2="sketch";
+
+text bmpName={12};//name with extension
+text palName={12};
+
+void clearNames()
+{
+	memSet(&bmpName,12,0);//clear working buffers
+	memSet(&palName,12,0);
+	memSet(&bmpFullPath,32,0);
+	memSet(&palFullPath,32,0);
+}
+
+void changeFolder()
+{
+	curPos(msgPosX,msgPosY);
+	print("fChange folder to:         ");
+	input(folder,32);
+	print("");
+	clrMsg();
+}
+
+void enterFileName(nat txtAddr)
+{
+	curPos(msgPosX,msgPosY);
+	print("fEnter file name (without extension):         ");
+	input((text)txtAddr,8);
+	print("");
+	clrMsg();
+}
+
+void appendExtensions(nat fileNameAddr)
+{
+	clearNames();
+
+	memCpy(fileNameAddr,&bmpName,8);//source, destination, include nullchar
+	concat(bmpName,".bmp");
+
+	memCpy(fileNameAddr,&palName,8);
+	concat(palName,".pal");
+}
+
+void buildFullPathNames()
+{
+	memCpy(&folder, &bmpFullPath,$folder);
+	concat(bmpFullPath,"/");
+	concat(bmpFullPath,bmpName);
+
+	memCpy(&folder, &palFullPath,$folder);
+	concat(palFullPath,"/");
+	concat(palFullPath,palName);
+}
+
+void loadFile(nat fileNameAddr)
+{
+	txtWin(msgPosX,msgPosY,79,msgPosY+1);//in case of file error message
+	curPos(msgPosX,msgPosY);
+
+	appendExtensions(fileNameAddr);
+	buildFullPathNames();
+
+	import(palFullPath,bmpPal,48);//load palette
+	import(bmpFullPath,0x3000,48000,bmpPage);//load bitmap
+
+	copyPalettes();
+	txtWin(0,0,79,39);//back to default window
+}
+
+void saveFile(nat fileNameAddr)
+{
+	txtWin(msgPosX,msgPosY,79,msgPosY+1);//setup msg window
+	curPos(msgPosX,msgPosY);
+	appendExtensions(fileNameAddr);
+	buildFullPathNames();
+	export(bmpFullPath,0x3000,48000,bmpPage);//save bitmap
+	export(palFullPath,bmpPal,48);//save palette
+	print("f'",(text)fileNameAddr,"' saved successfully !");
+
+	txtWin(0,0,79,39);//back to default window
+}
+
+//------------Undo
+
+//actions are stored/restored as a tile-based packet stream
+
+byte undoId;//current undo id
+byte undoStart;
+byte undoEnd;
+
+void undoInit()
+{
+	undoId=1;
+	undoStart=0;
+	undoEnd=0;
+}
+undoInit();
+
+bool actionPushed=true;
+byte ACTION_UNDO=0;
+byte ACTION_REDO=1;
+
+text undoActionPath="tmp/undoact.";
+text redoActionPath="tmp/redoact.";
+
+text undoActionFullName={32};
+text redoActionFullName={32};
+
+text numExtension={3};
+
+//undo tiles are 8x16 bytes (16x16 pixels) (25x15 tiles total)
+bool savedTiles[375]; //dirty flag for saved tiles
+
+//a tile-based action contains the number of saved packets when drawing ends
+//packets have a 3 byte coordinates header and 128 bytes tile data
+
+nat actions[32];//ring buffer with 32 undo levels.
+//If the above is changed, modulos needs to reflect the change
+
+void int2ext(nat val)
+{
+	nat rank=1;
+	for(int n=#numExtension-1; n>=0; n--)
+	{
+		byte digit = (byte)((val%(10*rank))/rank);
+		poke(&numExtension+(byte)n,digit+48);
+		rank*=10;
+	}
+}
+
+void undoMakeFileName(nat id, byte actionType)
+{
+	if(actionType==ACTION_UNDO)
+	{
+		memCpy(&undoActionPath,&undoActionFullName,$undoActionPath);
+		int2ext(id);
+		concat(undoActionFullName,numExtension);
+	}
+	else if(actionType==ACTION_REDO)
+	{
+		memCpy(&redoActionPath,&redoActionFullName,$redoActionPath);
+		int2ext(id);
+		concat(redoActionFullName,numExtension);		
+	}
+}
+
+int posToTile(int x, int y)//x,y in pixel coords
+{
+	return x>>4 + 25*(y>>4);//returns tile index
+}
+
+//a packet is a tile coords + tile data
+void pushPacket(int x, int y) //push pixel coordinates+tile data to xsram
+{
+	int tile=posToTile(x,y);
+	
+	if(!savedTiles[tile])
+	{
+		int tileX=(x&0xfff0)>>1;//in byte x coords
+		byte tileY=(byte)(y&0xfff0);//in pixel y coords
+		
+		nat pos=actions[undoId]*131;//3 bytes coordinates and 128 bytes data
+		pokeW(cpuWinOrg+pos,tileX,undoTilesPage);
+		poke(cpuWinOrg+pos+2,tileY,undoTilesPage);
+		areaCpy(cpuWinOrg,200,tileX,tileY,8,16,scratchPad,8,0,0,bmpPage);//to scratchpad
+		areaCpy(scratchPad,8,0,0,8,16,cpuWinOrg+pos+3,8,0,0,undoTilesPage);//to xsram
+		actions[undoId]++;				
+		savedTiles[tile]=true;
+	}
+}
+
+void pushArray(int x1, int y1, int x2, int y2)
+{
+	//first make it work in any direction
+	if(x1>x2)
+	{
+		int t=x2;
+		x2=x1;
+		x1=t;
+	}
+	if(y1>y2)
+	{
+		int t=y2;
+		y2=y1;
+		y1=t;
+	}
+	
+	for(int y=y1; y<y2+16; y+=16)
+	for(int x=x1; x<x2+16; x+=16)
+		pushPacket(clamp(x,0,399),clamp(y,0,239));
+}
+
+void pushDraw(int radius, int mx, int my, int px, int py)
+{
+	//compute draw sub tiles for undo/redo and push packets to action	
+	if(radius<=8)
+	{
+		real dx=mx-px;
+		real dy=my-py;
+
+		real dist=sqrt(dx*dx+dy*dy);
+		int numStep=1+(int)(dist/8);
+		
+		for(int i=0; i<numStep; i++)
+		{
+			real t=(real)i/numStep+.5/numStep;
+			int lx=lerp(px,mx,t);
+			int ly=lerp(py,my,t);
+
+			//push 4 adjascent tiles		
+			int minx=min(lx+radius,399);
+			int maxx=max(lx-radius,0);
+			int miny=min(ly+radius,239);
+			int maxy=max(ly-radius,0);
+
+			pushPacket(minx,miny);
+			pushPacket(maxx,miny);
+			pushPacket(minx,maxy);
+			pushPacket(maxx,maxy);		
+		}
+	}
+	else
+	{
+		for(int y=my-radius; y<my+radius; y+=8)
+		for(int x=mx-radius; x<mx+radius; x+=8)
+			pushPacket(clamp(x,0,399),clamp(y,0,239));
+	}	
+}
+
+void pushAction()//on finish draw
+{
+	undoMakeFileName(undoId, ACTION_REDO);
+	//first we push the current frame buffer content for redo action
+	//we copy each packet from the frame buffer to scratchpad
+	//then directly write the packet to file to avoid buffering
+	//the entire action in memory. Because we are not drawing at this
+	//time, speed is less of an issue.
+	fOpen(0,redoActionFullName);
+	nat numPackets=actions[undoId];
+	nat offset;
+	for(nat n; n<numPackets; n++)
+	{
+		//we reuse the undo tiles coords, they are the same for redo
+		int tileX=peekW(cpuWinOrg+offset,undoTilesPage);//in byte coords
+		byte tileY=peek(cpuWinOrg+offset+2,undoTilesPage);//in pixel coords
+		//writes coords to scratchpad
+		pokeW(scratchPad,tileX);
+		poke(scratchPad+2,tileY);
+		//copy tile data to scratchpad to linearize for writing to file
+		areaCpy(cpuWinOrg,200,tileX,tileY,8,16,scratchPad+3,8,0,0,bmpPage);
+		//write packet to file
+		fWrite(0,scratchPad,offset,131);//packet data
+		offset+=131;
+	}			
+	fClose(0);
+	//then we save the undo action tiles that are already in memory
+	memSet(&savedTiles,375,0);//clear dirty flags
+	undoMakeFileName(undoId, ACTION_UNDO);
+	export(undoActionFullName,cpuWinOrg,actions[undoId]*131,undoTilesPage);
+
+	//update ring buffer
+	undoId=(undoId+1)%32;
+	undoEnd=undoId;
+
+	if(undoStart==undoEnd)//if we loop all over the ring buffer
+	{
+		undoStart=(undoStart+1)%32;//the buffer is full, start has to move up
+	}
+	
+	actionPushed=true;//only push once on stop
+}
+
+void popPacket(nat offset) //pops tile from xsram and write back to frame buffer
+{
+	int tileX=peekW(cpuWinOrg+offset,undoTilesPage);//in byte coords
+	byte tileY=peek(cpuWinOrg+offset+2,undoTilesPage);//in pixel coords
+	areaCpy(cpuWinOrg+offset+3,8,0,0,8,16,scratchPad,8,0,0,undoTilesPage);
+	areaCpy(scratchPad,8,0,0,8,16,cpuWinOrg,200,tileX,tileY,bmpPage);
+}
+
+void undo()
+{
+	byte previous=(undoId-1)%32;
+	if(previous!=undoStart)
+	{
+		undoId=previous;
+		undoMakeFileName(undoId, ACTION_UNDO);
+		import(undoActionFullName,cpuWinOrg,actions[undoId]*131,undoTilesPage);
+		nat numPackets=actions[undoId];
+		nat offset;
+		for(nat n; n<numPackets; n++)
+		{
+			popPacket(offset);
+			offset+=131;
+		}
+	}
+}
+
+void redo()
+{
+	byte next=(undoId+1)%32;
+	if(undoId!=undoEnd)
+	{
+		undoMakeFileName(undoId, ACTION_REDO);
+		import(redoActionFullName,cpuWinOrg,actions[undoId]*131,undoTilesPage);
+		nat numPackets=actions[undoId];
+		nat offset;
+		for(nat n; n<numPackets; n++)
+		{
+			popPacket(offset);
+			offset+=131;
+		}
+		undoId=next;
+	}
+}
+
+//---------------------------- Paint bucket
+
+//Paint bucket tool using the scanline flood fill algorithm from wikipedia
+//Original algorithm author Paul S. Heckbert (Graphics Gems, 1990)
+
+type Seg
+{
+	int x1;
+	int x2;
+	byte y;
+	byte dy;//can only be -1 or 1 We bias by 1 to allow byte and reduce memory
+};
+
+Seg segs[512];//should a complex fill fail (very unlikely), increase this.
+nat segId;//top of segment stack
+
+byte oldCol;
+
+void pushSeg(int x1, int x2, byte y, int dy)
+{
+	if(segId<512)//safety to avoid crash. should match the segs[] size above
+	{
+		segs[segId]={x1,x2,y,(byte)(dy+1)};//bias on dy to allow byte usage
+		segId++;
+	}
+}
+
+Seg popSeg()
+{
+	segId--;
+	return segs[segId];
+}
+
+void floodFill(int x, int y)
+{
+	oldCol=pick(x,y);
+	if(oldCol==color && shape!=3) return;
+	segId=0;
+
+	pushSeg(x,x,(byte)y,1);
+	if(y>0) pushSeg(x,x,(byte)y-1,-1);
+	else pushSeg(x,x,0,-1);
+
+	while(segId>0 && _keyDwn!=12)
+	{
+		Seg seg=popSeg();
+		int dy=seg.dy-1;//bias
+		
+		if(seg.y>=0 && seg.y<240)
+		{
+			//search for left border
+			int xMin=seg.x1;				
+			while(xMin>0 && pick(xMin-1,seg.y)==oldCol) xMin--;
+
+			//search for right border
+			int xMax=seg.x2;
+			while(xMax<399 && pick(xMax+1,seg.y)==oldCol) xMax++;
+
+			//push segment for undo
+			for(int x=max(0,xMin-8); x<min(xMax+8,399); x+=8)
+			{
+				pushPacket(x,seg.y-8);
+				pushPacket(x,seg.y+8);
+			}
+				
+			if(shape==3) //dither (could be accelerated by writing bytes)
+			{
+				for(int x=xMin; x<=xMax; x++)
+				{
+					if(!(bool)(x&1) && !(bool)(seg.y&1) ||
+						x&1 && seg.y&1) plot(x,seg.y,color);
+					else plot(x,seg.y,eraser);
+				}
+			}
+			else 
+			{
+				line(xMin,seg.y,xMax,seg.y,color);
+			}
+			
+			//scan row above
+			int ny=seg.y-dy;
+			if(ny>=0 && ny<240)
+			{
+				int i=xMin;
+				while(i<=xMax)
+				{
+					while(i<=xMax && pick(i,ny)!=oldCol) i++;
+					if(i>xMax) break;
+					int x1=i;
+					while(i<=xMax && pick(i,ny)==oldCol) i++;
+					pushSeg(x1,i-1,(byte)ny,-dy);
+				}
+			}
+			
+			//scan row below
+			int py=seg.y+dy;
+			if(py>=0 && py<240)
+			{
+				int i=xMin;
+				while(i<=xMax)
+				{
+					while(i<=xMax && pick(i,py)!=oldCol) i++;
+					if(i>xMax) break;
+					int x1=i;
+					while(i<=xMax && pick(i,py)==oldCol) i++;
+					pushSeg(x1,i-1,(byte)py,dy);
+				}
+			}
+		}
+	}
+}
+
+// -------------- Selection
+
+bool hasSelection;
+bool selectToggle;
+byte selectCnt;
+vec2 selOrg;
+vec2 selEnd;
+
+bool isRotatable()
+{
+	return selEnd.x-selOrg.x==selEnd.y-selOrg.y;
+}
+
+void initSelection()
+{
+	if(selOrg.x>selEnd.x)
+	{
+		int t=selEnd.x;
+		selEnd.x=selOrg.x;
+		selOrg.x=t;
+	}
+	if(selOrg.y>selEnd.y)
+	{
+		int t=selEnd.y;
+		selEnd.y=selOrg.y;
+		selOrg.y=t;
+	}
+
+	for(int x=selOrg.x; x<selEnd.x-4; x+=10)
+	{
+		line(x,selOrg.y,x+4,selOrg.y,0xf0);
+		line(x,selEnd.y,x+4,selEnd.y,0xf0);
+	}
+	for(int y=selOrg.y; y<selEnd.y-4; y+=10)
+	{
+		line(selOrg.x,y,selOrg.x,y+4,0xf0);
+		line(selEnd.x,y,selEnd.x,y+4,0xf0);
+	}
+	hasSelection=true;
+}
+
+void toggleSelection(byte limit)
+{
+	if(selectCnt++==limit)
+	{
+		rect(selOrg.x,selOrg.y,selEnd.x,selEnd.y,0xf0);
+		selectToggle=!selectToggle;
+		selectCnt=0;
+	}
+}
+
+void deselect()
+{
+	if(selectToggle) rect(selOrg.x,selOrg.y,selEnd.x,selEnd.y,0xf0);
+
+	for(int x=selOrg.x; x<selEnd.x-4; x+=10)
+	{
+		line(x,selOrg.y,x+4,selOrg.y,0xf0);
+		line(x,selEnd.y,x+4,selEnd.y,0xf0);
+	}
+	for(int y=selOrg.y; y<selEnd.y-4; y+=10)
+	{
+		line(selOrg.x,y,selOrg.x,y+4,0xf0);
+		line(selEnd.x,y,selEnd.x,y+4,0xf0);
+	}
+	selectToggle=false;
+	hasSelection=false;
+	selectCnt=0;
+}
+
+void flipHorizontal()
+{
+	//push for undo
+	pushArray(selOrg.x,selOrg.y,selEnd.x,selEnd.y);
+
+	int halfX=selOrg.x+(selEnd.x-selOrg.x)/2;
+	for(int x=selOrg.x; x<=halfX; x++)
+	{
+		int diff=selEnd.x-(x-selOrg.x);
+		for(int y=selOrg.y; y<=selEnd.y; y++)
+		{
+			byte tmp=pick(x,y);
+			plot(x,y,pick(diff,y));
+			plot(diff,y,tmp);
+		}
+	}	
+}
+
+void flipVertical()
+{
+	//push for undo
+	pushArray(selOrg.x,selOrg.y,selEnd.x,selEnd.y);
+
+	int halfY=selOrg.y+(selEnd.y-selOrg.y)/2;
+	for(int y=selOrg.y; y<=halfY; y++)
+	{
+		int diff=selEnd.y-(y-selOrg.y);
+		for(int x=selOrg.x; x<=selEnd.x; x++)
+		{
+			byte tmp=pick(x,y);
+			plot(x,y,pick(x,diff));
+			plot(x,diff,tmp);
+		}
+	}
+}
+
+void rotateLeft()
+{
+	//push for undo
+	pushArray(selOrg.x,selOrg.y,selEnd.x,selEnd.y);
+
+	int n=selEnd.x-selOrg.x+1;
+	int nm1=n-1;
+	int halfN=n/2;
+	
+	for(int i; i<halfN; i++)
+	{
+		int topY=selOrg.y+i;
+		int botY=selOrg.y+nm1-i;
+		int leftX=selOrg.x+i;
+		int rightX=selOrg.x+nm1-i;
+		int bound=nm1-i;
+		
+		for(int j=i; j<bound; j++)
+		{
+			int topX=selOrg.x+j;
+			int botX=selOrg.x+nm1-j;
+			int topYj=selOrg.y+j;
+			int botYj=selOrg.y+nm1-j;
+			byte tmp=pick(topX, topY);
+			plot(topX,topY, pick(rightX, topYj));
+			plot(rightX, topYj, pick(botX, botY));
+			plot(botX, botY, pick(leftX, botYj));
+			plot(leftX, botYj, tmp);
+		}
+	}
+}
+
+void rotateRight()
+{
+	//push for undo
+	pushArray(selOrg.x,selOrg.y,selEnd.x,selEnd.y);
+
+	int n=selEnd.x-selOrg.x+1;
+	int nm1=n-1;
+	int halfN=n/2;
+	
+	for(int i; i<halfN; i++)
+	{
+		int topY=selOrg.y+i;
+		int botY=selOrg.y+nm1-i;
+		int leftX=selOrg.x+i;
+		int rightX=selOrg.x+nm1-i;
+		int bound=nm1-i;
+		
+		for(int j=i; j<bound; j++)
+		{
+			int topX=selOrg.x+j;
+			int botX=selOrg.x+nm1-j;
+			int topYj=selOrg.y+j;
+			int botYj=selOrg.y+nm1-j;
+			byte tmp=pick(topX, topY);
+			plot(topX,topY, pick(leftX, botYj));
+			plot(leftX, botYj, pick(botX, botY));
+			plot(botX, botY, pick(rightX, topYj));
+			plot(rightX, topYj, tmp);
+		}
+	}
+}
+
+void snapTool()
+{
+	if(currentTool==2)//snap line horizontally or vertically
+	{
+		int dx=abs(toolX2-toolX1);
+		int dy=abs(toolY2-toolY1);
+		if(dx<dy) toolX2=toolX1;
+		else toolY2=toolY1;
+	}
+	else if(currentTool==11 && grid)//overlay selection rectangle
+	{
+		tx=(tx+8)&0xfff0;//snap to grid
+		ty=(ty+8)&0xfff0;
+	}
+	else if(grid)//other tools snap to grid
+	{
+		if(toolX2>toolX1)
+		{
+			toolX1=(toolX1+8)&0xfff0;
+			toolX2=(toolX2+8)&0xfff0-1;	
+		}
+		else
+		{
+			toolX1=(toolX1+8)&0xfff0-1;
+			toolX2=(toolX2+8)&0xfff0;	
+		}
+		if(toolY2>toolY1)
+		{
+			toolY1=(toolY1+8)&0xfff0;
+			toolY2=(toolY2+8)&0xfff0-1;
+		}
+		else
+		{
+			toolY1=(toolY1+8)&0xfff0-1;
+			toolY2=(toolY2+8)&0xfff0;
+		}
+	}
+}
+
+//------------- Copy / Paste selection
+
+//stuff for dynamic overlay selection rectangle
+type overRect
+{
+	bool visible;
+	int x1;//post transform pixel coords
+	int y1;
+	int x2;
+	int y2;
+};
+
+overRect shownOR;//the one currently in the frame buffer
+overRect newOR;//the new one we want to draw
+
+vec2 selDim;
+
+bool overlap()
+{
+	return (shownOR.x1==newOR.x1 && shownOR.y1==newOR.y1 && shownOR.x2==newOR.x2 && shownOR.y2==newOR.y2);
+}
+
+void overRectSync()
+{
+	if(shownOR.visible && (!newOR.visible || !overlap()))
+	{
+		rect(shownOR.x1,shownOR.y1,shownOR.x2,shownOR.y2,0xf0);
+		shownOR.visible=false;
+	}
+	if(newOR.visible && !shownOR.visible)
+	{
+		rect(newOR.x1,newOR.y1,newOR.x2,newOR.y2,0xf0);
+		shownOR = newOR;
+		shownOR.visible=true;
+	}
+}
+
+void renderOverRect()
+{
+	newOR.visible=true;
+	newOR.x1=tx;
+	newOR.y1=ty;
+	newOR.x2=tx+selDim.x-1;
+	newOR.y2=ty+selDim.y-1;
+	overRectSync();
+}
+
+void hideOverRect()
+{
+	newOR.visible=false;
+	overRectSync();	
+}
+
+void copySelection()
+{
+	fOpen(0,"data/clpboard.dat");
+	
+	nat offset;
+	int width=selEnd.x+1-selOrg.x;
+	int height=selEnd.y+1-selOrg.y;
+	byte allign=(byte)(selOrg.x%2);//pixel offset within first byte
+	byte lsize=(byte)(width>>1+(selEnd.x+1)%2);//size of a line in bytes
+	
+	//first serialize info
+	fWrite(0,&width,offset,2);//in pixels
+	offset+=2;
+	fWrite(0,&height,offset,2);
+	offset+=2;
+	fWrite(0,&allign,offset,1);
+	offset++;
+	fWrite(0,&lsize,offset,1);//in bytes
+	offset++;
+	
+	//then the selection data
+	for(byte y=(byte)selOrg.y; y<=(byte)selEnd.y; y++)//save each line
+	{
+		nat addr=0x3000+(nat)selOrg.x>>1+y*200;
+		fWrite(0,addr,offset,lsize,bmpPage);
+		offset+=lsize;
+	}
+	fClose(0);
+}
+
+void getSelectionDim()
+{
+	fOpen(0,"data/clpboard.dat");
+	
+	//deserialize data
+	fRead(0,&selDim,0,4);//width, height (2 bytes each)
+	fClose(0);	
+}
+
+void pasteSelection(int x, int y)
+{
+	fOpen(1,"data/clpboard.dat");//descriptor 0 used by undo in pushArray
+	
+	nat offset;
+	nat width;
+	nat height;
+	byte allign;
+	byte lsize;//size of a line in bytes
+			
+	//first deserialize data
+	fRead(1,&width,offset,2);//pixels
+	offset+=2;
+	fRead(1,&height,offset,2);
+	offset+=2;
+	fRead(1,&allign,offset,1);
+	offset++;
+	fRead(1,&lsize,offset,1);
+	offset++;
+
+	//push for undo
+	pushArray(x,y,x+width-1,y+height-1);
+
+	//because blit does not write color 0, we need first to clear the area
+	//unless the user holds ALT
+	if(!ALT) box(x,y,x+width-1,y+height-1,0);
+
+	//determine the number of lines that can fit into the scratchpad
+	//and split selection into smaller blocs
+	nat linesInBloc=2048/lsize;//2 KiB is the scratchpad size
+	nat blocSize=linesInBloc*lsize;
+	nat numIter=height/linesInBloc;
+	nat remainderHeight=height%linesInBloc;
+	nat remainderSize=remainderHeight*lsize;	
+	
+	//read file by 2 KiB blocs to the scratchpad
+	//then blit to screen
+	for(nat i; i<numIter; i++)
+	{
+		fRead(1,scratchPad,offset,blocSize);
+		blit(scratchPad,lsize,allign,0,width,linesInBloc,x,y+i*linesInBloc);
+		offset+=blocSize;
+	}
+	fRead(1,scratchPad,offset,remainderSize);
+	blit(scratchPad,lsize,allign,0,width,remainderHeight,x,y+numIter*linesInBloc);
+	
+	fClose(1);
+}
+
+// ---------------------------- UI ---------------------------------
+
+// custom glyphs
+
+byte glyphId=0x02; //we will start overriting glyphs at this position
+
+text glyph02[12]={	"          ",
+							"          ",
+							"          ",
+							"          ",
+							"    ",
+							"          ",
+							"  ",
+							"          ",
+							"    ",
+							"          ",
+							"          ",
+							"          "};
+
+text glyph03[12]={	"      ",
+							"        ",
+							"     ",
+							"       ",
+							"      ",
+							"      ",
+							"       ",
+							" ",
+							"        ",
+							"        ",
+							"        ",
+							"     "};
+
+text glyph04[12]={	"          ",
+							"        ",
+							"        ",
+							"       ",
+							"       ",
+							"      ",
+							"      ",
+							"     ",
+							"     ",
+							"    ",
+							" ",
+							"          "};
+
+text glyph05[12]={	"          ",
+							"        ",
+							"      ",
+							"    ",
+							"  ",
+							"",
+							"          ",
+							"",
+							"       ",
+							"       ",
+							"       ",
+							"        "};
+
+text glyph06[12]={	"    ",
+							"      ",
+							"     ",
+							"         ",
+							"      ",
+							"        ",
+							"        ",
+							"      ",
+							"         ",
+							"     ",
+							"      ",
+							"    "};
+
+text glyph07[12]={	"    ",
+							"      ",
+							"     ",
+							"         ",
+							"      ",
+							"        ",
+							"        ",
+							"      ",
+							"         ",
+							"     ",
+							"      ",
+							"    "};
+
+nat glyphAddr=glyphId*10*12;//compute the linear address of the glyph to be replaced
+
+text glyphLine={10};//buffer for storing line contents
+
+void genGlyph(text t[])
+{
+	for(byte y; y<12; y++)//for each line
+	{
+		glyphLine=t[y];//get the actual text line contents from the text ref in the array
+		for(byte x; x<10; x++)//scan the line to check for plain squares
+		{
+			bool bit=peek(&glyphLine+x)=='';
+			glyphSet(glyphAddr++,bit);//set/clear bit and increment address
+		}
+	}
+}
+
+genGlyph(glyph02);//mouse speed
+genGlyph(glyph03);
+genGlyph(glyph04);//flip horizontal
+genGlyph(glyph05);//flip vertical
+genGlyph(glyph06);//rotate left
+genGlyph(glyph07);//rotate right
+
+
+//-------------Toolbox
+
+//First, we build the toolbox with character glyphs
+
+void displayToolBox()
+{
+	print("");//reset colors
+	byte x=toolCharPosX;
+	byte y=toolCharPosY;
+
+	curPos(x,y);
+	print("fñìììó");
+	for(int i; i<15; i++) print("í   î");
+	print("ôïïïò");
+	
+	//colors
+	print("ïïïï");
+	print("3í  î");//col 0 is transparent in sprites so we use
+	print("3í  î");//character background to mask the hole @ color 0
+	for(byte i; i<13; i++) print("í  î");
+	print("ôïïò");
+	print("ìììì");
+	
+	curPos(x+1,y+1);//tool 1  Draw
+	if(currentTool==1) print("f21a");
+	else print("f11a");
+
+	curPos(x+1,y+3);//tool 2  Line
+	if(currentTool==2) print("f2Å");
+	else print("f1Å");
+
+	curPos(x+1,y+5);//tool 3  Rect
+	if(currentTool==3) print("f2");
+	else print("f1");
+
+	curPos(x+3,y+5);//tool 4  Box
+	if(currentTool==4) print("f2");
+	else print("f1");
+
+	curPos(x+1,y+7);//tool 5  Circle
+	if(currentTool==5) print("f2ca");
+	else print("f1ca");
+
+	curPos(x+3,y+7);//tool 6  Disk
+	if(currentTool==6) print("f2ba");
+	else print("f1ba");
+
+	curPos(x+3,y+3);//tool 7  Fill
+	if(currentTool==7) print("f21c");
+	else print("f11c");
+
+	curPos(x+1,y+9);//tool 8  select
+	if(currentTool==8) print("f2cd");
+	else print("f1cd");
+
+	curPos(x+3,y+9);//brush (not implemented, greyed out for now)
+	print("71b1");
+
+	curPos(x+1,y+11);//copy selection
+	if(!hasSelection) print("f7f3");
+	else if(copyIcon) print("f2f3");
+	else print("f1f3");
+
+	curPos(x+3,y+11);//paste selection
+	if(currentTool==11) print("f2f4");
+	else print("f1f4");
+
+	curPos(x+3,y+1);//text (not implemented, greyed out for now)
+	print("7T1");
+
+	curPos(x+1,y+13);//flip horizontal
+	if(!hasSelection) print("f704");
+	else if(flipHorizontalIcon) print("f204");
+	else print("f104");
+
+	curPos(x+3,y+13);//flip vertical
+	if(!hasSelection) print("f705");
+	else if(flipVerticalIcon) print("f205");
+	else print("f105");
+
+	curPos(x+1,y+15);//rotate left
+	if(!hasSelection || !isRotatable()) print("f706");
+	else if(rotateLeftIcon) print("f206");
+	else print("f106");
+
+	curPos(x+3,y+15);//rotate right
+	if(!hasSelection || !isRotatable()) print("f707");
+	else if(rotateRightIcon) print("f207");
+	else print("f107");
+	
+	print("");
+}
+displayToolBox();
+
+//we also need to be able to hide the toolbox
+void hideToolBox()
+{
+	curPos(toolCharPosX,toolCharPosY);
+	for(byte i; i<34; i++) print("     ");
+}
+
+//Now we draw two columns of color boxes to represent the color selector
+//Then we copy those boxes to a sprite set.
+//We do this because we do not want to change the text color palette
+//nor use bitmap for the UI.
+//A problem that plagued Deluxe Paint on Amiga, the UI depended on the
+//first two color of the palette. If those two colors were close together
+//the UI was barely visible.
+//By using sprites to display the color palette, we avoid this problem.
+
+byte col;
+for(byte x; x<2; x++)
+{
+	for(byte y; y<8; y++)
+	{
+		box(0+x*10,y*12,9+x*9,12+y*12,col);//draw color boxes in the bitmap
+		col++;
+	}
+}
+
+bmpToSpr(0,0,1,5,0);//copy to sprite set. 5 sprites required to cover all boxes
+
+clrBmp();
+
+void displayColorBoxes()
+{
+	for(byte i; i<5; i++)//display sprites
+	{
+		sprPos(i,48+colorPosX,42+colorPosY+i*42);
+		sprRef(i,i);
+		sprPal(i,0);
+	}
+	sprUpdt();
+}
+
+//we also need to be able to hide the color boxes
+void hideColorBoxes()
+{
+	for(byte i; i<5; i++) sprPos(i,0,0);
+	sprUpdt();
+}
+
+//arrays to hold color boxes colliders y values
+int colBBTop[8];
+int colBBBot[8];
+for(byte i; i<8; i++)	
+{
+	colBBTop[i]=colorPosY+i*24;
+	colBBBot[i]=colorPosY+24+i*24;
+}
+
+//color editor
+void displayColEd()
+{
+	curPos(colEdPosX,colEdPosY);
+	print("4ñìì6ììó");
+	print("fñìììììó");
+	print("íeR aG 5B1î");
+	print("íc2 c2 c2î");//spacer
+	for(byte i; i<4; i++)
+		print("íeÄ aÄ 5Ä1î");
+	print("íc3 c3 c3î");//spacer
+	print("í     î");//values to be displayed here
+	print("ôïïïïïò");
+	print("0ììììììì");
+}
+
+void hideColEd()
+{
+	for(byte i; i<12; i++)
+	{
+		curPos(colEdPosX,colEdPosY+i);
+		print("       ");
+	}
+}
+
+text colCur[2]={"f°","fü"};
+
+void updateColEd(byte r, byte g, byte b)
+{
+	displayColEd();
+	curPos(colEdPosX+1,colEdPosY+7-r>>1);//red cursor
+	print("e",colCur[r%2]);
+
+	curPos(colEdPosX+3,colEdPosY+7-g>>1);//green cursor
+	print("a",colCur[g%2]);
+
+	curPos(colEdPosX+5,colEdPosY+7-b>>1);//blue cursor
+	print("5",colCur[b%2]);
+
+	curPos(colEdPosX+1,colEdPosY+9);//display values
+	print("fe",r," a",g," 5",b,"");
+	copyPalettes();
+}
+
+void refreshColor()
+{
+	byte index;
+	if(paint) index=color;
+	else index=eraser;
+
+	byte r=peek(bmpPal+index);
+	byte g=peek(bmpPal+16+index);
+	byte b=peek(bmpPal+32+index);
+	updateColEd(r,g,b);
+}
+refreshColor();
+
+//function to increase a color component when clicking the up arrow
+void colCompInc(int x)//pointer position in character
+{
+	byte index;
+	if(paint) index=color;
+	else index=eraser;
+	byte r=peek(bmpPal+index);
+	byte g=peek(bmpPal+16+index);
+	byte b=peek(bmpPal+32+index);
+	if(x==colEdPosX+1) r=clamp(++r,0,7);
+	else if(x==colEdPosX+3) g=clamp(++g,0,7);
+	else if(x==colEdPosX+5) b=clamp(++b,0,7);
+	poke(bmpPal+index,r);
+	poke(bmpPal+16+index,g);
+	poke(bmpPal+32+index,b);
+	updateColEd(r,g,b);
+}
+
+//function to decrease a color component when clicking the down arrow
+void colCompDec(int x)
+{
+	byte index;
+	if(paint) index=color;
+	else index=eraser;
+	int r=peek(bmpPal+index);
+	int g=peek(bmpPal+16+index);
+	int b=peek(bmpPal+32+index);
+	if(x==colEdPosX+1) r=clamp(--r,0,7);
+	else if(x==colEdPosX+3) g=clamp(--g,0,7);
+	else if(x==colEdPosX+5) b=clamp(--b,0,7);
+	poke(bmpPal+index,(byte)r);
+	poke(bmpPal+16+index,(byte)g);
+	poke(bmpPal+32+index,(byte)b);
+	updateColEd((byte)r,(byte)g,(byte)b);
+}
+
+void displayInfos()
+{
+	curPos(0,1);
+	print("fñìììììììõìììììììõììììõìììììììììììõìììììììììììììó");
+	print("íSize:  ÄShape: Ä0203: ÄPos:       Ä             î");
+	print("ôïïïïïïïùïïïïïïïùïïïïùïïïïïïïïïïïùïïïïïïïïïïïïïò");
+}
+
+//we also need to be able to hide infos
+void hideInfos()
+{
+	memSet(0x1200+80,3*80,0);//clear 3 lines starting at line 1
+	memSet(0x1e80+80,3*80,0x01);//color buffer
+
+	memSet(0x1200+39*80,80,0);//clear last line
+	memSet(0x1e80+39*80,80,0x01);//color buffer
+}
+
+//--zoom grid
+
+//We use the character layer to draw the zoom grid (used for tile editing)
+//However, character glyphs are 10x12 hires pixels and do not align with
+//16 lowres tile pixels. So we need a custom glyph set to create an
+//aligned grid.
+//To do so, we redefine micro-8 logo and the large disk glyphs into grid
+//elements that match the 16 lowres pixels tile grid
+
+//The grid data itself have been precomputed in the "data/xxxx.dat" files
+//and are used in the showZoomGrid() function above.
+
+byte zoomGlyphId[24]={0x20,
+					0xe6,0xe7,0xe8,0xe9,0xea,0xeb,0xec,0xed,0xee,0xef,
+					0xf6,0xf7,0xf8,0xf9,0xfa,0xfb,0xfc,0xfd,0xfe,0xff,
+					0xd2,0xd3,0xe2};
+
+void zoomGenGlyphs()
+{
+	for(byte b; b<23; b++)
+	{
+		nat addr=zoomGlyphId[b+1]*120; //index 0 is for ' '
+	
+		for(byte y; y<12; y++)
+			for(byte x; x<10; x++)
+			{
+				bool bit;
+				if(b>=20) bit=x%5==0 && y==(((b-20)%4)*4);
+				else bit=y%4==0 && x==(b%5)*2 || x%4==0 && y==((b/5)%4)*4;
+				glyphSet(addr++,bit);
+			}
+	}
+}
+zoomGenGlyphs();
+
+text gridData128[16]={	"data/128x0y0.dat",
+								"data/128x3y0.dat",
+								"data/128x2y0.dat",
+								"data/128x1y0.dat",
+								"data/128x0y3.dat",
+								"data/128x3y3.dat",
+								"data/128x2y3.dat",
+								"data/128x1y3.dat",
+								"data/128x0y2.dat",
+								"data/128x3y2.dat",
+								"data/128x2y2.dat",
+								"data/128x1y2.dat",
+								"data/128x0y1.dat",
+								"data/128x3y1.dat",
+								"data/128x2y1.dat",
+								"data/128x1y1.dat" };
+
+void drawZoomGrid() //includes separator (baked-in)
+{
+	if(zoomFactor==2)
+	{
+		import2D("data/32x0y0.dat",0x1200+35,80,45,40);
+	}
+	else if(zoomFactor==3)
+	{
+		bool offsetX=(zoomOriginX/4)%2==1;
+		bool offsetY=(zoomOriginY/8)%2==1;
+		if(offsetX && offsetY) import2D("data/64x1y1.dat",0x1200+35,80,45,40);
+		else if(offsetX) import2D("data/64x1y0.dat",0x1200+35,80,45,40);
+		else if(offsetY) import2D("data/64x0y1.dat",0x1200+35,80,45,40);
+		else import2D("data/64x0y0.dat",0x1200+35,80,45,40);
+	}
+	else if(zoomFactor==4)
+	{
+		int i=(zoomOriginX/2)%4+4*((zoomOriginY/4)%4);
+		import2D(gridData128[i],0x1200+35,80,45,40);
+	}	
+}
+
+void showZoomGrid()
+{
+	areaSet(0x1e80,80,35,0,45,40,0x01);
+	drawZoomGrid();
+}
+
+void hideZoomGrid()
+{
+	areaSet(0x1e80,80,35,0,45,40,0x01);
+	areaSet(0x1200,80,35,0,45,40,' ');	
+}
+
+void drawZoomSeparator()
+{
+	areaSet(0x1e80,80,35,0,1,40,0x01);
+	areaSet(0x1200,80,35,0,1,40,'í');
+}
+
+void refreshUI()
+{
+	if(UI)
+	{
+		if(zoom && grid) drawZoomGrid();
+		if(zoom && !grid) drawZoomSeparator();
+		displayToolBox();
+		displayColorBoxes();
+		displayInfos();
+		byte r; byte g; byte b;
+		r=peek(bmpPal+color);
+		g=peek(bmpPal+color+16);
+		b=peek(bmpPal+color+32);
+		updateColEd(r,g,b);
+	}
+	else
+	{
+		hideToolBox();
+		hideColorBoxes();
+		hideInfos();
+		hideColEd();
+		clrMsg();
+		if(zoom && grid) drawZoomGrid();
+		if(zoom && !grid) drawZoomSeparator();
+	}
+}
+
+refreshUI();//UI visible by default
+
+void toggleUI()
+{
+	UI = !UI;
+	refreshUI();
+}
+
+//void snapZoomOrigin()
+//{
+//	byte shift=4-zoomFactor;
+//	zoomOriginX &= 0xfe<<shift;
+//	zoomOriginY &= 0xfc<<shift;
+//}
+
+void toggleGrid()
+{
+	grid=!grid;
+	if(grid)
+	{
+		poke(gfxModes,peek(gfxModes)|0b01000000);
+		if(zoom)
+		{
+			showZoomGrid();
+			refreshUI();
+		}
+	}
+	else
+	{
+		poke(gfxModes,peek(gfxModes)&0b10111111);
+		if(zoom)
+		{
+			hideZoomGrid();
+			drawZoomSeparator();
+			refreshUI();
+		}
+	}
+}
+
+//------------- ZOOM
+
+//zoom window is made of 14x15 hardware tiles
+//zoom posx in tiles is 11
+int zwtx=11*16*2; //in hires pixels (for collision testing)
+int zwty=0;
+int zwbx=25*16*2;
+int zwby=15*16*2;
+bool zoomRefreshAll=true;
+
+//When in zoom, the left size shows unzoomed image that follows zoom pos
+//This function is used to copy from current page to zoomOut page
+void cpy2zoomOut()
+{
+	//fast version for small brushes, otherwise copy the entire screen
+	//could be optimized by computing the actual vertical footprint of
+	//the tool and copying only the necessary area
+
+	if(grid) zoomOutPosx=zoomOutPosx&0xfff8;//snap to tile (bytes)
+	
+	if(zoomRefreshAll || currentTool==1 && brushSizes[brush]>=10)
+	{
+		//12 bloc copies of 100x20 bytes using scratchpad
+		for(int i; i<12; i++)
+		{
+			//source copy from current page to scratchpad
+			areaCpy(cpuWinOrg,200,zoomOutPosx,i*20,100,20,scratchPad,100,0,0,bmpPage);
+			//destination copy from scratchpad to zoomOutPage
+			areaCpy(scratchPad,100,0,0,100,20,cpuWinOrg,200,0,i*20,zoomOutPage);
+		}
+	}
+	else
+	{
+		byte cy=(byte)clamp(ty-10,0,239);
+		byte ln=(byte)min(20,240-cy);//lines to copy (20 or less at the bottom)
+		//source copy from current page to scratchpad
+		areaCpy(cpuWinOrg,200,zoomOutPosx,cy,100,ln,scratchPad,100,0,0,bmpPage);
+		//destination copy from scratchpad to zoomOutPage
+		areaCpy(scratchPad,100,0,0,100,ln,cpuWinOrg,200,0,cy,zoomOutPage);
+	}
+}
+
+int toZPos(int orgPos, int winPos) //compute position within zoom
+{
+	return (orgPos-(winPos>>1)) >> (zoomFactor-1);
+}
+
+void displayZoom()
+{	
+	byte index=1;//index 0 is fully transparent in opaque tile mode
+	for(byte y=0; y<15; y++)
+		for(byte x=11; x<25; x++)
+		{
+			poke(tileBufferA+x+y<<5,index);
+			index++;
+		}
+
+	if(grid) showZoomGrid();
+	drawZoomSeparator();
+	refreshUI();
+	
+	poke(0x2f05,zoomOutPage);//bitmap scanout	to zoomOut window (left half)
+}
+
+void hideZoom()
+{	
+	poke(0x2f05,bmpPage);//bitmap scanout back to normal
+	areaSet(tileBufferA,32,11,0,14,15,0);
+	hideZoomGrid();
+	refreshUI();
+}
+
+//In order to improve performance for brush updates when drawing in zoom
+//we update only the relevant tiles
+
+byte getZoomTileRef(int x, int y)
+{
+		return(byte)((x-176)/16 + (y/16)*14 + 1);//tile 0 is transparent
+}
+
+vec2 getZoomTilePos(int x, int y)
+{
+	vec2 tp;
+	tp.x=toZPos(x,zwtx)>>(5-zoomFactor);
+	tp.x=tp.x<<(4-zoomFactor);
+		
+	tp.y=toZPos(y,zwty)>>(5-zoomFactor);
+	tp.y=tp.y<<(5-zoomFactor);
+	
+	tp.x+=zoomOriginX;
+	tp.y+=zoomOriginY;
+	
+	return tp;
+} 
+
+void zoomInterpolateTiles()
+{
+	//interpolate the brush path to refresh intermediate tiles
+	real dx=mx-px;
+	real dy=my-py;
+	real dist=sqrt(dx*dx+dy*dy);
+	int numStep=1+(int)(dist/8);
+	for(int i=0; i<numStep; i++)
+	{
+		real t=(real)i/(numStep-1);
+		int lx=lerp(px,mx,t);
+		int ly=lerp(py,my,t);
+
+		//for each step we refresh up to 4 tiles (less on the borders)
+		int x=clamp(lx-8,176,399);
+		int y=clamp(ly-8,0,239);
+		
+		vec2 tp=getZoomTilePos(x,y);
+		byte ref=getZoomTileRef(x,y);
+
+		if(x<383)
+			bmpToTile(tp.x,tp.y,2,1,ref,zoomFactor);//refresh 2 tiles at a time
+		else
+			bmpToTile(tp.x,tp.y,1,1,ref,zoomFactor);
+		
+		y=clamp(ly+8,0,231);
+		tp=getZoomTilePos(x,y);
+		ref=getZoomTileRef(x,y);
+
+		if(x<383)
+			bmpToTile(tp.x,tp.y,2,1,ref,zoomFactor);
+		else
+			bmpToTile(tp.x,tp.y,1,1,ref,zoomFactor);
+	}
+}
+
+void zoomUpdate()
+{
+	//for small brushes, update touched tiles only
+	if(!zoomRefreshAll && inZoom && currentTool==1 && brush<(7-zoomFactor))
+	{
+		zoomInterpolateTiles();
+	}
+	else //otherwise update the entire window
+	{
+		bmpToTile(zoomOriginX,zoomOriginY,14,15,1,zoomFactor);//update all tilestiles
+	}
+	
+//	if(!drawing)//update zoomOut view when finished drawing
+	{
+		if(zoomFactor==2) zoomOutPosx=(int)((real)zoomOriginX/1.275);
+		else if(zoomFactor==3) zoomOutPosx=(int)((real)zoomOriginX/1.524);
+		else if(zoomFactor==4) zoomOutPosx=(int)((real)zoomOriginX/1.65);
+		
+		cpy2zoomOut();
+	}
+}
+
+void zoomLimits()
+{
+	byte shift=zoomFactor-1;//24
+
+	int right=200-((14*8)>>shift);//limit to the right border
+	int bottom=240-(240>>shift);//limit to the bottom
+	zoomOriginX=clamp(zoomOriginX,0,right);
+	zoomOriginY=clamp(zoomOriginY,0,bottom);
+
+	//snap to grid for unzoomed fixed grid
+	if(grid)
+	{
+		shift=4-zoomFactor;
+		zoomOriginX &= 0xfe<<shift;
+		zoomOriginY &= 0xfc<<shift;
+	}
+}
+
+void toggleZoom()
+{
+	zoom=!zoom;
+	if(zoom)
+	{
+		byte shift=zoomFactor-1;
+		zoomOriginX=mx>>1-(64>>shift);//place zoom at pointer position
+		zoomOriginY=my-(128>>shift);
+		zoomLimits();
+		zoomRefreshAll=true;
+		zoomUpdate();//update tiles
+		displayZoom();
+	}
+	else hideZoom();
+}
+
+zoomUpdate();
+
+void repaintUI()
+{
+	if(UI)
+	{
+		curPos(8,2);
+		print("f2");//background windows color, foreground white
+	
+		byte dBrush;
+		if(brush<3)dBrush=brush;
+		else dBrush=brushSizes[brush-3]*2+1; 
+		if(dBrush<10) print(" ");
+		print(dBrush);
+	
+		curPos(17,2);
+		if(shape==1) print("");//square brush
+		else if(shape==2) print("∫");//round brush
+		else if(shape==3) print("ë");//dithering
+		//possibly add more shapes later
+
+		curPos(22,2);
+		if (speedDivider==1) print("M");
+		else if (speedDivider==0) print("H");
+		else print("L");
+	
+		curPos(28,2);
+		print("       ");//clear previous coords
+		curPos(28,2);
+		print(tx,",",ty);
+		
+		curPos(41,2);
+		print("        ");
+		curPos(36,2);
+		if(currentImage==MAIN_IMG) print("Main:", fileName);
+		else print("Work:", fileName2);
+	
+		print("");//restore default color
+	}
+}
+repaintUI();
+
+void mouseHoldUpdt()
+{
+	LMB.wasHeld=LMB.held;
+	MMB.wasHeld=MMB.held;
+	RMB.wasHeld=RMB.held;
+}
+
+bool clicInUI;
+bool exit=false;
+//----------------------------Main loop-------------------------------
+while(!exit)//FCTN + Esc
+{
+	px=mx;//previous lowres coordinates
+	py=my;
+	ptx=tx;//previous transformed coordinates
+	pty=ty;
+
+	byte previousTool=currentTool;
+
+	mouseUpdt();//update mouse buffered position
+	mx=_mouseX>>1;//lowres coordinates
+	my=_mouseY>>1;
+
+	// MouseButton states
+
+	LMB.held=_mouse==1;
+	LMB.pressed=LMB.held && !LMB.wasHeld;
+	LMB.released=!LMB.held && LMB.wasHeld;
+
+	RMB.held=_mouse==2;
+	RMB.pressed=RMB.held && !RMB.wasHeld;
+	RMB.released=!RMB.held && RMB.wasHeld;
+
+	MMB.held=_mouse==3;
+	MMB.pressed=MMB.held && !MMB.wasHeld;
+	MMB.released=!MMB.held && MMB.wasHeld;
+	
+	if(LMB.pressed) lastButton=1;
+	else if(RMB.pressed) lastButton=2;
+
+	// Read keyboard
+
+	byte keyDwn=getKeyDwn();//get key from ring buffer (FIFO)
+	byte keyUp=getKeyUp();
+
+	// Compute transformed coordinates
+	if(inZoom) //inside the zoom window
+	{
+		int cx=clamp(mx,zwtx>>1,zwbx>>1);//clamp to window if we move out
+		int cy=clamp(my,zwty>>1,zwby>>1);
+		tx=toZPos(cx,zwtx)+zoomOriginX<<1;
+		ty=toZPos(cy,zwty)+zoomOriginY;
+	}
+	else if(zoom) //zoom is active but we are in the zoomOut area
+	{
+		//modify x coords according to the zoomOut position
+		tx=mx+zoomOutPosx<<1;//byte pos to pixel
+		ty=my;
+	}
+	else //normal coordinates
+	{
+		tx=mx;
+		ty=my;
+	}
+
+	bool isMoving = tx!=ptx || ty!=pty;
+
+	// Update infos display
+	if(UI && isMoving) repaintUI();
+
+	// UI tests
+	if(UI && (LMB.pressed || RMB.pressed))
+	{
+		//are we in the tool box
+		if(isPtrBox(toolPosX,toolPosY,toolPosX+50,toolPosY+204))
+		{
+			if(isPtrGlyph(0x1a)) currentTool = 1;//draw
+			else if(isPtrGlyph(0x81)) currentTool = 2;//line
+			else if(isPtrGlyph(0x7f)) currentTool = 3;//rect
+			else if(isPtrGlyph(0x01)) currentTool = 4;//box
+			else if(isPtrGlyph(0xca)) currentTool = 5;//circle
+			else if(isPtrGlyph(0xba)) currentTool = 6;//disk
+			else if(isPtrGlyph(0x1c)) currentTool = 7;//fill
+			else if(isPtrGlyph(0xcd)) currentTool = 8;//select
+			else if(isPtrGlyph(0x1b)) currentTool = 9;//brush
+			else if(isPtrGlyph(0x54)) currentTool = 10;//text
+			else if(isPtrGlyph(0xf4))
+			{
+				currentTool = 11;//paste selection tool
+				getSelectionDim();
+			}
+			else if(isPtrGlyph(0xf3) && hasSelection)//copy
+			{
+				copyIcon=true;
+				deselect();
+				hideOverRect();
+				copySelection();
+			}
+			//momentary tools
+			else if(isPtrGlyph(0x04) && hasSelection && !flipHorizontalIcon)
+			{
+				flipHorizontalIcon=true;
+				zoomRefreshAll=true;
+			}
+			else if(isPtrGlyph(0x05) && hasSelection && !flipVerticalIcon)
+			{
+				flipVerticalIcon=true;
+				zoomRefreshAll=true;
+			}
+			else if(isPtrGlyph(0x06) && hasSelection && !rotateLeftIcon)
+			{
+				rotateLeftIcon=true;
+				zoomRefreshAll=true;
+			}
+			else if(isPtrGlyph(0x07) && hasSelection && !rotateRightIcon)
+			{
+				rotateRightIcon=true;
+				zoomRefreshAll=true;
+			}
+
+			if(currentTool!=11) hideOverRect();
+			displayToolBox();
+			clicInUI=true;
+		}
+			
+		//are we in the palette box
+		else if(isPtrBox(colorPosX,colorPosY,colorPosX+40,colorPosY+192))
+		{
+			if(LMB.pressed) //pick color
+			{
+				color=(byte)(_mouseY-colorPosY)/24+(byte)((_mouseX-colorPosX)>20)*8;
+				paint=true;
+				refreshColor();
+			}
+			else if(RMB.pressed) //pick eraser
+			{
+				eraser=(byte)(_mouseY-colorPosY)/24+(byte)((_mouseX-colorPosX)>20)*8;
+				paint=false;
+				refreshColor();
+			}
+			clicInUI=true;
+		}
+
+		//are we in the color editor?
+		else if(isPtrBox(colEdWinX,colEdWinY,colEdWinX+60,colEdWinY+132))
+		{
+			if(isPtrGlyph('¬')) colCompInc(_mouseX/10);//are we over one of the 'increase' buttons?
+			if(isPtrGlyph('√')) colCompDec(_mouseX/10);//are we over one of the 'decrease' buttons?
+			clicInUI=true;
+		}
+	}
+
+	//deselection on new clic
+	if(hasSelection && (LMB.pressed || RMB.pressed || MMB.pressed))
+	{
+		deselect();
+		displayToolBox();
+		zoomRefreshAll=true;
+	}
+
+	//reselection of previous selection when reusing the selection tool
+	if(previousTool!=8 && currentTool==8)
+	{
+		initSelection();
+		displayToolBox();
+		zoomRefreshAll=true;
+	}
+
+	//momentary actions/tools
+	if(!clicInUI && LMB.pressed)
+	{		
+		if(currentTool==7)//flood fill
+		{
+			if(actionPushed) actions[undoId]=0;
+			//undo push is handled inside the floodFill function
+			floodFill(tx,ty);
+			actionPushed=false;
+		}
+		else if(currentTool==11)//paste overlay rectangle
+		{
+			if(SHIFT) snapTool();
+			hideOverRect();
+			if(actionPushed) actions[undoId]=0;
+			//undo push is handled inside the pasteSelection function
+			pasteSelection(tx,ty);
+			actionPushed=false;
+		}
+	}
+	else if(!clicInUI && MMB.pressed)//toggle main->work pages
+	{
+		if(hasSelection) deselect();
+		if(currentTool==11) hideOverRect();
+		toggleImage();
+		if(UI) repaintUI();
+		undoInit();
+		if(zoom)
+		{
+			zoomRefreshAll=true;
+			zoomUpdate();
+		}
+	}
+	//icon-based actions
+	else if(flipHorizontalIcon)
+	{
+		if(actionPushed) actions[undoId]=0;
+		//undo push is handled inside the flipHorizontal function
+		flipHorizontal();
+		initSelection();//reselect
+		actionPushed=false;
+	}
+	else if(flipVerticalIcon)
+	{
+		if(actionPushed) actions[undoId]=0;
+		//undo push is handled inside the flipVertical function
+		flipVertical();
+		initSelection();//reselect
+		actionPushed=false;
+	}
+	else if(rotateLeftIcon)
+	{
+		if(isRotatable())
+		{
+			if(actionPushed) actions[undoId]=0;
+			//undo push is handled inside the rotateLeft function
+			rotateLeft();
+			initSelection();//reselect
+			actionPushed=false;
+		}
+	}
+	else if(rotateRightIcon)
+	{
+		if(isRotatable())
+		{
+			if(actionPushed) actions[undoId]=0;
+			//undo push is handled inside the rotateRight function
+			rotateRight();
+			initSelection();//reselect
+			actionPushed=false;
+		}
+	}
+
+	//continuous actions/tools
+	if(!clicInUI && (LMB.held || RMB.held))
+	{
+		if(currentTool==1)//draw
+		{
+			zoomRefreshAll=false;
+			
+			//record for undo
+			if(actionPushed) actions[undoId]=0;
+			if(brush==1 || brush==2) pushDraw(8, tx, ty, ptx, pty);
+			else
+			{
+				int r = brushSizes[brush-3];
+				pushDraw(8+r, tx, ty, ptx, pty);
+			}
+			actionPushed=false;
+
+			if(brush==1)
+			{
+				if(shape==3) //dithering
+				{
+					if(LMB.held)
+					{
+						if(tx%2==0 && ty%2==0 || (tx%2!=0 && ty%2!=0))
+							plot(tx, ty, color);
+						else plot(tx, ty, eraser);
+					}
+						else if(RMB.held) draw(tx, ty, eraser);
+				}
+				else
+				{
+					if(LMB.held) draw(tx, ty, color);
+					else if(RMB.held) draw(tx, ty, eraser);
+				}
+			}
+			else if(brush==2)
+			{
+				if(shape==3)//dithering
+				{
+					if(LMB.held)
+					{
+						if(tx%2==0 && ty%2==0 || (tx%2!=0 && ty%2!=0))
+						{
+							plot(tx, ty, color);
+							plot(tx+1, ty, eraser);
+							plot(tx, ty+1, eraser);
+							plot(tx+1, ty+1, color);
+						}
+						else
+						{
+							plot(tx, ty, eraser);
+							plot(tx+1, ty, color);
+							plot(tx, ty+1, color);
+							plot(tx+1, ty+1, eraser);
+						}
+					}
+					else if(RMB.held) box(tx, ty, tx+1, ty+1, eraser);
+				}
+				else
+				{
+					if(LMB.held) box(tx, ty, tx+1, ty+1, color);
+					else if(RMB.held) box(tx, ty, tx+1, ty+1, eraser);
+				}
+			}
+			else //larger brushes
+			{
+				int r = brushSizes[brush-3];
+				if(shape==1)//square brush
+				{
+					if(LMB.held) box(tx-r, ty-r, tx+r, ty+r, color);
+					else if(RMB.held) box(tx-r, ty-r, tx+r, ty+r, eraser);
+				}
+				else if(shape==2)//round brush
+				{
+					if(LMB.held) disk(tx, ty, r, color);
+					else if(RMB.held) disk(tx, ty, r, eraser);
+				}
+				else if(shape==3)//dither (drawned with diag lines)
+				{
+					if(LMB.held)
+					{
+						if(tx%2==0 && ty%2==0 || (tx%2!=0 && ty%2!=0))
+						{
+							line(tx-r,ty-r,tx+r,ty+r,color);
+							for(int i=1; i<=r; i++)
+							{
+								line(tx-r+i<<1,ty-r,tx+r,ty+r-i<<1,color);
+								line(tx-r,ty-r+i<<1,tx+r-i<<1,ty+r,color);
+								line(tx-r+i<<1-1,ty-r,tx+r,ty+r-i<<1+1,eraser);
+								line(tx-r,ty-r+i<<1-1,tx+r-i<<1+1,ty+r,eraser);
+							}
+						}
+						else
+						{
+							line(tx-r,ty-r,tx+r,ty+r,eraser);
+							for(int i=1; i<=r; i++)
+							{
+								line(tx-r+i<<1,ty-r,tx+r,ty+r-i<<1,eraser);
+								line(tx-r,ty-r+i<<1,tx+r-i<<1,ty+r,eraser);
+								line(tx-r+i<<1-1,ty-r,tx+r,ty+r-i<<1+1,color);
+								line(tx-r,ty-r+i<<1-1,tx+r-i<<1+1,ty+r,color);
+							}
+						}
+					}
+					else if(RMB.held) box(tx-r, ty-r, tx+r, ty+r, eraser);
+				}
+			}
+		}
+		else// other tools
+		{
+			zoomRefreshAll=true;
+			if(!toolHold)//origin
+			{
+				toolX1=tx; toolY1=ty;
+				toolX2=tx; toolY2=ty;
+				if(SHIFT) snapTool();
+				toolHold=true;
+			}
+			if(toolHold && isMoving)
+			{
+				if(currentTool==2)//line
+				{
+					line(toolX1,toolY1,toolX2,toolY2,0xf0);//restore
+					toolX2=tx; toolY2=ty;
+					if(SHIFT) snapTool();
+					line(toolX1,toolY1,toolX2,toolY2,0xf0);//invert
+				}
+				else if(currentTool==3 || currentTool==4 || currentTool==8)//rect or box
+				{
+					rect(toolX1,toolY1,toolX2,toolY2,0xf0);//restore
+					toolX2=tx; toolY2=ty;
+					if(SHIFT) snapTool();
+					rect(toolX1,toolY1,toolX2,toolY2,0xf0);//invert
+				}
+				else if(currentTool==5 || currentTool==6)//circle or disk
+				{
+					real u=((real)(toolX2-toolX1))/100;//would be out of range without the divide
+					real v=((real)(toolY2-toolY1))/100;
+					int r=(int)(sqrt(u*u+v*v)*100);
+					circle(toolX1,toolY1,r,0xf0);//restore
+					toolX2=tx; toolY2=ty;
+					if(SHIFT) snapTool();
+
+					u=((real)(toolX2-toolX1))/100;
+					v=((real)(toolY2-toolY1))/100;
+					r=(int)(sqrt(u*u+v*v)*100);
+					circle(toolX1,toolY1,r,0xf0);//invert
+				}
+			}
+		}	
+		if(zoom) zoomUpdate();
+	}
+	else if(_mouse==0)//release
+	{
+		zoomRefreshAll = false;
+		clicInUI=false;
+		if(zoom && isPtrBox(zwtx,zwty,zwbx,zwby)) inZoom=true;
+		else inZoom=false;
+
+		if(currentTool==1) skip(tx, ty);
+		else if(currentTool==8) zoomRefreshAll = true;
+		else if(currentTool==11)
+		{
+			if(SHIFT) snapTool();
+			renderOverRect();
+			zoomRefreshAll = true;
+		}		
+
+		if(toolHold)
+		{
+			zoomRefreshAll = true;
+
+			if(currentTool==2)//line
+			{
+				//record for undo
+				//first hide the temporary line by reverting pixels again
+				line(toolX1,toolY1,toolX2,toolY2,0xf0);
+				plot(toolX1,toolY1,0xf0);
+				//then record previous state for undo
+				if(actionPushed) actions[undoId]=0;
+				pushDraw(4,toolX1,toolY1,toolX2,toolY2);
+				actionPushed=false;
+
+				if(lastButton!=2) line(toolX1,toolY1,toolX2,toolY2,color);//draw actual line on release
+				else line(toolX1,toolY1,toolX2,toolY2,eraser);//draw actual line on release
+			}
+
+			else if(currentTool==3)//rect
+			{
+				//record for undo
+				//first hide the temporary rect by reverting pixels again
+				rect(toolX1,toolY1,toolX2,toolY2,0xf0);
+				//then record previous state for undo
+				if(actionPushed) actions[undoId]=0;
+				pushDraw(1,toolX1,toolY1,toolX2,toolY1);
+				pushDraw(1,toolX2,toolY1,toolX2,toolY2);
+				pushDraw(1,toolX2,toolY2,toolX1,toolY2);
+				pushDraw(1,toolX1,toolY2,toolX1,toolY1);
+				actionPushed=false;
+
+				if(lastButton!=2) rect(toolX1,toolY1,toolX2,toolY2,color);
+				else rect(toolX1,toolY1,toolX2,toolY2,eraser);
+			}
+
+			else if(currentTool==4)//box
+			{
+				//record for undo
+				//first hide the temporary rect by reverting pixels again
+				rect(toolX1,toolY1,toolX2,toolY2,0xf0);
+				if(actionPushed) actions[undoId]=0;
+				pushArray(toolX1,toolY1,toolX2,toolY2);
+				actionPushed=false;
+
+				if(lastButton!=2) box(toolX1,toolY1,toolX2,toolY2,color);
+				else box(toolX1,toolY1,toolX2,toolY2,eraser);
+			}
+
+			else if(currentTool==5)//circle
+			{
+				real u=((real)(toolX2-toolX1))/100;
+				real v=((real)(toolY2-toolY1))/100;
+				int r=(int)(sqrt(u*u+v*v)*100);
+				
+				//record for undo
+				//first hide the temporary circle by reverting pixels again
+				circle(toolX1,toolY1,r,0xf0);
+				//then record previous state for undo
+				//we record along a circle in a few steps
+				if(actionPushed) actions[undoId]=0;
+				real TWOPI=6.2832;
+				real STEP=TWOPI/18;
+				int prevX=clamp(toolX1+r,0,399);
+				int prevY=toolY1;				
+				for(real angle=STEP; angle<TWOPI; angle+=STEP)
+				{
+					int x=clamp(toolX1+(int)(cos(angle)*r),0,399);
+					int y=clamp(toolY1+(int)(sin(angle)*r),0,239);
+					pushDraw(8,x,y,prevX,prevY);
+					prevX=x;
+					prevY=y;
+				}				
+				actionPushed=false;
+						
+				if(lastButton!=2) circle(toolX1,toolY1,r,color);
+				else circle(toolX1,toolY1,r,eraser);
+			}
+			else if(currentTool==6)//disk
+			{
+				real u=((real)(toolX2-toolX1))/100;
+				real v=((real)(toolY2-toolY1))/100;
+				int r=(int)(sqrt(u*u+v*v)*100);
+
+				//record for undo
+				//first hide the temporary circle by reverting pixels again
+				circle(toolX1,toolY1,r,0xf0);
+				//then record previous state for undo
+				if(actionPushed) actions[undoId]=0;
+				pushArray(toolX1-r,toolY1-r,toolX1+r,toolY1+r);
+				actionPushed=false;
+
+
+				if(lastButton!=2) disk(toolX1,toolY1,r,color);
+				else disk(toolX1,toolY1,r,eraser);
+			}
+			else if(currentTool==8)//select
+			{
+				//first hide the temporary rect by reverting pixels again
+				rect(toolX1,toolY1,toolX2,toolY2,0xf0);
+				selOrg={toolX1,toolY1};
+				selEnd={toolX2,toolY2};
+				initSelection();
+				displayToolBox();
+			}
+
+			toolHold = false;
+			zoomRefreshAll = true;
+		}
+		
+		if(zoom) zoomUpdate();
+
+		//push the undo/redo actions
+		if(!actionPushed)
+		{
+			if(currentTool==11) hideOverRect();//to avoid overRect to be baked into the redo
+			pushAction();
+		}
+		
+	}
+
+	//release momentary icons
+	if(flipHorizontalIcon)
+	{
+		flipHorizontalIcon=false;
+		displayToolBox();
+	}
+	else if(flipVerticalIcon)
+	{
+		flipVerticalIcon=false;
+		displayToolBox();
+	}
+	else if(rotateLeftIcon)
+	{
+		rotateLeftIcon=false;
+		displayToolBox();
+	}
+	else if(rotateRightIcon)
+	{
+		rotateRightIcon=false;
+		displayToolBox();
+	}
+	else if(copyIcon)
+	{
+		copyIcon=false;
+		displayToolBox();			
+	}
+
+	mouseHoldUpdt();
+	
+	//keys tests
+	if(keyDwn != 0)//skip all tests if no keypress
+	{
+		if(keyDwn==79) FCTN=true;
+		else if(keyDwn==71) ALT=true;
+		else if(keyDwn==58 || keyDwn==51) SHIFT=true;
+		else if(keyDwn==12 && FCTN) exit=true; //FCTN+Esc to exit
+		else if(keyDwn==7) //del
+		{
+			if(FCTN || SHIFT)//full screen clear
+			{
+				if(actionPushed) actions[undoId]=0;
+				pushArray(0,0,399,239);
+				actionPushed=false;
+				clrBmp();
+			}
+			else if(hasSelection)//clear selection
+			{
+				deselect();
+				if(actionPushed) actions[undoId]=0;
+				pushArray(selOrg.x,selOrg.y,selEnd.x,selEnd.y);
+				actionPushed=false;
+				box(selOrg.x,selOrg.y,selEnd.x,selEnd.y,0);
+				initSelection();
+			}
+			zoomRefreshAll=true;
+		}
+	
+		else if(keyDwn==67)// ]
+		{
+			brush++;
+			if(brush>10) brush=10;
+			repaintUI();
+		}
+	
+		else if(keyDwn==46) // [
+		{
+			brush--;
+			if(brush<1) brush=1;
+			repaintUI();
+		}
+		else if(keyDwn==31) //tab
+		{
+			toggleUI();
+			repaintUI();
+		}
+
+		else if(keyDwn==57) //left
+		{
+			zoomRefreshAll=true;
+			zoomOriginX-=zoomSpeed>>(zoomFactor-1);
+			zoomLimits();
+			if(zoom && grid)
+			{
+				drawZoomGrid();
+				if(UI) displayInfos();
+			}
+			repaintUI();
+		}
+		else if(keyDwn==59) //right
+		{
+			zoomRefreshAll=true;
+			zoomOriginX+=zoomSpeed>>(zoomFactor-1);
+			zoomLimits();
+			if(zoom && grid)
+			{
+				drawZoomGrid();
+				if(UI) displayInfos();
+			}
+			repaintUI();
+		}
+		else if(keyDwn==77) //up
+		{
+			zoomRefreshAll=true;
+			zoomOriginY-=2*zoomSpeed>>(zoomFactor-1);
+			zoomLimits();
+			if(zoom && grid)
+			{
+				drawZoomGrid();
+				if(UI) displayInfos();
+			}
+			repaintUI();
+		}
+		else if(keyDwn==80) //down
+		{
+			zoomRefreshAll=true;
+			zoomOriginY+=2*zoomSpeed>>(zoomFactor-1);
+			zoomLimits();
+			if(zoom && grid)
+			{
+				drawZoomGrid();
+				if(UI) displayInfos();
+			}
+			repaintUI();
+		}
+		else if(keyDwn==72) //z
+		{
+			toggleZoom();
+			if(zoom)	zoomRefreshAll=true;
+			repaintUI();
+			selectCnt=0;
+		}
+		else if(keyDwn==6) //-		zoom out
+		{
+			zoomRefreshAll=true;
+			zoomFactor--;
+			if(zoomFactor<2) zoomFactor=2;
+			else
+			{
+				byte shift=zoomFactor-1;
+				zoomOriginX-=32>>shift;//centered zoom out
+				zoomOriginY-=64>>shift;
+				zoomLimits();
+			}
+			if(grid)
+			{
+				drawZoomGrid();
+				if(UI) displayInfos();
+			}
+			repaintUI();
+		}
+		else if(keyDwn==26) //=	zoom in
+		{
+			zoomRefreshAll=true;
+			zoomFactor++;
+			if(zoomFactor>4) zoomFactor=4;
+			else
+			{
+				byte shift=zoomFactor-1;
+				zoomOriginX+=64>>shift;//centered zoom in
+				zoomOriginY+=128>>shift;
+				zoomLimits();
+			}
+			if(grid)
+			{
+				drawZoomGrid();
+				if(UI) displayInfos();
+			}
+			repaintUI();
+		}
+		else if(keyDwn==75) //m for mouse sensitivity
+		{
+			speedDivider++;
+			if(speedDivider>2) speedDivider=0;
+			mouseSens(speedDivider);
+			repaintUI();
+		}
+		else if(keyDwn==1) //1 brush shapes
+		{
+			shape=1;
+			repaintUI();
+		}
+		else if(keyDwn==21) //2
+		{
+			shape=2;
+			repaintUI();
+		}
+		else if(keyDwn==2) //3
+		{
+			shape=3;
+			repaintUI();
+		}
+		else if(keyDwn==55) //, pick draw color
+		{
+			color=pick(tx,ty);
+
+			byte r=peek(bmpPal+color);
+			byte g=peek(bmpPal+16+color);
+			byte b=peek(bmpPal+32+color);
+			if(UI) updateColEd(r,g,b);
+		}
+		else if(keyDwn==76) //, pick eraser color
+		{
+			eraser=pick(tx,ty);
+
+			byte r=peek(bmpPal+eraser);
+			byte g=peek(bmpPal+16+eraser);
+			byte b=peek(bmpPal+32+eraser);
+			if(UI) updateColEd(r,g,b);
+		}
+		else if(keyDwn==15) //g grid
+		{
+			toggleGrid();
+			repaintUI();
+			zoomRefreshAll=true;
+		}
+		else if(keyDwn==33 && FCTN) //FCTN+f for change folder
+		{
+			changeFolder();
+			refreshUI();
+			FCTN=false;//force release to avoid multiple calls
+		}
+		else if(keyDwn==54 && FCTN) //FCTN+n for name file
+		{
+			if(currentImage==MAIN_IMG)
+				enterFileName(&fileName);
+			else if(currentImage==WORK_IMG)
+				enterFileName(&fileName2);
+
+			FCTN=false;
+			refreshUI();
+			if(UI) repaintUI();
+		}
+		else if(keyDwn==17 && FCTN) //FCTN+l for load file
+		{
+			if(hasSelection) deselect();
+			if(currentImage==MAIN_IMG)
+			{
+				enterFileName(&fileName);
+				loadFile(&fileName);
+			}	
+			else if(currentImage==WORK_IMG)
+			{
+				enterFileName(&fileName2);
+				loadFile(&fileName2);
+			}
+			undoInit();
+			FCTN=false;
+			refreshUI();
+			if(UI) repaintUI();
+			zoomRefreshAll=true;
+		}
+		else if(keyDwn==32 && FCTN) //FCTN+s for save file
+		{
+			if(hasSelection) deselect();
+			if(currentImage==MAIN_IMG)
+				saveFile(&fileName);
+			else if(currentImage==WORK_IMG)
+				saveFile(&fileName2);
+			
+			FCTN=false;
+			undoInit();
+		}
+		else if(keyDwn==44 && FCTN) //FCTN+u for undo
+		{
+			if(hasSelection) deselect();
+			hideOverRect();
+			zoomRefreshAll=true;
+			undo();
+		}
+		else if(keyDwn==14 && FCTN) //FCTN+d for redo
+		{
+			if(hasSelection) deselect();
+			hideOverRect();
+			zoomRefreshAll=true;
+			redo();
+		}
+		else if(keyDwn==45 && FCTN) //FCTN+o for copy selection
+		{
+			if(hasSelection)
+			{
+				deselect();
+				hideOverRect();
+				copySelection();
+				displayToolBox();
+			}
+		}
+		else if(keyDwn==66 && FCTN) //FCTN+p for paste selection
+		{
+			currentTool = 11;//paste selection tool
+			getSelectionDim();
+			displayToolBox();
+		}
+		
+		if(zoom) zoomUpdate();
+	}
+	
+	if(keyUp==79) FCTN=false;
+	else if(keyUp==71) ALT=false;
+	else if(keyUp==58 || keyUp==51) SHIFT=false;
+	
+	if(hasSelection)
+	{
+		if(zoom)
+		{
+			toggleSelection(1);
+			zoomRefreshAll=true;
+		}
+		else toggleSelection(150);
+	}
+	
+	if(DEBUG)
+	{
+		byte x=15; byte y=27;
+		curPos(x,y++); print("currentTool: ",currentTool," ");
+		curPos(x,y++); print("toolHold: ",toolHold," ");
+		curPos(x,y++); print("hasSelection: ",hasSelection," ");
+		curPos(x,y++); print("zoom: ",zoom," ");
+		curPos(x,y++); print("inZoom ",inZoom," ");
+		curPos(x,y++); print("zoomFactor: ",zoomFactor," ");
+		curPos(x,y++); print("zoomRefreshAll: ",zoomRefreshAll," ");
+		curPos(x,y++); print("zoomOrg(x,y) ",zoomOriginX,",",zoomOriginY," ");
+		curPos(x,y++); print("(tx,ty) ",tx,",",ty," ");
+		curPos(x,y++); print("(ptx,pty) ",ptx,",",pty," ");
+		curPos(x,y++); print("isMoving: ",isMoving," ");
+		curPos(x,y++); print("isRotatable: ",isRotatable()," ");		
+	}
+}
+
+//exit program
+bmpPage=0x60;
+clrBmp();
+
+ptrShape(0);//back to arrow pointer
+
+mouseSens(0);
+
+//restore initial registers
+import("/system/reginit.dat",0x1100,0);

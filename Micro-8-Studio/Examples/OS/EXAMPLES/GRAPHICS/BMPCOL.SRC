@@ -1,0 +1,16 @@
+
+//Display bitmap palette
+
+nat cpuWin = 0x3000;
+byte bmpPage = 0x60;
+
+memSet(cpuWin,48000,0,bmpPage); //clear bitmap
+
+int step=400/16;
+byte col;
+
+for(int x; x<400; x+=step)
+{
+	box(x,110,x+step,130,col);
+	col++;
+}

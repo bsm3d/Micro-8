@@ -1,0 +1,21 @@
+
+//Text function parameters are passed as references
+
+memSet(0x1200,3200,' ');//clear text
+
+text msg={20};
+msg="Hello ";
+
+void f(text t)
+{
+	text name={10};
+	print("Enter your name: ");
+	input(name,#name);
+	print("");
+	concat(t,name);
+	concat(t,"!");
+}
+
+f(msg);
+print(msg);
+

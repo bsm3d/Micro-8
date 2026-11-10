@@ -1,0 +1,29 @@
+
+//Passing a local array to a function and computing the sum
+
+//Note the size of the array is unknown within the sum() function
+//In this case, it must be passed as a parameter.
+
+//expected result 45
+
+memSet(0x1200,3200,' ');//clear text
+
+
+int sum(int a[], nat size)
+{
+	int acc;
+	for(nat i; i<size; i++)
+	{
+		acc += a[i];
+	}
+	return acc;
+}
+
+void local()
+{
+	int t[10]={0,1,2,3,4,5,6,7,8,9};
+	print(sum(t,#t));
+}
+
+local();
+

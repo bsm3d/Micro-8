@@ -1,0 +1,323 @@
+
+import("/system/reginit.dat",0x1100,0);
+
+nat bmpPal=0x11a0; //bitmap palette
+byte bmpPage=0x60; //default page for bitmap in XSRAM: 0x18000
+nat cpuWindow=0x3000; //default memory mapping (where the cpu sees XSRAM)
+
+// direction table for cars
+real dx[24] = {99,97,87,71,50,26,0,-26,-50,-71,-87,-97,-99,-97,-87,-71,-50,-26,0,26,50,71,87,97};
+real dy[24] = {0,26,50,71,87,97,99,97,87,71,50,26,0,-26,-50,-71,-87,-97,-99,-97,-87,-71,-50,-26};
+
+nat tileAdr= 0x2f0b;
+nat offX= 0x2f01;
+nat offY= 0x2f02;
+nat mapX[2]={1587,1676}; // car start position
+nat mapY[2]={1510,1461}; // car start position
+byte timer;
+
+byte carRotation[2]={21,21}; // rotation cars
+
+byte HALT = 0;
+byte SET = 1;
+byte INC = 2;
+byte DEC = 3;
+byte ADD = 4;
+byte SUB = 5;
+byte OR = 6;
+byte AND = 7;
+byte POS = 8;
+byte NEXT = 9;
+byte NOP = 10;
+
+real maxSpeed[2]={1.2,1.2};
+real accel[2]={0.05,0.05};
+real brake[2]={0.01,0.01};
+real speed[2];
+type rasterInstr {byte opCode; nat word; byte val;};
+
+
+//memCpy(0x3000,0,48000,0x60);  // clear bmp
+memSet(0x1200,3200,' ');			// clear text
+memSet(0x1E80,3200,0);			// clear color text
+
+rasterInstr list[60]={
+
+								{POS, 240, 0},
+								{SET, 0x2f51,0},//at new Y pos  // duplicate #2
+								{SET, 0x2f52,0},//at new Y pos
+								{SET, 0x2f53,0},//at new Y pos
+								{SET, 0x2f55,0},//at new Y pos
+								{SET, 0x2f56,0},//at new Y pos
+								{SET, 0x2f57,0},//at new Y pos
+								{SET, 0x2f59,0},//at new Y pos
+								{SET, 0x2f5A,0},//at new Y pos
+								{SET, 0x2f5B,0},//at new Y pos
+								{SET, 0x2f5D,0},//at new Y pos
+								{SET, 0x2f5E,0},//at new Y pos
+								{SET, 0x2f5F,0},//at new Y pos
+								{SET, 0x2f41,0},//at new Y pos  // duplicate #1
+								{SET, 0x2f42,0},//at new Y pos
+								{SET, 0x2f43,0},//at new Y pos
+								{SET, 0x2f45,0},//at new Y pos
+								{SET, 0x2f46,0},//at new Y pos
+								{SET, 0x2f47,0},//at new Y pos
+								{SET, 0x2f49,0},//at new Y pos
+								{SET, 0x2f4A,0},//at new Y pos
+								{SET, 0x2f4B,0},//at new Y pos
+								{SET, 0x2f4D,0},//at new Y pos
+								{SET, 0x2f4E,0},//at new Y pos
+								{SET, 0x2f4F,0},//at new Y pos							   
+								{OR, tileAdr, 0b00000101},// switch tilemap 1
+								{SET, offX, 7},  // set tiles offset
+								{SET, offY, 0},
+								{NEXT, &list[30], 0},
+								{HALT, 0, 0},//		 
+								{POS, 480, 0},//			
+								{SET, 0x2f51,0},//at new Y pos  // duplicate #2
+								{SET, 0x2f52,0},//at new Y pos
+								{SET, 0x2f53,0},//at new Y pos
+								{SET, 0x2f55,0},//at new Y pos
+								{SET, 0x2f56,0},//at new Y pos
+								{SET, 0x2f57,0},//at new Y pos
+								{SET, 0x2f59,0},//at new Y pos
+								{SET, 0x2f5A,0},//at new Y pos
+								{SET, 0x2f5B,0},//at new Y pos
+								{SET, 0x2f5D,0},//at new Y pos
+								{SET, 0x2f5E,0},//at new Y pos
+								{SET, 0x2f5F,0},//at new Y pos
+								{SET, 0x2f41,0},//at new Y pos  // duplicate #1
+								{SET, 0x2f42,0},//at new Y pos
+								{SET, 0x2f43,0},//at new Y pos
+								{SET, 0x2f45,0},//at new Y pos
+								{SET, 0x2f46,0},//at new Y pos
+								{SET, 0x2f47,0},//at new Y pos
+								{SET, 0x2f49,0},//at new Y pos
+								{SET, 0x2f4A,0},//at new Y pos
+								{SET, 0x2f4B,0},//at new Y pos
+								{SET, 0x2f4D,0},//at new Y pos
+								{SET, 0x2f4E,0},//at new Y pos
+								{SET, 0x2f4F,0},//at new Y pos							
+								{AND, tileAdr, 0b11111011},  // switch tilemap 2
+								{SET, offX, 7},  // set tiles offset
+								{SET, offY, 0},
+								{NEXT, &list[0], 0},//
+								{HALT, 0, 0}};
+
+nat maxX;
+nat maxY;
+
+poke(0x2f00,0b01111111);  			//  init graphmode
+
+fOpen(0,"sprite.spr");
+fRead(0,0x11D0,0,48);  // read palet A
+fRead(0,0x2FA0,0,48);  // read palet B
+fRead(0,0x3000,48,32000,0x20);
+fClose(0);
+
+//areaCpy(0x3000,12,0,0,12,21,0x3000,12,48,0,0x20);
+
+byte tiles[12000];						// buffer size for tilemap
+
+void loadTilemap(text fileName) {   // read tilemap
+	fOpen(0,fileName);			
+maxX=128;
+maxY=64;
+	fRead(0,&maxX,0,2);					// read width
+	fRead(0,&maxY,2,2);					// read height
+	print(maxX,"  ",maxY);
+	fRead(0,&tiles,4,maxX*maxY);		// read map
+	fClose(0);
+}
+
+void loadTileset(text fileName) { 	// read tileset
+	fOpen(0,fileName);			
+	fRead(0,0x1170,0,48);				// read palette
+	fRead(0,0x3000,48,32768,0x00);	// read tileset
+	fClose(0);
+}
+
+void displayMap(nat x1,nat y1,nat x2,nat y2) {  		// display tilemap
+	poke(&list[26]+3,(byte)x1 % 32);  // top screen offset
+	poke(&list[27]+3,(byte)y1 % 32);
+	vSync();
+	areaCpy(&tiles,maxX,x1 >> 5,y1 >> 5,32,9,0x2d00,32,0,0);  // top
+	areaCpy(&tiles,maxX,x2 >> 5,y2 >> 5,32,9,0x2b00,32,0,7);  // bottom
+   poke(&list[56]+3,(byte)x2 % 32);  // bottom screen offset
+   poke(&list[57]+3,(byte)y2 % 32);
+}
+
+// main
+
+loadTilemap("proam.map");
+loadTileset("proam.tls");
+
+void init(){
+	
+// init sprite list
+for (int i=0;i<16;i++){ sprRef((byte)i,(byte)i % 4);sprPal((byte)(i/4),1);sprPal((byte)(i/4)+8,1);}
+
+
+// car #1 top screen
+sprPos(0,376,150);   // car #1
+sprPos(1,424,150);
+sprPos(2,376,192);
+sprPos(3,424,192);
+// car #2 bottom screen
+sprPos(4,376,380);  // car #2
+sprPos(5,424,380);
+sprPos(6,376,422);
+sprPos(7,424,422);
+
+poke(0x11d7,7);poke(0x11e7,7);poke(0x11f7,7);  // palette car #1
+poke(0x11df,0);poke(0x11ef,0);poke(0x11ff,0);
+poke(0x2fa7,7);poke(0x2fb7,0);poke(0x2fc7,7);  // palette car #2
+poke(0x2faf,0);poke(0x2fbf,0);poke(0x2fcf,0);
+
+sprUpdt();
+
+curPos(0,20);
+print("ŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒŒ");
+
+}
+
+
+
+void updateCar(byte car){
+
+
+		// controls car 2
+		if (car==1){
+			if(_padRght&0b00000001==0b00000001) speed[car]+=accel[car]; 
+			if (timer%4==0){
+				if(_padRght&0b01000000==0b01000000) {	
+					if (carRotation[car]>0) carRotation[car]--;  else { carRotation[car]=23;}
+				}
+				if(_padRght&0b10000000==0b10000000) { 
+					if (carRotation[car]<23) carRotation[car]++; else {carRotation[car]=0;}
+   			}
+			} 
+		}
+		else
+		{
+		// controls car 1
+			if(_padLft&0b00000001==0b00000001) {speed[car]+=accel[car];} 
+			if (timer%4==0){				
+				if(_padLft&0b01000000==0b01000000) {	
+					if (carRotation[car]>0) {carRotation[car]--; } else { carRotation[car]=23;}
+				}
+				if(_padLft&0b10000000==0b10000000) { 
+					if (carRotation[car]<23) {carRotation[car]++;} else {	carRotation[car]=0;}
+   			}
+			}
+		}
+			
+speed[car]-=brake[car];  					// acceleration / brake
+if (speed[car]<0){speed[car]=0;}
+if (speed[car]>maxSpeed[car]){speed[car]=maxSpeed[car];}
+
+mapX[car]+=(nat)((dy[carRotation[car]]/10)*speed[car]); 
+mapY[car]-=(nat)((dx[carRotation[car]]/10)*speed[car]);
+  
+// set car rotation in display list
+poke(0x2f20+(car*16),(carRotation[car]*4));
+poke(0x2f20+(car*16)+4,(carRotation[car]*4)+1);
+poke(0x2f20+(car*16)+8,(carRotation[car]*4)+2);
+poke(0x2f20+(car*16)+12,(carRotation[car]*4)+3);
+
+poke(0x2f20+(car*16)+32,(carRotation[car]*4));
+poke(0x2f20+(car*16)+36,(carRotation[car]*4)+1);
+poke(0x2f20+(car*16)+40,(carRotation[car]*4)+2);
+poke(0x2f20+(car*16)+44,(carRotation[car]*4)+3);
+
+
+
+
+if (car==0) {
+	
+int bufX=mapX[0]-mapX[1];     // check if duplicate car out of zone
+int bufY=mapY[0]-mapY[1];
+
+if ((abs(bufX)>500) || (abs(bufY)>200 )){bufX=0;bufY=0;}
+else {
+ bufX+=376;
+ bufY+=380;
+}
+
+byte pal=0b00100000;
+
+// duplicate car #1 display list update
+poke( &list[43]+3, peek(&bufX) );//at new Y pos
+poke( &list[44]+3, peek(&bufY) );//at new Y pos
+poke( &list[45]+3, pal + peek(&bufY+1)<<2 + peek(&bufX+1) );//at new Y pos
+
+
+bufX+=48;
+poke( &list[46]+3, peek(&bufX) );//at new Y pos
+poke( &list[47]+3, peek(&bufY) );//at new Y pos
+poke( &list[48]+3, pal + peek(&bufY+1)<<2 + peek(&bufX+1) );//at new Y pos
+bufX-=48;
+bufY+=42;
+poke( &list[49]+3, peek(&bufX) );//at new Y pos
+poke( &list[50]+3, peek(&bufY) );//at new Y pos
+poke( &list[51]+3,  pal + peek(&bufY+1)<<2 + peek(&bufX+1) );//at new Y pos
+bufX+=48;
+poke( &list[52]+3, peek(&bufX) );//at new Y pos
+poke( &list[53]+3, peek(&bufY) );//at new Y pos
+poke( &list[54]+3,  pal + peek(&bufY+1)<<2 + peek(&bufX+1) );//at new Y pos
+
+ 
+}
+else {
+byte pal=0b00000000;
+
+int bufX=mapX[1]-mapX[0];   // check if duplicate car out of zone
+int bufY=mapY[1]-mapY[0];
+
+if ((abs(bufX)>500) || (abs(bufY)>200 )){bufX=0;bufY=0;}
+else {
+
+ bufX+=376;
+ bufY+=150;
+}
+
+
+// duplicate car  display list update
+poke( &list[1]+3, peek(&bufX) );//at new Y pos
+poke( &list[2]+3, peek(&bufY) );//at new Y pos
+poke( &list[3]+3, pal + peek(&bufY+1)<<2 + peek(&bufX+1) );//at new Y pos
+bufX+=48;
+poke( &list[4]+3, peek(&bufX) );//at new Y pos
+poke( &list[5]+3, peek(&bufY) );//at new Y pos
+poke( &list[6]+3, pal + peek(&bufY+1)<<2 + peek(&bufX+1) );//at new Y pos
+bufX-=48;
+bufY+=42;
+poke( &list[7]+3, peek(&bufX) );//at new Y pos
+poke( &list[8]+3, peek(&bufY) );//at new Y pos
+poke( &list[9]+3, pal + peek(&bufY+1)<<2 + peek(&bufX+1) );//at new Y pos
+bufX+=48;
+poke( &list[10]+3, peek(&bufX) );//at new Y pos
+poke( &list[11]+3, peek(&bufY) );//at new Y pos
+poke( &list[12]+3, pal + peek(&bufY+1)<<2 + peek(&bufX+1) );//at new Y pos
+
+
+							
+}
+}
+
+rstrInt(true); //enable raster interrupts
+rstrCmp(0,&list); //entry point
+init();
+
+while(_keyDwn!=12) {	
+
+
+	//kKey=_keyDwn;
+	timer++;
+	displayMap((nat)mapX[0],(nat)mapY[0],(nat)mapX[1],(nat)mapY[1]);
+	updateCar(0);
+	updateCar(1);
+
+
+mouseUpdt();
+}

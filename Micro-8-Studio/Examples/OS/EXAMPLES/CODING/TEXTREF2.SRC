@@ -1,0 +1,23 @@
+
+//Example of text as ref arg to function
+
+memSet(0x1200,3200,' ');//clear text display
+
+text t={20};
+
+t="Original text";
+
+print(t,"");//original text
+
+print("Addr of t: ",&t,"");//global space
+
+void f(text l)//l is a local variable that contains the address of t
+{
+	//l is essentially a reference to t
+	l="New text";//the new text replaces the referenced one
+	print("Addr held by l: ",peekW(&l),"");//we can dereference using peekW
+}
+
+f(t);
+
+print(t);//modified text

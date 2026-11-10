@@ -1,0 +1,138 @@
+
+//This utility computes the rotation of a sprite over a quarter circle
+//As sprites are 24x21 pixels, the contents should be drawn adequately
+//Use hardware sprite flipping for the other 3 quarters
+
+//init registers
+import("/system/reginit.dat",0x1100,0);
+
+nat cpuWindow=0x3000;
+memSet(cpuWindow,48000,0,0x60);//clear bitmap
+
+import("ship.spr",cpuWindow,256,0x20);//single sprite example
+import("ship.pla",0x11d0,48);
+
+memCpy(0x11d0,0x11a0,48);//copy sprite palette to bmp fo visualization
+
+//copy sprite data to bitmap
+for(byte y; y<21; y++)
+for(byte x; x<12; x++)
+{
+	nat srcAddr=cpuWindow+x+y*12;
+	nat dstAddr=cpuWindow+x+y*200;
+	poke(dstAddr,peek(srcAddr,0x20),0x60);
+}
+
+//let's define a few usefull stuff
+type vec2{real x; real y;};
+
+real dot(vec2 v0, vec2 v1)
+{
+	return v0.x*v1.x+v0.y*v1.y;
+}
+
+vec2 mul(vec2 mr0, vec2 mr1, vec2 v) //matrix passed as 2 row vectors
+{
+	real x = dot(mr0, v);
+	real y = dot(mr1, v);
+	vec2 result={x,y};
+	return result;
+}
+
+vec2 rotate2D(vec2 point, real s, real c)
+{
+	vec2 mr0 = {c,-s};//build 2D rotation matrix
+	vec2 mr1 = {s, c};
+	vec2 result = mul(mr0,mr1,point);
+	return result;
+}
+
+void drawRot(real angle, byte index)
+{
+	real s=sin(angle);
+	real c=cos(angle);
+	
+	for(int y; y<21; y++)
+	for(int x; x<24; x++)
+	{
+		vec2 cpos={x-11,y-10};//centered (assuming center is 11,10)
+		cpos=rotate2D(cpos,s,c);
+		int sx=(int)cpos.x+11;//move back to original pos
+		int sy=(int)cpos.y+10;
+		plot(x+index*24,y,pick(sx,sy));
+	}
+}
+
+real PI=3.1416;
+byte numSteps=9;//including 0 and 90 degrees
+real angleStep=PI/((numSteps-1)*2);
+real angle=angleStep;
+for(byte i=1; i<numSteps-1; i++)//skip first (0) as it is already drawn
+{
+	drawRot(angle,i);
+	angle+=angleStep;
+}
+
+//the last one we draw at a perferct 90 degrees to avoid rounding errors
+for(int y; y<21; y++)
+for(int x; x<24; x++)
+	plot(x+(numSteps-1)*24,y,pick(y,x));
+
+//now copy the sequence back to the sprites memory area
+bmpToSpr(0,0,numSteps,1,0);
+
+//save the sprites sheet
+export("shiprot.spr",cpuWindow,numSteps*256,0x20);
+
+//show the animation. At this point we assume 9 steps rotation
+poke(0x2f00,peek(0x2f00)|0x04);//enable sprites
+sprPos(0,400,240);
+sprPal(0,0);
+
+type ship{byte id; bool flipx; bool flipy;};
+ship anim[32]={{0,false,false},
+				{1,false,false},
+				{2,false,false},
+				{3,false,false},
+				{4,false,false},
+				{5,false,false},
+				{6,false,false},
+				{7,false,false},
+				{8,false,false},
+				{7,false,true},
+				{6,false,true},
+				{5,false,true},
+				{4,false,true},
+				{3,false,true},
+				{2,false,true},
+				{1,false,true},
+				{0,false,true},
+				{1,true,true},
+				{2,true,true},
+				{3,true,true},
+				{4,true,true},
+				{5,true,true},
+				{6,true,true},
+				{7,true,true},
+				{8,true,true},
+				{7,true,false},
+				{6,true,false},
+				{5,true,false},
+				{4,true,false},
+				{3,true,false},
+				{2,true,false},
+				{1,true,false}};
+
+nat count;
+while(_keyDwn!=12)
+{
+	nat frame=(count>>1)%32;
+	sprRef(0,anim[frame].id);
+	sprFlip(0,anim[frame].flipx,anim[frame].flipy);
+	vSync();
+	sprUpdt();
+	count++;
+}
+
+
+

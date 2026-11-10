@@ -1,0 +1,17 @@
+
+//example on how to copy a tile from a tileset to current bitmap
+
+nat cpuWindow = 0x3000;
+byte tilePage = 0x00;
+byte bmpPage = 0x60;
+nat scratchPad = 0xf000;
+
+byte id = 1;//tile index
+
+import("tileset.tls", cpuWindow, 16384, tilePage);
+import("tileset.pal", 0x1170, 48);
+
+areaCpy(cpuWindow+id*256,8,0,0,8,16,scratchPad,8,0,0,tilePage);
+areaCpy(scratchPad,8,0,0,8,16,cpuWindow,200,0,0,bmpPage);
+
+

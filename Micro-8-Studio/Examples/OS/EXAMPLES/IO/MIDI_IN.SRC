@@ -1,0 +1,52 @@
+
+//MIDI Input handling example
+
+memSet(0x1200,3200,' ');//clear screen
+curPos(6,3);
+print("Connect a MIDI device to the MIDI IN port and play some notes !");
+
+text notes[12]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+
+//MIDI is parsed by the system interrupt handler and events are stored
+//in a queue, waiting to be consumed by Lofi program. The queue can hold
+//up to 16 events.
+
+//When events are present in the queue, the midiUpdt() returns true and
+//moves the oldest event to dedicated registers, to be used by Lofi.
+
+//for convenience we will pack all data in a custom type
+type midiEvent
+{
+	byte t;
+	byte ch;
+	byte p1;
+	byte p2;	
+};
+
+//and create a function that returns the entire event from the registers
+midiEvent midiGet()
+{
+	midiEvent mE;
+	mE.t=peek(0xffd0); //Event type (e.g. note ON)
+	mE.ch=peek(0xffd1); //Channel
+	mE.p1=peek(0xffd2); //First parameter (e.g. note number)
+	mE.p2=peek(0xffd3); //Second parameter (e.g. velocity)
+	return mE;
+}
+
+while(_keyDwn != 12)//Esc key to quit
+{
+	if(midiUpdt())//if there is at least an event available in the queue
+	{
+		midiEvent mE=midiGet();//get event
+		if(mE.t==0x90 && mE.p2>0)//check for Note ON event type
+		{
+			print("Note ON: ",notes[mE.p1%12],mE.p1/12,", velocity ",mE.p2,"");
+		}
+		else if(mE.t==0x80 || mE.t==0x90 && mE.p2==0)//some devices send note OFF as note ON with velocity=0
+		{
+			print("Note OFF: ",notes[mE.p1%12],mE.p1/12,"");
+		}
+	}
+}
+

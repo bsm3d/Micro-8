@@ -1,0 +1,99 @@
+
+//This example computes the maximum number of instructions per seconds the
+//Lofi VM is capable of, using the GINC (global increment) instruction.
+
+//As a reference, the Commodore 64's 6510 INC instruction takes 6 cycles.
+//With a 6510 running at 1MHz, the instruction runs effectively at 166 KHz.
+
+//The 6510 is halted every 8 lines for the VIC chip to fetch data from
+//memory, effectively slowing the execution rate to approx 150k IPS.
+
+//Moreover, counting in 16-bit like we do in this example would require
+//several instructions and would effectively reduce the number of execution
+//per second quite significantly.
+
+//Given the higher frequency and low CPI of Micro-8's CPU, the results
+//show a decent 133 K instruction per second (on a 16-bit datatype).
+
+//The takeaway is Lofi programs on Micro-8 execute on-par with assembly
+//programs running on a C64, and several orders of magnitude faster than
+//programs written in BASIC on that machine.
+
+memSet(0x1200,3200,' ');//cls
+
+nat i;
+
+clkSet();//reset timer
+
+for(nat n; n<1000; n++)//increment the value 60000 times
+{
+	i++;//unroll 60 times to reduce the impact of the loop
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+	i++;
+}
+
+nat elapsed = _mSec;
+
+print("It took ",elapsed," miliseconds to count to ",i,".");
+
+print("Lofi can executes up to ",i/elapsed,"K instructions per second.");
+
+
+

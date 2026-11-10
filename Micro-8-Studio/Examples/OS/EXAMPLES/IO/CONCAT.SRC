@@ -1,0 +1,15 @@
+
+//concatenation example
+
+memSet(0x1200,3200,' ');//clear char buffer
+
+void f()
+{
+	text t={12};//12 available chars + null char
+	print("Enter filename without extension: ");
+	input(t,8);
+	concat(t,".bmp");
+	print("Filename with extension: ",t,"");
+}
+
+f();

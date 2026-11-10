@@ -1,0 +1,12 @@
+
+//676 ms
+//.449
+real r=100.0;
+
+clkSet();
+
+for(nat i; i<5000; i++) r/=1.001;
+
+print(_mSec," ms for performing 5000 real type divisions");
+
+print("Result is: ",r);

@@ -1,0 +1,88 @@
+//
+// Boing Ball  David Gervais 29/05/25
+//
+
+memSet(0x1200,3200,' ');//clear text
+
+byte bounce[256];
+byte palCycle[768];
+
+type vec2{int x; int y;};
+
+vec2 pos[30];
+
+byte spr=0;
+byte bouncePos;
+int boingX=50;
+int boingStep=3;
+bool cycleStep=true;
+nat palPos=48;
+
+import("res/back.pal",0x11a0,48);		// background palette
+import("res/back.bmp",0x3000,48000,0x60);   // background bitmap
+import("res/ball.spr",0x3000,8192,0x20);    // ball sprites bitmap
+import("res/bounce.dat",&bounce, 256);      // bouncing table
+import("res/palcycle.dat",&palCycle,768);   // palettes for cycling
+
+poke(0x2F00,0b00010101);		// turn sprites ON
+
+for (int y=0;y<6;y++)			// precompute sprites pos
+{
+	for (int x=0;x<5;x++)
+	{
+		pos[spr].x=x*48;
+		pos[spr].y=260+y*42;
+		sprRef(spr,spr);
+		sprPal(spr,0);
+		spr++;
+	}
+}
+
+//init audio
+synInit(0);
+synVoice(0,3,0,0b11,15);//dpcm
+int sndWait;
+
+void playSound(byte pitch)
+{
+	if (sndWait>10)
+	{
+		synNoteOff(0);
+		sndWait=0;
+	}
+	synNoteOn(0,16,128);//Accoustic Tom
+	poke(0x1112,pitch);//override pitch
+}
+
+while(_keyDwn!=12)			// main loop
+{
+	if (cycleStep) palPos-=48;
+	else palPos+=48;
+
+	if (palPos==720) palPos=48;
+
+	if (palPos==0 ) palPos=672;
+
+	for (byte i=0;i<30;i++) 		// display boing ball
+	{
+		sprPos(i,pos[i].x+boingX,pos[i].y-bounce[bouncePos]);
+	}
+
+	boingX+=boingStep;		// move boing ball
+	bouncePos++; 
+	if (boingX<50 || boingX>600 )
+	{
+		boingStep=-boingStep;
+		cycleStep=!cycleStep;
+		playSound(3);//borders sound
+	}
+	if(bounce[bouncePos]<4) playSound(4);//floor sound
+
+	sndWait++;
+
+	vSync();
+	sprUpdt();
+	memCpy(&palCycle+palPos,0x11D0,48);	// color cycling
+}
+
+

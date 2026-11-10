@@ -1,0 +1,828 @@
+/// Game for Micro-8 computer
+// Jean-arthur Silve 2026
+// License GNU GPL3
+// github.com/ludosevilla
+
+
+nat gfxModes=0x2f00; // Graphics layers
+nat sprPlaA=0x11d0; // First sprite palette
+nat tilPal=0x1170;
+byte sprPage=0x20; // Page def des sprites (defaut)
+byte bmpPage=0x60;// Page bitmap
+byte tilPage=0x00;// Page tiles
+nat setSprPg=0x2f04; // Sprite config register
+nat cpuWindow=0x3000; // Start xsram
+
+// Types
+
+
+type diamSpr {
+	byte sprId;
+	real spRef;
+	int X;
+	int Y;
+	int speedX;
+	int speedY;
+	bool catched;
+};
+
+
+type playerSpr {
+	byte sprId;
+	int X;
+	int Y;
+	byte lastDirection;
+	real spRef;
+};
+
+type bulletSpr {
+	int X;
+	int Y;
+	int speedX;
+	int speedY;
+	byte sprId;
+};
+
+type wolfSpr {
+	int X;
+	int Y;
+	int speed;
+	real spRef;
+	byte sprId;
+	bool enabled;
+};
+
+
+type ghostSpr {
+	int X;
+	int Y;
+	byte a;
+	byte sprId;
+	int speed;
+	real spRef;
+};
+
+type pointsSpr {
+	int X;
+	int Y;
+	byte sprId;
+	byte spRef;
+	nat points;
+};
+
+byte maxBullets=10;
+byte maxWolves = 10;
+byte currWolves;//Current muber of wolves
+
+byte sprIdBullet=15;//Sprite id first bullet 
+byte sprIdWolf=2;//Sprite id first wolf
+
+playerSpr pac;
+diamSpr diam;	
+wolfSpr wolves[10];
+bulletSpr bullets[10];
+ghostSpr inky;
+pointsSpr points[3]={{0,0,12,15,100},
+			{0,0,13,16,200},
+			{0,0,14,17,500}};
+
+
+nat score = 0;
+byte life;
+nat nrj;
+
+int coffreY;
+int coffreX;
+int coffreY1;
+int coffreX1;
+int coffreY2;
+int coffreX2;
+bool touch;
+
+byte tickCnt;
+nat tick;
+nat sndPacTimer=0;
+
+
+text char={1};
+
+// Sound functions
+
+void soundFire(byte voice){
+	
+	synNoteOff(voice);
+	synVoice(voice,2,5,0b11,15); //id,wform,octave,pan,volume
+	synEnv(voice,0,10,0,0);//id,attack,delay,sustain,release
+	synNoteOn(voice,48,120);//voice, note, velocity
+}
+
+void soundBounce(byte voice){
+	
+	synNoteOff(voice);
+	synVoice(voice,0,7,0b11,15); //id,wform,octave,pan,volume
+	synEnv(voice,0,10,0,0);//id,attack,delay,sustain,release
+	synNoteOn(voice,1,120);//voice, note, velocity
+}
+
+void soundRun(byte voice){
+	if (sndPacTimer+10<tick) {
+		sndPacTimer=tick;
+		synNoteOff(voice);
+		synVoice(voice,0,1,0b11,15); //id,wform,octave,pan,volume
+		synEnv(voice,2,2,0,10);//id,attack,delay,sustain,release
+		synNoteOn(voice,100,120);//voice, note, velocity
+	}		
+}
+
+void soundCatch(byte voice){
+	synInit(voice);
+	synNoteOff(voice);
+	synVoice(voice,1,4,0b11,15); //id,wform,octave,pan,volume
+	synEnv(voice,6,2,0,10);//id,attack,delay,sustain,release
+	synNoteOn(voice,97,120);//voice, note, velocity
+}
+	
+void soundRelease(byte voice){
+	synInit(voice);
+	synNoteOff(voice);
+	synVoice(voice,1,4,0b11,15); //id,wform,octave,pan,volume
+	synEnv(voice,6,10,0,10);//id,attack,delay,sustain,release
+	synNoteOn(voice,80,120);//voice, note, velocity
+}	
+	
+// "Ghost" functions
+int _ghostCalcY(int x,int a) {
+	real cycles;
+	real angle;
+	
+	cycles=20.0 -(18.0*a/10.0);
+	angle=(2.0*3.14*cycles*x)/847.0;
+	return (int)(430.0+50.0*sin(angle));
+}		
+	
+void initGhost(){
+	inky.X=0;
+	inky.Y=0;
+	inky.a=0;
+	inky.speed=0;
+	inky.sprId=25;
+	inky.spRef=0;
+}
+
+void moveGhost(){
+	if (inky.X<48) {
+		inky.speed=rnd(2,10);
+		inky.spRef=11;
+		inky.a=10;
+	} else if (inky.X>847) {
+		inky.speed=-rnd(2,10);
+		inky.spRef=13;
+		inky.a=10;
+	}
+	inky.Y=_ghostCalcY(inky.X,inky.a);
+	inky.X+=inky.speed;
+	
+	inky.spRef+=.1;
+	if (inky.speed>0) {
+		if(inky.spRef>=13)
+			inky.spRef=11;
+	} else {
+		if(inky.spRef>=15)
+			inky.spRef=13;
+	}
+	sprRef(inky.sprId,(byte)inky.spRef);
+	sprPos(inky.sprId,inky.X,inky.Y);
+}
+
+	
+// "Player" functions
+
+void initPlayer(){
+	pac.sprId=1;
+	pac.X=400;
+	pac.Y=200;
+	pac.spRef=0;
+	pac.lastDirection=1;
+}
+
+	
+// "Bullets" functions
+
+void initBullets() {
+	for(byte i;i<maxBullets;i++){
+		bullets[i].X=0;
+		bullets[i].Y=0;
+		bullets[i].speedX=0;
+		bullets[i].speedY=0;
+		bullets[i].sprId=sprIdBullet+i;
+		sprPal(bullets[i].sprId,0);
+		sprPrio(bullets[i].sprId,0);
+		sprPos(bullets[i].sprId,bullets[i].X,bullets[i].Y);
+		sprRef(bullets[i].sprId,18);
+	}
+}
+
+void fireBullet() {
+	byte speed=15;
+	for(byte i;i<maxBullets;i++){
+	
+		if (bullets[i].X == 0) {
+			int varX=rnd(-2,2);
+			int varY=rnd(-2,2);
+			if (pac.lastDirection == 1){
+				bullets[i].speedX=speed+varX;
+				bullets[i].speedY=varY;
+			} else if (pac.lastDirection ==5) {
+				bullets[i].speedX=speed+varX;
+				bullets[i].speedY=speed+varY;
+			} else if (pac.lastDirection == 4){
+				bullets[i].speedY=speed+varY;
+				bullets[i].speedX=varX;
+			} else if (pac.lastDirection == 6) {
+				bullets[i].speedX=-speed+varX;
+				bullets[i].speedY=speed+varY;
+			} else if (pac.lastDirection == 2) {
+				bullets[i].speedX=-speed+varX;
+				bullets[i].speedY=varY;
+			} else if (pac.lastDirection == 10) {
+				bullets[i].speedX=-speed+varX;
+				bullets[i].speedY=-speed+varY;
+			} else if (pac.lastDirection == 8) {
+				bullets[i].speedY=-speed+varY;
+				bullets[i].speedX=varX;
+			} else {
+				bullets[i].speedY=-speed+varY;
+				bullets[i].speedX=speed+varX;
+			}
+			
+			bullets[i].X=pac.X;
+			bullets[i].Y=pac.Y;
+						
+			nrj--;
+			soundFire(0);
+			return;
+		}
+	}
+}
+
+void resetBullet(byte i){
+	bullets[i].X=0;
+	bullets[i].Y=0;
+	bullets[i].speedX=0;
+	bullets[i].speedY=0;	
+	sprPos(bullets[i].sprId,bullets[i].X,bullets[i].Y);
+}
+
+void moveBullet(){
+	for(byte i;i<maxBullets;i++){
+		if (bullets[i].X > 0) {	
+			bullets[i].X+=bullets[i].speedX;
+			bullets[i].Y+=bullets[i].speedY;
+			if (bullets[i].X>823 || bullets[i].X<1 || bullets[i].Y>500 || bullets[i].Y<48) {
+				resetBullet(i);
+				break;
+			}	
+			sprPos(bullets[i].sprId,bullets[i].X,bullets[i].Y);
+		}
+	}
+}
+
+
+// "Wolves" functions
+	
+void initWolves(){
+	for(byte i;i<maxWolves;i++){
+		wolves[i].enabled=false;
+		wolves[i].spRef=8;
+		wolves[i].sprId=sprIdWolf+i;
+		sprPos(wolves[i].sprId,0,0);
+		sprPrio(wolves[i].sprId,1);
+	}
+	currWolves=4;
+}
+
+void enableWolves(){
+	byte numWolves;
+	for(byte i;i<currWolves;i++){
+		//we deactivate those who have ended their path
+		if (wolves[i].enabled) {
+			if ((wolves[i].speed>0 && wolves[i].X>8230) || (wolves[i].speed<0 && wolves[i].X<420)) {
+				wolves[i].enabled=false;
+				wolves[i].spRef=8;
+				sprPos(wolves[i].sprId,0,0);
+				sprFlip(wolves[i].sprId,false,false);
+			} else {
+				numWolves++;			
+				wolves[i].X=wolves[i].X+wolves[i].speed;
+				sprPos(wolves[i].sprId,(nat)wolves[i].X/10,(nat)wolves[i].Y/10);
+			}
+		}
+	}
+	if (numWolves<currWolves) {
+		if (rnd(0,50)==5) {
+			for(byte i;i<currWolves;i++){
+				if (!wolves[i].enabled) {
+					wolves[i].enabled=true;
+					wolves[i].Y = rnd(480,5000);
+					wolves[i].speed=rnd(10,30);
+					
+					if (rnd(0,1)==1) {
+						wolves[i].speed =-wolves[i].speed;
+						wolves[i].X=8230;
+						sprFlip(wolves[i].sprId,true,false);
+					} else {
+						wolves[i].X=420;
+						sprFlip(wolves[i].sprId,false,false);
+					}
+					
+					sprPos(wolves[i].sprId,(nat)wolves[i].X/10,(nat)wolves[i].Y/10);
+					break;
+				}
+			}
+		}
+	}
+	
+}
+					
+
+// "Diamond" functions
+
+void initDiam(){
+		diam.sprId=0;
+		diam.X=0;
+		diam.Y=0;
+		diam.speedX=0;
+		diam.speedY=0;
+		diam.spRef=4;
+		diam.catched=false;
+}
+				
+void displayDiam() {
+	diam.X=rnd(42,824)*10;
+	diam.Y=rnd(48,480)*10;
+	sprPos(diam.sprId,(diam.Y/10),(diam.Y/10));
+	diam.speedX= rnd(-30,30);
+	if(diam.speedX==0) diam.speedX=1;
+	diam.speedY= rnd(-30,30);
+	if(diam.speedY==0) diam.speedY=1;
+	diam.catched=false;
+	led(255,255,255);
+}
+
+void moveDiam() {
+	bool snd=false;
+	if (!diam.catched) {
+		diam.X+=diam.speedX;
+		diam.Y+=diam.speedY;
+		if (diam.X>8230 || diam.X<420) {
+			snd=true;
+			diam.speedX=-diam.speedX;
+		}
+		if (diam.Y>5000 || diam.Y<480) {
+			snd=true;
+			diam.speedY=-diam.speedY;
+		}
+	} else {
+		diam.X=pac.X*10;
+		diam.Y=pac.Y*10;
+	}
+
+	sprPos(diam.sprId,(diam.X)/10,(diam.Y)/10);
+	if (snd) {
+		soundBounce(0);
+	}
+}
+
+
+// "Points" function
+void goPoints(nat pt,int X,int Y){
+	for(byte i;i<3;i++){
+		if(points[i].points==pt) {
+			points[i].X=X;
+			points[i].Y=Y;
+			return;
+		}
+	}
+}
+void movePoints(){
+	for (byte i;i<3;i++){
+		if(points[i].Y>0){
+			points[i].Y-=10;
+			sprPos(points[i].sprId,points[i].X,points[i].Y);
+		}
+	}
+}
+
+
+
+// Misc functions
+
+
+void sleep(nat msec) {
+	clkSet();
+	while(_mSec<msec){}
+}
+
+void clearSprites() {
+	for (byte i=0;i<32;i++) {
+		sprPos(i,0,0);
+		sprFlip(i,false,false);
+		sprPrio(i,0);
+	}
+}
+
+		
+void displayScore(bool init) {
+	nat div = 10000;
+
+	byte index;
+	
+	if (init) {
+		curPos(0,0);
+		print("2¬­");
+		curPos(0,1);
+		print("2€");
+		curPos(79,1);
+		print("2€");
+		curPos(0,2);
+		print("2«ª");
+	}
+
+	
+	curPos(1,1);
+	print("2SCORE d");
+	
+	
+	while(div) {
+		index = 48+(byte)((score/div)%10);
+		poke(&char,index);
+		print(char);
+		div/=10;
+	}
+	
+	print(" 2LIFE 9");
+	for(div=0;div<life/2;div++)
+		print(" ");
+	print("0");
+	for(;div<25;div++)
+		print(" ");
+		
+	print(" 2ENERGY d");
+	for(div=0;div<nrj/20;div++)
+		print(" ");
+	print("0");
+	for(;div<25;div++)
+		print(" ");
+		
+		
+	print(" ");
+	
+}
+
+void animSpr() {
+	sprRef(pac.sprId,(byte)pac.spRef);
+	pac.spRef+=.15;
+	if (pac.spRef>=4) pac.spRef=0;
+	sprRef(diam.sprId,(byte)diam.spRef);
+	diam.spRef+=.05;
+	if (diam.spRef>=8) diam.spRef=4;
+	
+	for(byte i;i<maxWolves;i++){	
+		sprRef(wolves[i].sprId,(byte)wolves[i].spRef);
+		wolves[i].spRef+=.15;
+		if (wolves[i].spRef > 11)
+			wolves[i].spRef=8;
+	}
+	movePoints();
+}
+
+
+void _introDraw(byte X,byte Y,nat buffAddr) {
+	nat l;
+	if (Y<0) return;
+	memSet(buffAddr,512,0);
+	for (byte i;i<180;i++) {
+		l = Y+(i/15);
+		if (l<16) {
+			poke(buffAddr+(32*((byte)l))+(byte)X+(i%15),i+1);
+		} else break;
+	}
+}
+	
+void showIntro(){
+	memSet(0x1200,3200,32);//clear screen
+	memSet(0x1e80,3200,1);//clear screen colors
+	memSet(0x2b00,512,0);//clear tiles (buffer A)
+	memSet(0x2d00,512,0);//clear tiles (buffer B)
+	import("res/intro.tls",cpuWindow,23168,tilPage);
+	import("res/intro.pla",tilPal,48);
+		
+	
+	
+	byte X=5;
+	byte Y=15;
+	int offs=30;
+	nat prepareBuffAddr = 0x2d00;//B
+	
+	 _introDraw(X,Y,prepareBuffAddr);	
+	
+	
+	while(true) {
+		vSync();
+		
+		if (offs==30) {
+			if (Y==0) break;
+			offs=0;
+			
+			if (prepareBuffAddr == 0x2b00) {
+				// "A" buffer has been prepared : we display it 
+				poke(0x2f0b,peek(0x2f0b) & 0b11111011);
+				poke(0x2f02,(byte)offs);
+				prepareBuffAddr = 0x2d00;				
+				Y--;
+				_introDraw(X,Y,prepareBuffAddr);
+			} else {
+				// "B" buffer has been prepared : we display it 
+				poke(0x2f0b,peek(0x2f0b) | 0b00000100);
+				poke(0x2f02,(byte)offs);
+				prepareBuffAddr = 0x2b00;
+				Y--;
+				_introDraw(X,Y,prepareBuffAddr);
+			}
+		} else {
+			offs+=2;
+			poke(0x2f02,(byte)offs);
+		}
+	}
+	
+	curPos(36,33);
+	print("de6e7e8e9eaebec93eeef");
+	curPos(25,34);
+	print("1A game for df6f7f8f9fafbfcfdfeff 1computer");
+	curPos(28,35);
+	print("52026 - Jean-arthur Silve");
+	curPos(29,36);
+	print("5github.com/ludosevilla");
+	curPos(24,38);
+	print("bPRESS ANY KEY OR FIRE(A) TO BEGIN");
+	while(_keyDwn==0 && (_padLft & 0b00000001)==0){}
+	memSet(0x1200,3200,32);//clear screen
+	memSet(0x1e80,3200,1);//clear screen colors
+	memSet(0x2b00,512,0);//clear tiles (buffer A)
+	memSet(0x2d00,512,0);//clear tiles (buffer B)
+	poke(0x2f0b,peek(0x2f0b) & 0b11111011); //affichqge buffer A(defaut)
+	sleep(300);
+}
+
+byte game() {
+	nat startTime;
+	memSet(0x1200,3200,32);//clear screen
+	memSet(0x1e80,3200,1);//clear screen colors
+	memSet(0x2b00,512,0);//clear tiles
+	
+	score=0;
+	life= 50;
+	nrj=500;
+	currWolves=4;
+	startTime=_time;
+
+
+	initPlayer();
+	initDiam();
+	
+	sprPal(diam.sprId,0);
+	sprPrio(diam.sprId,0);
+	sprRef(diam.sprId,(byte)diam.spRef);
+	sprPos(diam.sprId,(diam.X)/10,(diam.Y)/10);
+
+	sprPal(pac.sprId,0);
+	sprPrio(pac.sprId,0);
+	sprPos(pac.sprId,pac.X,pac.Y);
+	sprRef(pac.sprId,(byte)pac.spRef);
+
+	for(byte i;i<3;i++) {
+		sprPal(points[i].sprId,0);
+		sprPos(points[i].sprId,points[i].X,points[i].Y);
+		sprPrio(points[i].sprId,0);
+		sprRef(points[i].sprId,points[i].spRef);
+	}
+	
+	initBullets();	
+	initWolves();
+	initGhost();	
+	displayDiam();
+	displayScore(true);
+	
+	coffreY=12;
+	coffreX=rnd(0,22);
+	touch=false;
+	
+	// Display the treasure chest
+	for (byte i=0;i<9;i++) {
+		poke(0x2b00+(32*((byte)coffreY+(i/3)))+(byte)coffreX+(i%3),i+1);
+	}
+
+
+	// Treasure chest coordinates
+	coffreX1 = (16*coffreX)*2;
+	coffreY1 = (16*coffreY)*2;
+	coffreX2 = (16*(coffreX+3))*2;
+	coffreY2 = (16*(coffreY+3))*2;
+
+	sprUpdt();
+
+	while(_keyDwn!=12) {
+		
+		enableWolves();
+		animSpr();
+		moveDiam();
+		moveBullet();
+		moveGhost();
+		if (startTime<_time && currWolves<maxWolves) {
+			currWolves++;
+			startTime=_time +30;
+		}
+		
+		byte dir=0;
+		if (_padLft & 0b10000000) { pac.X+=4;sprFlip(pac.sprId,false,false);dir|=1;}
+			else if (_padLft & 0b01000000) { pac.X-=4;sprFlip(pac.sprId,true,false);dir|=2;}
+		if (_padLft & 0b00100000) { pac.Y+=4;dir|=4;}
+			else if (_padLft & 0b00010000) { pac.Y-=4;dir|=8;}
+		
+		if (pac.X>815) pac.X=815;
+			else if (pac.X<48) pac.X=48;
+		if (pac.Y>480) pac.Y=480;
+			else if (pac.Y<48) pac.Y=48;
+	
+		sprPos(pac.sprId,pac.X,pac.Y);
+		
+		// We keep the last direction of the player
+		// for shoot direction
+		if (dir) {
+			soundRun(1); 
+			pac.lastDirection=dir;
+		}
+		if (_padLft & 0b00000001) {
+			fireBullet();
+		}
+		
+		// Player-diamond collision?
+				
+		if (!diam.catched && isSprSpr(diam.sprId,pac.sprId)) {
+			score+=200;
+			displayScore(false);
+			displayDiam();
+			soundCatch(0);
+			diam.catched=true;
+			led(255,0,0);
+			goPoints(200,pac.X,pac.Y);
+		}
+		
+		// Ghost-player collision?
+		if (isSprSpr(inky.sprId,pac.sprId)) {
+			if (score>10)
+				score-=10;
+			else score=0;
+			displayScore(false);
+		}
+		
+		
+		// Treasure chest-player collision?
+		if (isSprBox(pac.sprId,coffreX1,coffreY1,coffreX2,coffreY2)) {
+			if (!touch && diam.catched) {
+				soundRelease(0);
+				touch=true;
+				score+=500;
+				goPoints(500,pac.X,pac.Y);
+				nrj+=50;
+				if (nrj>500) nrj=500;
+				displayScore(false);
+				displayDiam();
+			}
+		} else touch=false; 
+
+		
+		for(byte i;i<maxWolves;i++) {
+			if (wolves[i].enabled && wolves[i].speed<100 && wolves[i].speed>-100) {
+				// Wolf-player collision?
+				if (isSprSpr(pac.sprId,wolves[i].sprId)) {
+					life--;
+					displayScore(false);
+					if (life==0)
+						break;
+					wolves[i].speed =-wolves[i].speed;
+					wolves[i].X+=(wolves[i].speed)*10;
+					if (wolves[i].speed<0)
+						sprFlip(wolves[i].sprId,true,false);
+					else
+						sprFlip(wolves[i].sprId,false,false);
+					sprPos(wolves[i].sprId,(nat)wolves[i].X/10,(nat)wolves[i].Y/10);
+					if (diam.catched) {
+						displayDiam();
+					}
+				}
+				// Wolf-diamond collision?
+				if (!diam.catched && isSprSpr(diam.sprId,wolves[i].sprId)) {
+					displayDiam();
+				}
+				// Wolf-bullet collision?
+				for(byte j;j<maxBullets;j++){
+					if(bullets[j].X>0){
+						if (isSprSpr(bullets[j].sprId,wolves[i].sprId)) {
+							score+=100;
+							goPoints(100,wolves[i].X/10,wolves[i].Y/10);
+							if (wolves[i].speed>0) {
+								wolves[i].speed=100;
+								sprFlip(wolves[i].sprId,false,true);
+							} else {
+								wolves[i].speed=-100;
+								sprFlip(wolves[i].sprId,true,true);
+							}
+							resetBullet(j);
+							displayScore(false);
+						}
+					}
+				}
+			}
+		}
+	
+		vSync();
+		sprUpdt();	
+		tick++;
+		if (life==0 || nrj==0) {
+			curPos(27,14);
+			print("9b–“““““““““““““““““““““““—");
+			curPos(27,15);
+			print("9b’5   G A M E   O V E R   b”");
+			curPos(27,16);
+			print("9b™•••••••••••••••••••••••˜");
+			curPos(21,19);
+			print("bPRESS ANY KEY OR FIRE(A) TO PLAY AGAIN");
+			curPos(33,20);
+			print("bOR ESC TO QUIT");
+			clkSet();
+			
+			
+			sleep(300);
+			while(true) {
+				if (_keyDwn==12)
+					return 0;
+				if ((_padLft & 0b00000001)>0) {
+					sleep(300);
+					return 1;
+				}
+			}
+		}
+	}
+	return 0;
+
+}
+
+import("/system/reginit.dat",0x1100,0);
+synInit(0);
+synInit(1);
+rndSeed(_time);
+
+clearSprites();
+
+poke(gfxModes,0b00010100); // Sprite & text only
+// Bgcolor save
+byte oldR=peek(0x2f13);
+byte oldG=peek(0x2f14);
+byte oldB=peek(0x2f15);
+poke(0x2f13,0);
+poke(0x2f14,0);
+poke(0x2f15,0);
+poke(0x2f0b,peek(0x2f0b)&0b01111111);// No mouse
+
+import("res/backg.bmp",0x3000,48000,bmpPage);
+import("res/backg.pal",0x11a0,48);
+poke(gfxModes,peek(gfxModes)|0b00001001);
+
+import("res/pac.spr",cpuWindow,5120,sprPage);
+import("res/pac.pla",sprPlaA,48);
+
+showIntro();
+
+import("res/coffre.tls",cpuWindow,1280,tilPage);
+import("res/coffre.pla",tilPal,48);
+
+while(game()){}
+
+// Exiting
+
+memSet(0x3000,48000,0,bmpPage);// Clear bitmap
+
+import("/system/reginit.dat",0x1100,0);
+
+// Restore bgcolor
+poke(0x2f13,oldR);
+poke(0x2f14,oldG);
+poke(0x2f15,oldB);
+
+memSet(0x1200,3200,32);//clear screen
+memSet(0x1e80,3200,1);//clear screen
+clearSprites();
+
+print("d                  e6e7e8e9eaebec93eeef");
+print("1Thanks for using  df6f7f8f9fafbfcfdfeff 1computer!");

@@ -1,0 +1,46 @@
+
+//Draws sine waves of various colors and frequencies
+
+memSet(0x3000,48000,0,0x60);//clear bitmap
+
+real PI=3.1416;
+real div;
+
+void setDiv(real n) //compute the width to radiant ratio
+{
+	div=400.0/(n*2*PI);
+}
+
+int pSin(int x) //compute the y position as a function of x
+{
+	return 120-(int)(sin(((real)x)/div)*100.0);
+}
+
+void drawWave(byte c)
+{
+	for(int x; x<400; x++)
+	{
+		draw(x,pSin(x),c);
+	}
+}
+
+void wave(real n, byte c)
+{
+	skip(0,120);
+	setDiv(n);
+	drawWave(c);
+}
+
+wave(3,4);
+wave(1,13);
+wave(.5,10);
+
+
+
+
+
+
+
+
+
+

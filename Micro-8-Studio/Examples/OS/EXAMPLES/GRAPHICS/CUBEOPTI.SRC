@@ -1,0 +1,84 @@
+
+//Rotating cube
+//By Fabrice Lete
+
+//Optimized version @30fps without clearing the entire screen
+
+nat cpuWindow=0x3000;
+byte bmpPageA=0x60;//double buffer
+byte bmpPageB=0x8f;
+
+nat bmpDrawReg=0x2f16;
+nat bmpDisplayReg=0x2f05;
+
+memSet(cpuWindow,48000,0,bmpPageA);//clear bitmap buffers
+memSet(cpuWindow,48000,0,bmpPageB);
+bool swapState;
+void swap()
+{
+	if(swapState)
+	{
+		poke(bmpDisplayReg,bmpPageA);//display
+		poke(bmpDrawReg,bmpPageB);//draw
+	}
+	else
+	{
+		poke(bmpDisplayReg,bmpPageB);//display
+		poke(bmpDrawReg,bmpPageA);//draw
+	}
+	swapState=!swapState;
+}
+swap();
+
+real TWOPI = 3.1416 * 2;
+real STEP = TWOPI/100;
+
+int vt[16];//transformed vertices
+int vp[16];//previous vertices (to clear)
+
+byte e[24]={0,1,1,3,3,2,2,0,4,5,5,7,7,6,6,4,0,4,1,5,3,7,2,6};
+
+real rot;
+
+void renderCube(byte col, int v[])
+{
+	for(int i;i<#e;i+=2)
+	{
+		byte a=e[i]<<1;
+		byte b=e[i+1]<<1;
+		line(v[a],v[a+1],v[b],v[b+1],col);
+	}
+}
+clkSet();
+
+while(_keyDwn!=12)
+{
+	real s=sin(rot);
+	real c=cos(rot);
+	for(int i;i<8;i++)
+	{
+		real x=i&1<<1-1;
+		real y=i&2-1;
+		real z=i&4>>1-1;
+		real tx=c*x-s*z;
+		real ty=s*-s*x+c*y+c*-s*z;
+		real tz=s*c*x+s*y+c*c*z;
+		tz+=s*6+10;
+		int i2=i<<1;
+		vt[i2]=200+(int)(tx*400/tz/1.666);
+		vt[i2+1]=120+(int)(ty*240/tz);
+	}
+	renderCube(4,vt);
+	curPos(0,0);
+	print(_mSec," ms");
+
+	vSync();
+	clkSet();
+	swap();
+
+	renderCube(0,vp);//clear previous
+	memCpy(&vt,&vp,32);//store for next clear
+
+	rot+=STEP;
+	if(rot>=TWOPI) rot=0.0;
+}

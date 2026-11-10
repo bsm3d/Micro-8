@@ -1,0 +1,97 @@
+
+//   ÐŒ” ¤ ”
+//   “Ñ” ’¤ ”à
+//   £á” ’™§” ‹
+
+// By Fabrice Lete
+
+nat alen=20;
+nat blen=20;
+nat asnek[256];
+nat bsnek[256];
+byte head;
+byte amove=4;
+byte bmove=4;
+byte food=0x66;
+nat ax=60;
+nat ay=60;
+nat bx=140;
+nat by=60;
+memSet(0x3000,48000,0,0x60);
+vCount(4);
+nat pos2mem(nat x, nat y) { return 0x3000+x+y*400; }
+void spawn() {
+	while(true) {
+		nat pos=pos2mem(rnd(0,199),rnd(0,119));
+		if(peek(pos, 0x60)==0) {
+			poke(pos, food, 0x60);
+			poke(200+pos, food, 0x60);
+			break;
+		}
+	}
+}
+for(int i=0;i<10;i++) { spawn(); }
+while(_keyDwn!=12) {
+	vSync();
+	nat apos=pos2mem(ax,ay);
+	byte awat=peek(apos, 0x60);
+	if(awat==food) {
+		spawn();
+		alen+=10;
+	} else
+	if(awat!=0) break;
+	poke(apos, 0x22, 0x60);
+	poke(200+apos, 0x22, 0x60);
+	asnek[head]=apos;
+
+	nat bpos=pos2mem(bx,by);
+	byte bwat=peek(bpos, 0x60);
+	if(bwat==food) {
+		spawn();
+		blen+=10;
+	} else
+	if(bwat!=0) break;
+	poke(bpos, 0x44, 0x60);
+	poke(200+bpos, 0x44, 0x60);
+	bsnek[head]=bpos;
+
+	head++;
+
+	nat aclr=asnek[(head+256-alen)%256];
+	if(peek(aclr, 0x60)==0x22) {
+		poke(aclr, 0, 0x60);
+		poke(200+aclr, 0, 0x60);
+	}
+	nat bclr=bsnek[(head+256-blen)%256];
+	if(peek(bclr, 0x60)==0x44) {
+		poke(bclr, 0, 0x60);
+		poke(200+bclr, 0, 0x60);
+	}
+
+	if(amove!=2 && _keyDwn==59) amove=1; // 
+	if(amove!=1 && _keyDwn==57) amove=2; // 
+	if(amove!=8 && _keyDwn==77) amove=4; // 
+	if(amove!=4 && _keyDwn==80) amove=8; // 
+
+	if(amove!=2 && _padLft&0x80) amove=1;
+	if(amove!=1 && _padLft&0x40) amove=2;
+	if(amove!=8 && _padLft&0x10) amove=4;
+	if(amove!=4 && _padLft&0x20) amove=8;
+
+	if(bmove!=2 && _padRght&0x80) bmove=1;
+	if(bmove!=1 && _padRght&0x40) bmove=2;
+	if(bmove!=8 && _padRght&0x10) bmove=4;
+	if(bmove!=4 && _padRght&0x20) bmove=8;
+
+	ax+=amove&1 - amove&2>>1;
+	ay+=amove&8>>3 - amove&4>>2;
+
+	ax=(ax+200)%200;
+	ay=(ay+120)%120;
+
+	bx+=bmove&1 - bmove&2>>1;
+	by+=bmove&8>>3 - bmove&4>>2;
+
+	bx=(bx+200)%200;
+	by=(by+120)%120;
+}

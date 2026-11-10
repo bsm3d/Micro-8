@@ -1,0 +1,29 @@
+
+//Static sprites example
+
+nat gfxModes=0x2f00; //graphics modes register
+poke(gfxModes,peek(gfxModes)|0b00000100); //enable sprites
+
+nat sprPalA=0x11d0; //first sprite palette
+nat sprPalB=0x2fa0; //second sprite palette (not used in this example)
+
+byte sprPage=0x20; //default page for sprites in SRAM: 0x08000
+
+nat cpuWindow=0x3000; //default memory mapping (where the cpu sees XSRAM)
+
+import("res/sprites.spr", cpuWindow, 16384, sprPage);
+import("res/sprites.pla", sprPalA, 48);
+
+for(byte i; i<32; i++)
+{
+	sprPal(i,0);
+	sprPrio(i,0);
+	sprRef(i,i%2);//only two sprites in this set. Deferred.
+	int x=50+i*24;
+	int y=220+(int)(sin((real)i/4)*100.0);
+	sprPos(i,x,y);//set position in sprite cache. Deferred.
+	sprFlip(i,(i%2==0),false);
+}
+
+sprUpdt();//update sprite deferred data
+

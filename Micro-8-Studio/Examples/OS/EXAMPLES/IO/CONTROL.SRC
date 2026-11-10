@@ -1,0 +1,65 @@
+
+//Sprites control test
+//Load some sprite example prior to running this test
+
+
+int spr0x=376;
+int speed=1;
+
+int spr2x=52; int spr2y=42;int spr3x=100; int spr3y=100;
+
+while(_keyDwn!=12)
+{
+	poke(0x11a0,0); //changes background color to show raster time
+
+	if(spr0x>800 || spr0x<48) speed = -speed;
+	spr0x+=speed;
+	sprPos(0,spr0x,261); //first sprite bounces left and right
+	mouseUpdt();	
+	sprPos(1,_mouseX,_mouseY); //second sprite follows mouse
+
+	if(_padLft&0b00010000==0b00010000) spr2y--;
+	if(_padLft&0b00100000==0b00100000) spr2y++;
+	if(_padLft&0b01000000==0b01000000) spr2x--;
+	if(_padLft&0b10000000==0b10000000) spr2x++;
+	sprPos(2,spr2x,spr2y);//third sprite moves with left controller
+
+	if(_padRght&0b00010000==0b00010000) spr3y--;
+	if(_padRght&0b00100000==0b00100000) spr3y++;
+	if(_padRght&0b01000000==0b01000000) spr3x--;
+	if(_padRght&0b10000000==0b10000000) spr3x++;
+	sprPos(3,spr3x,spr3y);//fourth sprite moves with right controller
+
+	if(_padLft&0b00001111 > 0) print(_padLft,"");
+
+	poke(0x11a0,5); //resets background color
+
+	vSync();
+	sprUpdt();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

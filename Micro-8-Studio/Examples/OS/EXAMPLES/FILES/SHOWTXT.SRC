@@ -1,0 +1,32 @@
+
+// This examples shows how to use low level file functions to display
+// a text file
+
+memSet(0x1200,3200,' ');
+curPos(0,0);
+
+nat offset;
+byte value;
+text t={1};
+
+fOpen(0,"res/text.txt");//open file with descriptor 0
+
+if(_fError!=0)
+{
+	print("Error opening file");
+	print("Error code: ",_fError,"");
+}
+else
+{
+	nat size=fSize(0);
+	while(offset<size)
+	{
+		fRead(0,&value,offset++,1); //get a single byte and move forward
+		if (value==10) print(""); //newline
+		else if (value==0) break; //eof
+		poke(&t,value);
+		print(t);
+	}
+}
+
+fClose(0);

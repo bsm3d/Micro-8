@@ -1,0 +1,31 @@
+
+//Simple draw program
+
+memSet(0x1200,3200,' ');//clear glyph buffer
+memSet(0x3000,48000,0,0x60);//clear bitmap
+ptrShape(1);//reticle
+
+byte color = 1;
+bool hold = false;
+while(_keyDwn!=12)//esc to exit
+{
+	mouseUpdt();//update mouse buffered position
+	if(_mouse==1) draw(_mouseX>>1, _mouseY>>1, color%16);//left button draw
+	if(_mouse==2) draw(_mouseX>>1, _mouseY>>1, 0);//right button erase
+	if(_mouse==3 && !hold)//middle button change color
+	{
+		color++;
+		hold = true;
+	}
+	if(_mouse==0)
+	{
+		skip(_mouseX>>1, _mouseY>>1);
+		hold = false;
+	}
+}
+
+memSet(0x3000,48000,0,0x60);//clear bitmap
+ptrShape(0);//back to arrow
+
+
+

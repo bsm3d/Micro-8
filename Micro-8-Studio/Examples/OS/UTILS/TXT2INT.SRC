@@ -1,0 +1,25 @@
+
+//Text to integer function you can copy to your own programs
+
+int txt2Int(nat addr)
+{
+	byte size;
+	while(peek(addr+size)!=0) size++;
+	int acc;
+	int rank=1;
+	for(int i=size-1; i>=0; i--)//from right to left
+	{
+		int val=peek(addr+(nat)i)-48;//ASCII to numeric value
+		if(val<0 || val>9)continue;//skip non numeric character
+		acc+=val*rank;
+		rank*=10;//next decimal rank
+	}
+	return acc;
+}
+
+text t="123";
+
+int i=txt2Int(&t);
+
+print(i);
+

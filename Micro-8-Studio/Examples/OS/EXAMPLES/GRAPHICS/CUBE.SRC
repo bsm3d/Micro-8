@@ -1,0 +1,89 @@
+
+
+//Rotating cube
+//By Fabrice Lete
+
+nat cpuWindow=0x3000;
+byte bmpPageA=0x60;//double buffer
+byte bmpPageB=0x8f;
+
+nat bmpDrawReg=0x2f16;
+nat bmpDisplayReg=0x2f05;
+
+memSet(cpuWindow,48000,0,bmpPageA);//clear bitmap buffers
+memSet(cpuWindow,48000,0,bmpPageB);
+bool swapState;
+void swap()
+{
+	if(swapState)
+	{
+		poke(bmpDisplayReg,bmpPageA);//display
+		poke(bmpDrawReg,bmpPageB);//draw
+	}
+	else
+	{
+		poke(bmpDisplayReg,bmpPageB);//display
+		poke(bmpDrawReg,bmpPageA);//draw
+	}
+	swapState=!swapState;
+}
+swap();
+
+real TWOPI = 3.1416 * 2;
+real STEP = TWOPI/100;
+
+int v[16];
+byte e[24]={0,1,1,3,3,2,2,0,4,5,5,7,7,6,6,4,0,4,1,5,3,7,2,6};
+real rot;
+clkSet();
+while(_keyDwn!=12)
+{
+	real s=sin(rot);
+	real c=cos(rot);
+	real xa[3]={c,0,s};
+	real ya[3]={0,1,0};
+	real za[3]={-s,0,c};
+	real xb[3]={1,0,0};
+	real yb[3]={0,c,s};
+	real zb[3]={0,-s,c};
+	real xaxis[3];
+	real yaxis[3];
+	real zaxis[3];
+	xaxis[0]=xa[0]*xb[0]+xa[1]*yb[0]+xa[2]*zb[0];
+	xaxis[1]=xa[0]*xb[1]+xa[1]*yb[1]+xa[2]*zb[1];
+	xaxis[2]=xa[0]*xb[2]+xa[1]*yb[2]+xa[2]*zb[2];
+	yaxis[0]=ya[0]*xb[0]+ya[1]*yb[0]+ya[2]*zb[0];
+	yaxis[1]=ya[0]*xb[1]+ya[1]*yb[1]+ya[2]*zb[1];
+	yaxis[2]=ya[0]*xb[2]+ya[1]*yb[2]+ya[2]*zb[2];
+	zaxis[0]=za[0]*xb[0]+za[1]*yb[0]+za[2]*zb[0];
+	zaxis[1]=za[0]*xb[1]+za[1]*yb[1]+za[2]*zb[1];
+	zaxis[2]=za[0]*xb[2]+za[1]*yb[2]+za[2]*zb[2];
+	for(int i;i<8;i++)
+	{
+		real x=i&1<<1-1;
+		real y=i&2-1;
+		real z=i&4>>1-1;
+		real tx=xaxis[0]*x+yaxis[0]*y+zaxis[0]*z;
+		real ty=xaxis[1]*x+yaxis[1]*y+zaxis[1]*z;
+		real tz=xaxis[2]*x+yaxis[2]*y+zaxis[2]*z;
+		tz=tz+s*6+10;
+		v[i*2]=200+(int)(tx*400/tz/1.666);
+		v[i*2+1]=120+(int)(ty*240/tz);
+	}
+	curPos(0,0);
+	print(_mSec," ms");
+	vSync();
+	clkSet();
+
+	swap();
+	memSet(cpuWindow,48000,0,peek(bmpDrawReg));//clear
+	for(int i;i<12;i++)
+	{
+		byte a=e[i*2];
+		byte b=e[i*2+1];
+		line(v[a*2],v[a*2+1],v[b*2],v[b*2+1],4);
+	}
+	rot+=STEP;
+	if(rot>=TWOPI) rot=0.0;
+}
+

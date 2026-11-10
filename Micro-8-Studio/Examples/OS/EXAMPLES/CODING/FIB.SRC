@@ -1,0 +1,21 @@
+
+//Displays the 20 first numbers of the fibonacci series
+//using a recursive function
+
+memSet(0x1200,3200,' ');//clear text
+
+nat fib(nat n)
+{
+	if(n<=1) return n;
+	else return fib(n-1)+fib(n-2);
+}
+
+void main()
+{
+	for(byte i; i<20; i++)
+	{
+		print(fib(i),"");
+	}
+}
+
+main();

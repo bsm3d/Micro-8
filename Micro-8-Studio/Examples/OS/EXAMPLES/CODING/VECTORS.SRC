@@ -1,0 +1,34 @@
+
+//Example functions with custom type as arg/return value
+//Expected result: 0.707
+
+memSet(0x1200,3200,' ');//clear text
+
+
+type vec2{real x; real y;}; //define a custom vector type
+
+real dot(vec2 v1, vec2 v2) //compute dot product of vectors
+{
+	return v1.x*v2.x+v1.y*v2.y;
+}
+
+real length(vec2 v) //compute length of vector
+{
+	return sqrt(v.x*v.x+v.y*v.y);
+}
+
+vec2 norm(vec2 v) //normalize vector (magnitude=1)
+{
+	vec2 o;
+	real l=length(v);
+	o.x=v.x/l;
+	o.y=v.y/l;
+	return o;
+}
+
+vec2 L={1.0,1.0};
+L=norm(L);
+
+vec2 N={0.0,1.0};
+
+print(dot(N,L));

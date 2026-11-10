@@ -1,0 +1,12 @@
+
+
+//clock example
+memSet(0x1200,3200,' ');//clear char buffer
+
+nat t=_time;
+nat hours=t/3600;
+nat minutes=(t%3600)/60;
+nat seconds=(t%3600)%60;
+
+print("Running time: ",hours,":",minutes,":",seconds);
+

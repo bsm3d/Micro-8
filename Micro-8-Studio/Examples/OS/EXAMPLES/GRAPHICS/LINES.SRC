@@ -1,0 +1,12 @@
+
+// Random lines demo
+
+nat cpuWin=0x3000;
+
+memSet(cpuWin,48000,0,0x60);//clear bitmap
+
+while(_keyDwn!=12)
+{
+	line(rnd(0,399),rnd(0,239),rnd(0,399),rnd(0,239),rnd(0,15));
+}
+

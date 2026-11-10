@@ -1,0 +1,39 @@
+
+// Knight Rider's KITT LED effect
+
+// For common cathode red LED array
+// No need for current limiting resistors as the pins max output is 20 mA
+// If you use VCC (3.3v pin 1), total current must be limited to 150mA max!
+
+// User port pin 1 (3.3v) unused
+// User port pin 2 Àšå
+// User port pin 3 Àšœ
+// User port pin 4 Àšœ
+// User port pin 5 Àšœ
+// User port pin 6 Àšœ
+// User port pin 7 Àšœ
+// User port pin 8 Àšœ
+// User port pin 9 Àšœ
+// User port pin 10 (Ground)ñ
+
+portDir(0xff);//all pins as output
+
+vCount(2);//slowdown effect by counting 2 vsync (30 Hz)
+
+byte val=1;
+bool dir=true; //upwards
+
+while(_keyDwn!=12)
+{
+	portSet(val);
+
+	if(dir) val<<=1;
+	else val>>=1;
+
+	if(val==128 || val==1) dir = !dir;
+
+	vSync();
+}
+
+vCount(1);//back to default
+
