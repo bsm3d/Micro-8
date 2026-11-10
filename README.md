@@ -28,6 +28,7 @@ Projects for the **Micro-8**, an 8-bit retro computer programmed in its own C-li
 |---|---|
 | [`SidRush/`](SidRush) | **Sid Rush**, a C64-style music demo and cracktro, the first demo written for the Micro-8 |
 | [`Tracker/`](Tracker) | **Micro-8 Tracker 0.1**, an 8-track pattern tracker, and a standalone player |
+| [`Micro-8-Studio/`](Micro-8-Studio) | **Micro-8 Studio**, the development environment for Windows: editor, debugger, emulator and tools ([download](https://github.com/bsm3d/Micro-8/releases/latest)) |
 
 ## Notes
 
