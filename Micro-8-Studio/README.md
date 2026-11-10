@@ -8,8 +8,7 @@ digital synth, tiles, sprites, raster, mouse, gamepad, MIDI), and dedicated tool
 screen / sound / image editors).
 
 This repository distributes the **compiled** application. No source code, console ROMs or FPGA code are
-included: those remain the property of Franck Sauer and are provided with his agreement, encrypted inside the
-application.
+included.
 
 ## Download
 
