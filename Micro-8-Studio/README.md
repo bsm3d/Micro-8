@@ -24,14 +24,14 @@ No Python installation or other dependency is needed: everything is included.
 ### SHA-256 checksums
 
 ```
-7b29a1f4def94c72cb14ffb567b0847a1a9ae225495bd79f5ac89a0f85d1134a  Micro8Studio-1.0.0-win64-portable.zip
-6b26167de5abdaf09b5e6055b7a651d95a10d675fbfafc61314a2240e44576f6  Micro8Studio-1.0.0-Setup.exe
+0bee59ef1e0c89aa17d73d218a9fb36e6cb9cb385d6094c7bdfb3d40d3e7d3e2  Micro8Studio-1.0.0-win64-portable.zip
+b007626caeea861654a69e5015aea8071b979dcfa4927cf4a2d7d7bff0a3916d  Micro8Studio-1.0.0-Setup.exe
 ```
 
 ## Documentation
 
-- [`docs/Studio_README_en.md`](docs/Studio_README_en.md): the Micro-8 Studio manual (editor, debugger, emulator,
-  tools).
+- [`docs/Studio_README_en.md`](docs/Studio_README_en.md) / [`docs/Studio_README_fr.md`](docs/Studio_README_fr.md):
+  the Micro-8 Studio manual (editor, debugger, emulator, tools), in English and French.
 - [`docs/Micro-8_User_Manual.md`](docs/Micro-8_User_Manual.md): the reference manual for the Micro-8 console
   (Lofi language, API, hardware).
 
