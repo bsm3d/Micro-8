@@ -1,0 +1,26 @@
+
+//This example shows how to copy an array of tiles from a bitmap image
+//to a native tileset file
+
+nat cpuWindow = 0x3000;
+byte bmpPage = 0x20;
+byte tilePage = 0x00;
+
+//in this example we copy 8x2 tiles from the bitmap to the tileset
+
+byte x = 8;
+byte y = 2;
+nat tileSetSize = x*y*256;
+
+byte index=0;//destination index in the tileset
+
+//load source image
+import("tileset.bmp", cpuWindow, 48000, bmpPage);
+
+bmpToTile(0,0,x,y,index,1);//8 tiles in width, 2 tiles in height
+
+//save native tileset
+export("tileset.tls", cpuWindow+index*256, tileSetSize, tilePage);
+
+
+

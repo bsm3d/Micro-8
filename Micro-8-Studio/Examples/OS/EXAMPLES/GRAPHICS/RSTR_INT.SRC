@@ -1,0 +1,65 @@
+
+//Simple raster interrupt example using the built-in display list system
+
+//In this example, we will change the background color mid-frame
+
+poke(0x2f00,peek(0x2f00)&0b11111110);//disable bitmap to show background
+
+nat backR = 0x2f13;//background color registers
+nat backG = 0x2f14;
+nat backB = 0x2f15;
+
+poke(backR,5); poke(backG,5); poke(backB,5);//set to middle grey (default)
+
+//A hardware raster line comparator is setup to trigger an interrupt
+//when the raster refresh reaches a specific line.
+
+//Once triggered, a list of instructions are executed by the interrupt
+//handler.
+
+//The instruction format is:
+//	opcode
+//	word (either an address or a 16bit value depending on opcode)
+//	8bit value
+
+//Raster instruction opcodes for convenience (see manual for more info):
+byte HALT = 0;
+byte SET = 1;
+byte INC = 2;
+byte DEC = 3;
+byte ADD = 4;
+byte SUB = 5;
+byte OR = 6;
+byte AND = 7;
+byte POS = 8;
+byte NEXT = 9;
+byte NOP = 10;
+
+//we define a custom type that matches the instruction format
+type rasterInstr {byte opCode; nat word; byte val;};
+
+//and create a display list in memory
+rasterInstr list[10]={	{SET, backR, 7},//	ÅÅä
+								{SET, backG, 7},//		Ä
+								{POS, 240, 0},//			Ä
+								{NEXT, &list[5], 0},//ÅäÄNext interrupt entry point
+								{HALT, 0, 0},//		  ÄÄ
+								{SET, backR, 0},//   ÅáÄ
+								{SET, backG, 0},//		Ä
+								{POS, 480, 0},//			Ä
+								{NEXT, &list[0], 0},//ÅÅá
+								{HALT, 0, 0}};
+
+rstrInt(true); //enable raster interrupts
+rstrCmp(480,&list); //entry point
+
+while(_keyDwn != 12)
+{
+	//main loop goes here
+	memCpy(0x3000,0x300f,160,0x8f);
+}
+
+//rstrInt(false); //disable raster interrupts
+
+//poke(0x2f00,peek(0x2f00)|1);//enable bitmap
+//poke(backR,5); poke(backG,5); poke(backB,5);//reset background color to default

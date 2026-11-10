@@ -1,0 +1,137 @@
+
+//Raster bars example using the built-in display list system
+
+//Check rstr_int.src first for a simpler example!
+
+poke(0x2f00,peek(0x2f00)|0b00100000);//enable bitmap transparency
+
+nat bmpPal=0x11a0; //bitmap palette
+byte bmpPage=0x60; //default page for bitmap in XSRAM: 0x18000
+nat cpuWindow=0x3000; //default memory mapping (where the cpu sees XSRAM)
+
+//load background image
+import("res/tree.bmp", cpuWindow, 48000, bmpPage);
+import("res/tree.pal", bmpPal, 48);
+
+nat backR = 0x2f13;//background color registers
+nat backG = 0x2f14;
+nat backB = 0x2f15;
+
+//Raster instruction opcodes for convenience (see manual for more info):
+byte HALT = 0;
+byte SET = 1;
+byte INC = 2;
+byte DEC = 3;
+byte ADD = 4;
+byte SUB = 5;
+byte OR = 6;
+byte AND = 7;
+byte POS = 8;
+byte NEXT = 9;
+byte NOP = 10;
+
+//we define a custom type that matches the instruction format
+type rasterInstr {byte code; nat word; byte val;};
+
+//and create a display list in memory
+rasterInstr list[80]={	{SET, backR, 0},
+								{SET, backG, 2},
+								{SET, backB, 4},
+								{POS, 100, 0},//the pos will be updated dynamically
+								{NEXT, &list[6], 0},
+								{HALT, 0, 0},
+								{SET, backR, 1},
+								{POS, 108, 0},
+								{NEXT, &list[10], 0},
+								{HALT, 0, 0},
+								{SET, backR, 2},
+								{POS, 116, 0},
+								{NEXT, &list[14], 0},
+								{HALT, 0, 0},
+								{SET, backR, 3},
+								{POS, 124, 0},
+								{NEXT, &list[18], 0},
+								{HALT, 0, 0},
+								{SET, backR, 4},
+								{POS, 132, 0},
+								{NEXT, &list[22], 0},
+								{HALT, 0, 0},
+								{SET, backR, 5},
+								{POS, 140, 0},
+								{NEXT, &list[26], 0},
+								{HALT, 0, 0},
+								{SET, backR, 6},
+								{POS, 148, 0},
+								{NEXT, &list[30], 0},
+								{HALT, 0, 0},
+								{SET, backR, 7},
+								{POS, 156, 0},
+								{NEXT, &list[34], 0},
+								{HALT, 0, 0},
+								{SET, backR, 6},
+								{POS, 164, 0},
+								{NEXT, &list[38], 0},
+								{HALT, 0, 0},
+								{SET, backR, 5},
+								{POS, 172, 0},
+								{NEXT, &list[42], 0},
+								{HALT, 0, 0},
+								{SET, backR, 4},
+								{POS, 180, 0},
+								{NEXT, &list[46], 0},
+								{HALT, 0, 0},
+								{SET, backR, 3},
+								{POS, 188, 0},
+								{NEXT, &list[50], 0},
+								{HALT, 0, 0},
+								{SET, backR, 2},
+								{POS, 196, 0},
+								{NEXT, &list[54], 0},
+								{HALT, 0, 0},
+								{SET, backR, 1},
+								{POS, 204, 0},
+								{NEXT, &list[58], 0},
+								{HALT, 0, 0},
+								{SET, backR, 0},//end of color bar
+								{SET, backG, 2},
+								{SET, backB, 4},
+								{POS, 480, 0},
+								{NEXT, &list[0], 0},
+								{HALT, 0, 0}};
+
+nat barPos;
+nat lastIndex=#list-8;//the last 8 instructions are irrelevent for bar pos
+
+void updatePOS()//we update the value of each POS instructions
+{
+	//we need first to disable raster interrupts during the
+	//display list update to avoid racing condition.
+	//A more robust solution would be to have a double buffered
+	//display list and swap during vblank.
+	rstrInt(false);
+	byte n;
+	for(byte i=3; i<lastIndex;i+=4)//we start with instruction at index 3
+	{
+		list[i].word=barPos+n*8;//8 is the spacing between colors
+		n++;
+	}
+	rstrInt(true);
+}
+
+rstrInt(true); //enable raster interrupts
+rstrCmp(480,&list); //entry point
+
+byte frame;
+while(_keyDwn != 12)
+{
+	real s=sin((real)frame/256*6.283);
+	barPos=(nat)(180+s*100);
+
+	vSync();
+	updatePOS();
+	frame++;
+}
+
+rstrInt(false); //disable raster interrupts
+
+poke(backR,5); poke(backG,5); poke(backB,5);//reset background color to default

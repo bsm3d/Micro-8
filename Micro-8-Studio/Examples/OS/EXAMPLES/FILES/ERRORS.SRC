@@ -1,0 +1,15 @@
+
+//File error handling example:
+//
+//See manual for full list or error messages
+
+byte a[10];
+
+//trying to import a wrong filename or path:
+import("/none/none.dat",&a,#a);//try using only the none.dat name and see the different error message
+
+if(_fError==0) print("Success!");
+else if(_fError==4) print("File not found");
+else if(_fError==5) print("Folder does not exist");
+
+

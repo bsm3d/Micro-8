@@ -1,0 +1,13 @@
+
+//Small input prompt example
+
+memSet(0x1200,3200,' ');//clear char buffer
+
+
+text t={10};//reserve an empty text of 10 characters
+
+print("Enter something: ");
+input(t,10);//10 characters max
+
+print("You entered this: ",t);
+

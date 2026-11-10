@@ -1,0 +1,72 @@
+
+//Rotating triangle
+
+nat cpuWindow=0x3000;
+byte bmpPageA=0x60;//double buffer
+byte bmpPageB=0x8f;
+
+nat bmpDrawReg=0x2f16;
+nat bmpDisplayReg=0x2f05;
+
+memSet(cpuWindow,48000,0,bmpPageA);//clear bitmap buffers
+memSet(cpuWindow,48000,0,bmpPageB);
+bool swapState;
+void swap()
+{
+	if(swapState)
+	{
+		poke(bmpDisplayReg,bmpPageA);//display
+		poke(bmpDrawReg,bmpPageB);//draw
+	}
+	else
+	{
+		poke(bmpDisplayReg,bmpPageB);//display
+		poke(bmpDrawReg,bmpPageA);//draw
+	}
+	swapState=!swapState;
+}
+swap();
+
+vCount(2);//force 30Hz
+
+real PI = 3.1416;
+real TWOPI = PI * 2;
+real STEP = TWOPI/100;
+real rot;
+
+type vertex
+{
+	int x;
+	int y;
+};
+
+vertex vs[3]={{0,-80},{69,40},{-69,40}};//source vertices (centered around 0)
+vertex vt[3];//transformed vertices (draw)
+vertex vc[3];//buffered for clear
+
+while(_keyDwn!=12)
+{
+	real s=sin(rot);
+	real c=cos(rot);
+
+	for(int i; i<3; i++)
+	{
+		vt[i].x=(int)(c*vs[i].x-s*vs[i].y)+200;//rotated and translated
+		vt[i].y=(int)(s*vs[i].x+c*vs[i].y)+120;
+	}
+
+	tri(vt[0].x,vt[0].y,vt[1].x,vt[1].y,vt[2].x,vt[2].y,5);//draw transformed
+
+	curPos(0,0);print(_mSec," ms   ");
+	vSync();
+	clkSet();
+	swap();//present drawing
+
+	tri(vc[0].x,vc[0].y,vc[1].x,vc[1].y,vc[2].x,vc[2].y,0);//clear previous
+	memCpy(&vt,&vc,$vt);
+	
+	rot+=STEP;
+	if(rot>=TWOPI) rot=0.0;
+}
+
+vCount(1);

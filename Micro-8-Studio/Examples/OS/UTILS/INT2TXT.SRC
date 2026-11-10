@@ -1,0 +1,19 @@
+
+//int to text (currently only positive  byte or nat)
+
+text t={3};//max digit
+
+void int2Txt(nat val)
+{
+	nat rank=1;
+	for(int n=#t-1; n>=0; n--)
+	{
+		byte digit = (byte)((val%(10*rank))/rank);
+		poke(&t+(byte)n,digit+48);
+		rank*=10;
+	}
+}
+
+int2Txt(345);
+
+print(t);

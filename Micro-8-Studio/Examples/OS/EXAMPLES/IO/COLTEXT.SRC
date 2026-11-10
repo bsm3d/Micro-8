@@ -1,0 +1,19 @@
+
+//Procedurally change text color using regular print function
+
+memSet(0x1200,3200,' ');//clear char buffer
+
+text t="0"; //control characters to set foreground color (here 0)
+nat addr=&t+1; //address of character that controls foreground color
+
+byte hex[16]={'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+
+
+for(int i; i<16; i++)
+{
+	poke(addr,hex[i]);
+	print(t,"Hello World!");
+}
+
+print(""); //back to normal text color
+

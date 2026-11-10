@@ -1,0 +1,1243 @@
+
+//    ĞÑ ĞÑ ’”” ’–Ñ –“ –Ñ
+//    à  ’” ’””” ’’” ™  ’”
+//   ’ Ñ ’” ’””” ’’” ’  ’””  
+// «àààá àá àá” ’™á ™• ™áááª
+
+// Micro-8 Built-in sound editor for YM2612 & Built-in Synths
+// This program is provided 'as is' without warranty of any kind.
+// You are free to use, copy, modify, distribute, license, sell.
+
+// Modification history:
+// Initial 0.1 version Franck Sauer 2025
+
+//init registers
+import("/system/reginit.dat",0x1100,0);
+memSet(0x1200,3200,' ');//clear text
+memSet(0x1e80,3200,0x01);//clear color
+memSet(0x3000,48000,0,0x60);//clear bitmap
+byte mode; //0YM2612 1MAGIC
+
+//            ------------helper functions------------
+int txt2Int(nat addr)
+{
+	byte size;
+	while(peek(addr+size)!=0) size++;
+	int acc;
+	int rank=1;
+	for(int i=size-1; i>=0; i--)//from right to left
+	{
+		int val=peek(addr+(nat)i)-48;//ASCII to numeric value
+		if(val<0 || val>9)continue;//skip non numeric character
+		acc+=val*rank;
+		rank*=10;//next decimal rank
+	}
+	return acc;
+}
+
+nat txtSize(nat addr)
+{
+	nat size;
+	while(peek(addr++)) size++;
+	return size;
+}
+
+//    ------Key mapping. See keyboard layout in doc for more info------
+
+//							C0	C1	C2	C3	C4	C5	C6	C7	C8	C9
+byte keyNoteMap[80]={0,	51,54,58,61,0,	68,0,	0,	0,	//R0
+							0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	//R1
+							49,0,	56,0,	63,66,0,	0,	0,	0,	//R2
+							0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	//R3
+							48,52,55,59,62,65,69,0,	0,	0,	//R4
+							0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	//R5
+							47,50,53,57,60,64,67,0,	0,	0,	//R6
+							0,	0,	0,	0,	0,	0,	0,	0,	0,	0};//R7
+
+
+//          ----------Voice allocator functions-----------
+type Voice
+{
+	bool active;
+	int key;
+	int age;
+};
+
+Voice voices[6];//max polyphony
+int allocCounter;
+
+void initVoices()
+{
+	for(int i; i<#voices; i++)
+	{
+		voices[i].active=false;
+		voices[i].key=-1;
+		voices[i].age=0;
+	}
+	allocCounter=0;
+}
+
+int findVoiceByKey(int key)
+{
+	for(int i; i<#voices; i++)
+	{
+		if(voices[i].active && voices[i].key==key) return i;
+	}
+	return -1;
+}
+
+int findFreeVoice()
+{
+	for(int i; i<#voices; i++)
+	{
+		if(!voices[i].active) return i;
+	}
+	return -1;
+}
+
+int stealVoice()
+{
+	int best;
+	int bestAge=voices[0].age;
+	for(int i; i<#voices; i++)
+	{
+		if(voices[i].age<bestAge)
+		{
+			best=i;
+			bestAge=voices[i].age;
+		}
+	}
+	return best;
+}
+
+byte allocVoice(int key)
+{
+	int v=findVoiceByKey(key);
+	if(v>=0) return (byte)v;
+	v=findFreeVoice();
+	if(v<0) v=stealVoice();
+	voices[v].active=true;
+	voices[v].key=key;
+	voices[v].age=allocCounter;
+	return (byte)v;
+}
+
+int releaseVoice(int key)
+{
+	int v=findVoiceByKey(key);
+	if(v<0) return -1;
+	voices[v].active=false;
+	voices[v].key=-1;
+	return v;
+}
+
+//				-------------minimal MIDI support--------------
+type midiEvent
+{
+	byte t;
+	byte ch;
+	byte p1;
+	byte p2;	
+};
+
+midiEvent midiGet()
+{
+	midiEvent mE;
+	mE.t=peek(0xffd0); //Event type (e.g. note ON)
+	mE.ch=peek(0xffd1); //Channel
+	mE.p1=peek(0xffd2); //First parameter (e.g. note number)
+	mE.p2=peek(0xffd3); //Second parameter (e.g. velocity)
+	return mE;
+}
+
+
+//        ------------------ADC & YM2612 setup-----------------
+
+adcSampleL();
+ymInit(0);//set master tune and generate internal notes table
+adcSampleR();
+
+ymLFO(true,0);//0-7 range. 0 is the slowest
+ymSetReg(0,0x2a,0);//dac value to 0
+ymSetReg(0,0x2b,0);//dac disabled
+
+
+ymVol(127);//Global volume 0-127
+
+byte instr=0;//current instrument
+byte octave=4;//current octave
+byte voice=0;//current voice
+byte pan=0b11;//00=off 01=right 10=left 11=center
+byte vol=127;//current voice volume
+
+void setupVoices()
+{
+	for(byte v; v<#voices; v++) ymVoice(v,instr,octave,pan,vol);//setup voice
+}
+setupVoices();
+
+//       -------------------Common UI stuff-------------------------
+
+type charPos
+{
+	byte x;
+	byte y;
+};
+
+type vWidget //value widget
+{
+	byte posX;//position in character coordinates
+	byte posY;
+
+	int BBx0;//bounding box for quick mouse detection
+	int BBy0;
+	int BBx1;
+	int BBy1;
+
+	int minVal;//value limits
+	int maxVal;
+
+	//The modified propery is directly mapped to the instrument parameter
+	byte YMparamID;
+
+	byte digits;//number of display digits
+
+	bool up;//up arrow is clicked
+	bool down;//down arrow is clicked
+	bool drag;//middle bar is clicked
+	real speed;//changing speed when draging (computed automatically at instantiation)
+};
+
+type opWindow //operator window
+{
+	byte posX;//position in character coordinates
+	byte posY;
+
+	int BBx0;//bounding box for quick mouse detection
+	int BBy0;
+	int BBx1;
+	int BBy1;
+
+	byte wFirst;//position in the widget array of the first widget for this window
+	byte wLast;//position of last widgets for this window
+	
+	bool am;
+	bool on;
+};
+
+//             -------------File management-------------
+
+text fullPath={64};//arbitrary value, can be larger if necessary
+text folder={32};
+folder="sounds";//default folder
+
+charPos msgPos={12,30};//pos and size of the message window
+charPos msgSize={53,3};
+
+text instrNames[10];//todo allow size initialisation in arrays!
+text t0={8}; instrNames[0]=t0;
+text t1={8}; instrNames[1]=t1;
+text t2={8}; instrNames[2]=t2;
+text t3={8}; instrNames[3]=t3;
+text t4={8}; instrNames[4]=t4;
+text t5={8}; instrNames[5]=t5;
+text t6={8}; instrNames[6]=t6;
+text t7={8}; instrNames[7]=t7;
+text t8={8}; instrNames[8]=t8;
+text t9={8}; instrNames[9]=t9;
+
+void msgWindow(charPos pos, charPos size)
+{
+	areaCpy(0x1200,80,pos.x,pos.y,size.x,size.y,0xf000,size.x,0,0);//save to scratchpad
+	txtWin(pos.x,pos.y,pos.x+size.x,pos.y+size.y);
+	curPos(pos.x,pos.y);
+	print("‰Š");
+	print("€                                                   €");
+	print("ˆ‡");
+	curPos(pos.x+1,pos.y+1);
+	txtWin(0,0,79,39);
+}
+
+void msgRestore(charPos pos, charPos size)//copy back from scratchpad
+{
+	areaCpy(0xf000,size.x,0,0,size.x,size.y,0x1200,80,pos.x,pos.y);
+}
+							
+void changeFolder()
+{
+	msgWindow(msgPos,msgSize);
+	print("Change folder to:");
+	input(folder,32);
+	print("");
+	msgRestore(msgPos,msgSize);
+}
+
+text fullName={12};//name with extension
+
+void enterFileName()
+{
+	msgWindow(msgPos,msgSize);
+	print("Enter file name (without extension):");
+	input(instrNames[instr],8);
+	msgRestore(msgPos,msgSize);
+}
+
+void appendExtensions()
+{
+	nat size=txtSize(peekW(&instrNames[instr]));
+	memCpy(peekW(&instrNames[instr]),&fullName,size+1);//source, destination, include nullchar
+	concat(fullName,".ins");
+}
+
+void buildFullPathNames()
+{
+	memCpy(&folder, &fullPath,$folder);
+	concat(fullPath,"/");
+	concat(fullPath,fullName);
+}
+
+void loadFile()
+{
+	appendExtensions();
+	buildFullPathNames();
+
+	ymLoad(fullPath,instr);//load current instrument
+
+	memSet(&fullName,12,0);//clear names
+	memSet(&fullPath,64,0);
+}
+
+void saveFile()
+{
+	appendExtensions();
+	buildFullPathNames();
+
+	ymSave(fullPath,instr);
+
+
+	memSet(&fullName,12,0);//clear names
+	memSet(&fullPath,64,0);
+}
+
+//globals
+mouseSens(1);
+int mouseHold;//captures from which widget the mouse has been held 
+real subMouseDY;//used for smoothly changing values with the mouse
+real subDYDivider=20;
+text vWidgetTxt={3};//temporary holds the numeric input (increase size if needed)
+
+vWidget vWidgets[64];//max number of widgets (increase size if needed) here 54 params for a YM instrument
+byte vWidgetID;//unique vWidget ID
+
+opWindow opWindows[4];//one for each operator
+byte opWinID;
+
+//independent widgets index storage to know where is the related widget in the array
+byte algoWidget;
+byte feedbackWidget;
+byte ampModWidget;
+byte freqModWidget;
+
+bool octaveDwn;
+bool octaveUp;
+
+byte LFOWidget; //lfo is global and not stored in an instrument
+byte LFOValue;
+bool LFOActive=true;
+
+void vWidgetCreate(byte x, byte y, int minV, int maxV, byte d, byte id)
+{
+	vWidgets[vWidgetID].posX=x;
+	vWidgets[vWidgetID].posY=y;
+	vWidgets[vWidgetID].minVal=minV;
+	vWidgets[vWidgetID].maxVal=maxV;
+	vWidgets[vWidgetID].YMparamID=id;
+	vWidgets[vWidgetID].digits=d;
+
+	//compute bounding box
+	vWidgets[vWidgetID].BBx0=x*10;
+	vWidgets[vWidgetID].BBy0=y*12;
+	vWidgets[vWidgetID].BBx1=vWidgets[vWidgetID].BBx0+(d+3)*10;
+	vWidgets[vWidgetID].BBy1=vWidgets[vWidgetID].BBy0+3*12;
+
+	//compute drag speed accoring to min-max
+	vWidgets[vWidgetID].speed=((real)abs(maxV-minV))/subDYDivider;
+
+	vWidgetID++;
+	if(vWidgetID>=#vWidgets) print("Increase widget array!");
+} 
+
+void vWidgetRender(byte id)
+{
+	curPos(vWidgets[id].posX,vWidgets[id].posY);
+
+	if(vWidgets[id].up) print("2Â");//highlight up arrow
+	else print("Â");
+	
+	print("");
+
+	if(vWidgets[id].drag) print("2");//highlight drag bar
+	else print("");
+
+	print("");
+
+	if(vWidgets[id].down) print("2Ã");//highlight down arrow
+	else print("Ã");
+
+	curPos(vWidgets[id].posX+1,vWidgets[id].posY);
+	print("‰");
+	for(int i; i<vWidgets[id].digits; i++) print("");
+	print("Š");
+	curPos(vWidgets[id].posX+1,vWidgets[id].posY+1);
+	print("€");
+
+	//get value
+	byte YMparamID=vWidgets[id].YMparamID;//index into the global widget data storage
+	//int val=wProperty[propertyID];//get value
+	int val;
+	if(YMparamID<54) val=ymGetParam(instr, YMparamID);
+	else if(YMparamID==54)val=LFOValue;//lfo is global and not in an instrument
+
+	//leading zeroes (todo support for negative values)
+	if(val<10)
+	{
+		for(int i; i<vWidgets[id].digits-1; i++) print("0");
+	}
+	else if(val<100)
+	{
+		for(int i; i<vWidgets[id].digits-2; i++) print("0");
+	}
+
+	print(val);//the value
+
+	print("€");
+	curPos(vWidgets[id].posX+1,vWidgets[id].posY+2);
+	print("ˆ");
+	for(int i; i<vWidgets[id].digits; i++) print("");
+	print("‡");
+}
+
+void vWidgetStep(int id, int step)
+{
+	byte YMparamID=vWidgets[id].YMparamID;//index into the global widget data storage
+	int val;
+	if(YMparamID<54) val=ymGetParam(instr, YMparamID);
+	else if(YMparamID==54) val=LFOValue;
+	val+=step;
+	val=clamp(val,vWidgets[id].minVal,vWidgets[id].maxVal);
+	if(YMparamID<54) ymSetParam(instr, YMparamID, (byte)val);
+	else if(YMparamID==54)
+	{
+		LFOValue=(byte)val;
+		ymLFO(LFOActive,LFOValue);
+	}
+}
+
+void vWidgetUpdate(byte id)
+{
+	//test if dragging or mouse is hovering the bounding box
+	if(mouseHold==id && vWidgets[id].drag || mouseHold==-1 && isPtrBox(vWidgets[id].BBx0,vWidgets[id].BBy0,vWidgets[id].BBx1,vWidgets[id].BBy1))
+	{
+		int cx=_mouseX/10; int cy=_mouseY/12;
+		if(mouseHold==-1 && _mouse==1 && cx>vWidgets[id].posX+1 && cx<vWidgets[id].posX+2+vWidgets[id].digits)
+		{
+			if(cy==vWidgets[id].posY+1)//we are in the numeric input field
+			{
+				curPos(vWidgets[id].posX+2,vWidgets[id].posY+1);
+				input(vWidgetTxt,vWidgets[id].digits);
+				int val=txt2Int(&vWidgetTxt);
+				val=clamp(val,vWidgets[id].minVal,vWidgets[id].maxVal);
+				byte YMparamID=vWidgets[id].YMparamID;//index into the global widget data storage
+				if(YMparamID<54) ymSetParam(instr, YMparamID, (byte)val);
+				else if(YMparamID==54)
+				{
+					LFOValue=(byte)val;
+					ymLFO(LFOActive,LFOValue);
+				}
+			}
+		}
+		else if(isPtrGlyph('Â') && _mouse==1 && mouseHold==-1)
+		{
+			vWidgets[id].up=true;
+			vWidgetStep(id,1);
+			mouseHold=id;
+		}
+		else if(isPtrGlyph('Ã') && _mouse==1 && mouseHold==-1)
+		{
+			vWidgets[id].down=true;
+			vWidgetStep(id,-1);
+			mouseHold=id;
+		}
+		else if(mouseHold==id && vWidgets[id].drag==true || isPtrGlyph('') && _mouse==1) //drag bar
+		{
+			vWidgets[id].drag=true;
+			int pixDY=_mouseDY/16;
+			subMouseDY+=(real)pixDY*vWidgets[id].speed;
+			if(subMouseDY >= 1)
+			{
+				vWidgetStep(id,min(-pixDY/2,-1));//fast and slow threshold
+				subMouseDY=0;
+			}
+			else if(subMouseDY <= -1)
+			{
+				vWidgetStep(id,max(-pixDY/2,1));//fast and slow threshold
+				subMouseDY=0;
+			}
+									
+			mouseHold=id;
+		}
+	}
+	if(mouseHold==-1)
+	{
+		vWidgets[id].up=false;
+		vWidgets[id].down=false;
+		vWidgets[id].drag=false;
+	}
+	vWidgetRender(id);
+}
+
+// YM2612 ---------------------------
+
+type YMEnv //envelope params
+{
+	byte TL;
+	byte AR;
+	byte DR;
+	byte SR;
+	byte SL;
+	byte RR;
+};
+
+YMEnv getYMEnv(byte op) //get envelope params from current instrument
+{
+	YMEnv env;
+	env.TL=ymGetParam(instr,op*10+2);// [0,127] total level (attenuation)
+	env.AR=ymGetParam(instr,op*10+4);// [0,31] attack rate (higher is steeper)
+	env.DR=ymGetParam(instr,op*10+6);// [0,31] decay rate (higher is steeper)
+	env.SR=ymGetParam(instr,op*10+7);// [0,31] sustain rate (higher is steeper)
+	env.SL=ymGetParam(instr,op*10+8);// [0,15] sustain level (attenuation)
+	env.RR=ymGetParam(instr,op*10+9);// [0,15] release rate (higher is steeper)
+
+	return env;
+}
+
+void drawYMEnv(byte op, int x, int y, int w, int h)
+{
+	byte col=2;
+
+	//set new bitmap window to clip drawing to envelope window
+	bmpWin(x,y,x+w,y+h);
+	bmpOrg(x,y);
+	box(0,0,w,h,0);//clear window
+
+	x=0; y=h;//bottom relative to new window now
+	skip(x,y);
+
+	YMEnv env=getYMEnv(op);
+
+	//Attack
+	env.TL=127-env.TL;//turn attenuation into volume for display. Same for other params.
+	env.AR=31-env.AR;
+	env.TL=(byte)(((real)h/128)*env.TL);//Total Level dictates the vertical scale of graph
+	x+=env.AR; y-=env.TL;
+	draw(x,y,col);
+	
+	//Decay
+	env.SL=15-env.SL;
+	env.DR=31-env.DR;
+	env.SL=(byte)(((real)env.TL/16)*env.SL);//normalize SL to TL
+	x+=env.DR; y=h-env.SL;
+	draw(x,y,col);
+
+	//Sustain
+	env.SR=env.SR;//31-env.SR
+	x+=30; y+=env.SR/2;
+	draw(x,y,col);
+	
+	//Release
+	env.RR=15-env.RR;
+	x+=env.RR*2; y=h;
+	draw(x,y,col);
+
+	//restore default bitmap window
+	bmpWin(0,0,399,239);
+	int winID;
+}
+
+void displayTYOperator(byte op, int x, int y)
+{
+	byte tx=(byte)x; byte ty=(byte)y;
+	txtWin(tx,ty,tx+27,ty+17);
+	curPos(tx,ty);
+	
+	print("‰Š");
+	for(int i; i<6; i++)	print("€                         €");
+	print("‚ƒ");
+	print("€  AR   DR   SL   SR   RR €");
+	for(int i; i<3; i++)	print("€                         €");
+	print("€  Ml   Dt   RS   TL      €");
+	print("€                     AM  €");
+	print("€                         €");
+	print("€                     ON  €");
+	print("ˆ‡");
+
+	curPos(tx,ty);
+	//For some reason register order 1234 is different than
+	//operator order 1324 so we account here for display
+	//see register ref @ plutiedev.com/ym2612-registers
+	
+	if(op==1)print("Operator 3");//inverted
+	else if(op==2)print("Operator 2");//inverted
+	else print("Operator ",op+1);//ok
+
+	byte wFirst=vWidgetID;//the first widget for this window
+
+	//vWidgets
+	//Total Level
+	vWidgetCreate(tx+16,ty+13,0,127,3,op*10+2);
+
+	//Attack Rate
+	vWidgetCreate(tx+1,ty+9,0,31,2,op*10+4);//posx, posy, min, max, digits, out param index
+
+	//Decay Rate
+	vWidgetCreate(tx+6,ty+9,0,31,2,op*10+6);
+
+	//Sustain Rate
+	vWidgetCreate(tx+16,ty+9,0,31,2,op*10+7);
+
+	//Sustain Level
+	vWidgetCreate(tx+11,ty+9,0,15,2,op*10+8);
+
+	//Release Rate
+	vWidgetCreate(tx+21,ty+9,0,15,2,op*10+9);
+
+	//Base Freq multiplier
+	vWidgetCreate(tx+1,ty+13,0,15,2,op*10+1);
+
+	//Detune
+	vWidgetCreate(tx+6,ty+13,0,7,2,op*10);
+
+	//Rate Scaling (key follow)
+	vWidgetCreate(tx+11,ty+13,0,3,2,op*10+3);
+
+	//Setup the window for fast updates of the widgets
+	byte wLast=vWidgetID;//last widget for this operator window
+
+	opWindows[opWinID].posX=tx;
+	opWindows[opWinID].posY=ty;
+	opWindows[opWinID].BBx0=tx*10;
+	opWindows[opWinID].BBy0=ty*12;
+	opWindows[opWinID].BBx1=tx*10+27*10;
+	opWindows[opWinID].BBy1=ty*12+17*12;
+	opWindows[opWinID].wFirst=wFirst;
+	opWindows[opWinID].wLast=wLast;
+
+	opWinID++;
+
+	txtWin(0,0,79,39);//restore default text window
+}
+
+void displayKeyboard(byte x, byte y)
+{
+	txtWin(x,y,x+30,y+6);
+	curPos(x,y);
+
+	print("‹“›“““›““““›“““›“““‹");
+	print("‹ €   €    €   €   ‹");
+	print("‹ €   €    €   €   ‹");
+	print("€ € € € € € € € € € € € € € €");
+	print("€`€Q€W€E€R€T€Y€U€I€O€P€[€]€\€");
+	print("ˆ„„„„„„„„„„„„„‡");
+
+	txtWin(0,0,79,39);//restore default text window
+}
+
+charPos algoPos={4,34};
+void algoUpdate(bool refresh)
+{
+	byte x=algoPos.x;
+	byte y=algoPos.y;
+	int x0=x*10;
+	int y0=y*12;
+	int x1=(x+6)*10;
+	int y1=(y+6)*12;
+	if(refresh || mouseHold==algoWidget && vWidgets[algoWidget].drag || isPtrBox(x0,y0,x1,y1))
+	{
+		vWidgetUpdate(algoWidget);
+		vWidgetRender(algoWidget);
+
+		byte algo = ymGetParam(instr,41);
+
+		//display algo
+		x+=6;
+		txtWin(x,y,x+12,y+6);
+		curPos(x,y);
+
+		if(algo==0)
+		{
+			print("         ");
+			print("         ");
+			print("‰13");
+			print("ˆ‡       ");
+			print(" 1 2 3 4 ");
+			print("         ");
+		}
+		else if(algo==1)
+		{
+			print(" 1       ");
+			print("‰Š      ");
+			print("ˆ‡‚13  ");
+			print(" ‡3 4   ");
+			print(" 2       ");
+			print("         ");
+		}
+		else if(algo==2)
+		{
+			print(" 1       ");
+			print("‰Š    ");
+			print("ˆ‡  ‚13  ");
+			print(" ‡4   ");
+			print(" 2 3     ");
+			print("         ");
+		}
+		else if(algo==3)
+		{
+			print(" 1 2     ");
+			print("‰Š    ");
+			print("ˆ‡  ‚13  ");
+			print("   ‡4   ");
+			print("   3     ");
+			print("         ");
+		}
+		else if(algo==4)
+		{
+			print(" 1 2     ");
+			print("‰Š    ");
+			print("ˆ‡  ‚13   ");
+			print(" ‡    ");
+			print(" 3 4     ");
+			print("         ");
+		}
+		else if(algo==5)
+		{
+			print("  2Œ     ");
+			print(" 1İŒÜ    ");
+			print("‰††13   ");
+			print("ˆ‡ßŒŞ    ");
+			print("  4Œ     ");
+			print("         ");
+		}
+		else if(algo==6)
+		{
+			print(" 1 2     ");
+			print("‰Š    ");
+			print("ˆ‡ ŒŞ    ");
+			print("  3Œ‚13   ");
+			print("   ‡    ");
+			print("   4     ");
+		}
+		else if(algo==7)
+		{
+			print("1‰Š    ");
+			print(" ˆ‡ŒŞ    ");
+			print("  2Œ‚13   ");
+			print("  3ƒ    ");
+			print("  4ŒŞ    ");
+			print("   Œ     ");
+		}	
+		txtWin(0,0,79,39);//restore default text window
+	}
+}
+
+void displayAlgo(byte x, byte y)
+{
+	//input window
+	txtWin(x,y,x+6,y+6);
+	curPos(x,y);
+	print("‰Š");
+	print("€Algo€");
+	for(int i; i<3; i++)	print("€    €");
+	print("ˆ‡");
+
+	algoWidget=vWidgetID;//the widget for algo selection
+	vWidgetCreate(x+1,y+2,0,7,1,41);//param 41 is algo
+	algoUpdate(false);
+}
+
+void displayFeedback(byte x, byte y)
+{
+	txtWin(x,y,x+6,y+6);
+	curPos(x,y);
+	print("‰Š");
+	print("€Fdbk€");
+	print("€Â‰Š€");
+	print("€€0€€");
+	print("€Ãˆ‡€");
+	print("ˆ‡");
+
+	feedbackWidget=vWidgetID;
+	vWidgetCreate(x+1,y+2,0,7,1,40);//param 40 is feedback amount
+
+	txtWin(0,0,79,39);//restore default text window				
+}
+
+void displayModulation(byte x, byte y)
+{
+	txtWin(x,y,x+11,y+6);
+	curPos(x,y);
+	print("‰Š");
+	print("€ AM   FM €");
+	print("€Â‰Š Â‰Š€");
+	print("€€0€ €0€€");
+	print("€Ãˆ‡ Ãˆ‡€");
+	print("ˆ‡");
+
+	ampModWidget=vWidgetID;
+	vWidgetCreate(x+1,y+2,0,3,1,42);//param 42 is LFO amp mod amount
+
+	freqModWidget=vWidgetID;
+	vWidgetCreate(x+6,y+2,0,7,1,43);//param 43 is LFO freq mod amount
+
+	txtWin(0,0,79,39);//restore default text window	
+}
+
+void displayLFO(byte x, byte y)
+{
+	txtWin(x,y,x+10,y+8);
+	curPos(x,y);
+	print("‰Š");
+	print("€   LFO   €");
+	print("‚ƒ");
+	print("€ĞÑ   Freq€");
+	print("€  àá Â‰Š€");
+	print("€     €0€€");
+	print("€ON  Ãˆ‡€");
+	print("ˆ‡");
+
+	LFOWidget=vWidgetID;
+	vWidgetCreate(x+6,y+4,0,7,1,54);//param>53 for global params
+	
+	txtWin(0,0,79,39);//restore default text window
+}
+
+void displayChip(byte x, byte y)
+{
+	txtWin(x,y,x+13,y+7);
+	curPos(x,y);
+	if(mode==0)
+	{
+		print("‰Š");
+		print("€           €");
+		print("€ ‰„„„„„„„Š €");
+		print("€ €YM 2612€ €");
+		print("€ ˆ…………………‡ €");
+		print("€           €");
+		print("ˆ‡");
+	}
+	
+	else
+	{
+		print("‰Š");
+		print("€  ‰„„„„„Š  €");
+		print("€  ƒ     ‚  €");
+		print("€  ƒMAGIC‚  €");
+		print("€  ƒ     ‚  €");
+		print("€  ˆ……………‡  €");
+		print("ˆ‡");
+	}
+	txtWin(0,0,79,39);//restore default text window
+}
+
+charPos namesPos={0,7};
+void displayNames(byte x, byte y)
+{
+	txtWin(x,y,x+13,y+30);
+	curPos(x,y);
+
+	print("‰Š");
+	print("€Instruments€");	
+	print("‚…ƒ");
+	print("€€         €");
+	for(int i=1; i<9; i++)
+	{
+		print("‚†ƒ");
+		print("€€         €");
+	}
+	print("‚†ƒ");
+	print("€€         €");
+	print("ˆ„‡");
+	
+	txtWin(0,0,79,39);//restore default text window	
+}
+
+
+void displayToolbox(byte x, byte y)
+{
+	txtWin(x,y,x+13,y+3);
+	curPos(x,y);
+
+	print("‰Š");
+	print("€ff3 f4        €");
+	print("€           €");
+	print("ˆ‡");
+	
+	txtWin(0,0,79,39);//restore default text window	
+}
+
+void displayWaveform(byte x, byte y)
+{
+	txtWin(x,y,x+12,y+15);
+	curPos(x,y);
+
+	print("‰Š");
+	print("€Lft Channel€");
+	print("‚ƒ");
+	for(int i; i<4; i++) print("€           €");
+	print("‚ƒ");
+	print("€Rgt Channel€");
+	print("‚ƒ");
+	for(int i; i<4; i++) print("€           €");
+	print("ˆ‡");
+
+	txtWin(0,0,79,39);//restore default text window	
+}
+
+void displayGlobals(byte x, byte y)
+{
+	txtWin(x,y,x+12,y+19);
+	curPos(x,y);
+
+	print("‰Š");
+	print("€Glob.Params€");
+	print("‚ƒ");
+	for(int i; i<15; i++) print("€           €");
+	print("ˆ‡");
+//	poke(0x1200+80*40-1,'‡');//hack to avoid window scroll up with last char
+
+	
+	txtWin(0,0,79,39);//restore default text window	
+}
+
+void octaveRender()
+{
+	curPos(25,35);
+	if(octaveDwn)print("2Á");else print("Á");
+	curPos(55,35);
+	if(octaveUp)print("2À");else print("À");
+	curPos(40,35); print("",octave,"");
+}
+octaveRender();
+
+byte LFOposX=68;
+byte LFOposY=18;
+
+void LFOcheckBoxUpdate()
+{
+	int x0=(LFOposX+4)*10;
+	int y0=(LFOposY+6)*12;
+	if(mouseHold==-1 && isPtrBox(x0,y0,x0+10,y0+12))
+	{
+		if(_mouse==1)
+		{
+			LFOActive=!LFOActive;
+			curPos(LFOposX+4,LFOposY+6);
+			if(LFOActive)print("");else print("");
+			ymLFO(LFOActive,LFOValue);
+			mouseHold=-2;
+		}
+	}	
+}
+LFOcheckBoxUpdate();
+
+void opRenderCheckBoxes(byte opWinID)
+{
+	curPos(opWindows[opWinID].posX+25,opWindows[opWinID].posY+13);
+	if(opWindows[opWinID].am)print("");else print("");
+	
+	curPos(opWindows[opWinID].posX+25,opWindows[opWinID].posY+15);
+	if(opWindows[opWinID].on)print("");else print("");
+}
+
+//widget update and render for current active window
+void opUpdate()
+{
+	for(byte i; i<opWinID; i++)
+	{
+		if((mouseHold>=opWindows[i].wFirst && mouseHold<opWindows[i].wLast) || 
+			isPtrBox(opWindows[i].BBx0,opWindows[i].BBy0,opWindows[i].BBx1,opWindows[i].BBy1))
+		{
+			//value widgets
+			for(byte j=opWindows[i].wFirst; j<opWindows[i].wLast; j++)
+			{
+				vWidgetUpdate(j);
+			}
+			//curve
+			if(mouseHold!=-1)//only redraw on change
+			{
+				int x=opWindows[i].BBx0/2+3;
+				int y=opWindows[i].BBy0/2+3;
+				drawYMEnv(i, x, y, 129, 41);//op, x, y, w, h
+			}
+			//checkboxes
+			if(mouseHold==-1 && (isPtrGlyph(0x7f) || isPtrGlyph(1)))//hovering a  or a 
+			{
+				if(_mouse==1)
+				{
+					if((_mouseY>opWindows[i].BBy0+13*12) && (_mouseY<opWindows[i].BBy0+14*12))
+					{
+						opWindows[i].am=!opWindows[i].am;
+						ymSetParam(instr,5+i*10,opWindows[i].am);
+					}
+					else if((_mouseY>opWindows[i].BBy0+15*12) && (_mouseY<opWindows[i].BBy0+16*12))
+					{
+						opWindows[i].on=!opWindows[i].on;
+						byte param=ymGetParam(instr,44);
+						if(opWindows[i].on)
+						{
+							if(i==1)ymSetParam(instr,44,param|0b0100);//op order != reg order
+							else if(i==2)ymSetParam(instr,44,param|0b0010);
+							else ymSetParam(instr,44,param|(1<<i));//set bit
+						}
+						else
+						{
+							if(i==1)	ymSetParam(instr,44,param&0b1011);
+							else if(i==2)ymSetParam(instr,44,param&0b1101);
+							else ymSetParam(instr,44,param&(~(1<<i)));//clear bit
+						}
+					}
+					mouseHold=-2;
+				}
+			}
+			opRenderCheckBoxes(i);
+		}
+	}
+}
+
+void opRefresh()
+{
+	for(byte i; i<vWidgetID; i++) vWidgetRender(i);
+	for(byte i; i<opWinID; i++)
+	{
+		int x=opWindows[i].BBx0/2+3;
+		int y=opWindows[i].BBy0/2+3;
+		drawYMEnv(i, x, y, 129, 41);//op, x, y, w, h
+
+		opWindows[i].am=(bool)ymGetParam(instr,5+i*10);
+
+		bool opEnabled;//again op 1&2 are inverted. See YM2612 doc.
+		if(i==1) opEnabled=(bool)(ymGetParam(instr,44) & 0b0100);
+		else if(i==2) opEnabled=(bool)(ymGetParam(instr,44) & 0b0010);
+		else opEnabled=(bool)(ymGetParam(instr,44) & (1<<i));
+		
+		opWindows[i].on=opEnabled;
+		opRenderCheckBoxes(i);
+	}
+}
+
+void updateNames(bool refresh)
+{
+	int numPosX=namesPos.x*10;
+	int numPosY=(namesPos.y+3)*12;
+	if(refresh || mouseHold==-1 && isPtrBox(numPosX,numPosY,numPosX+13*10,numPosY+20*12))
+	{
+		if(refresh || _mouse==1)
+		{
+			if(_mouse==1)//update current instr if click
+			{
+				byte index=(byte)((_mouseY-numPosY)/24);
+				instr=index;
+				setupVoices();
+				opRefresh();
+				algoUpdate(true);
+				mouseHold=-2;
+			}
+			for(byte i; i<10; i++)
+			{
+				byte x=namesPos.x+1;
+				byte y=namesPos.y+3+i*2;
+
+				curPos(x,y);//numbers
+				if(i==instr)
+					print("2",i,"");
+				else
+					print(i);
+				
+				x+=2;//names
+				curPos(x,y);
+				print("        ");//clear line
+				curPos(x,y);
+				if(i==instr)
+					print("2",instrNames[i],"");
+				else
+					print(instrNames[i]);
+			}
+			if(refresh)
+			{
+				opRefresh();
+				algoUpdate(true);
+			}
+		}
+	}
+}
+
+void octaveUpdate()
+{
+	if(mouseHold==-1 && isPtrGlyph('Á'))
+	{
+		if(_mouse==1)
+		{
+			octaveDwn=true;
+			if(octave>0) octave--;
+			setupVoices();
+			mouseHold=-2;
+		}
+		else octaveDwn=false;
+	}
+	else if(mouseHold==-1 && isPtrGlyph('À'))
+	{
+		if(_mouse==1)
+		{
+			octaveUp=true;
+			if(octave<7) octave++;
+			setupVoices();
+			mouseHold=-2;
+		}
+		else octaveUp=false;
+	}
+	octaveRender();
+}
+
+void renderWaveform()
+{
+	//set new bitmap windows to clip drawings
+	bmpWin(337,15,399,43);
+	bmpOrg(337,15);
+	box(0,0,62,28,0);//clear top window
+
+	//display waveforms using Analog to Digital Converter values
+	skip(0,15);
+	for(int x; x<62; x+=3)//left channel
+	{
+		adcSampleL();
+		int left=(int)(((nat)(_adcL+512))>>3)-49;
+		draw(x,left,5);
+	}
+
+	bmpWin(337,57,399,85);
+	bmpOrg(337,57);
+	box(0,0,62,28,0);//clear bottom window
+
+	skip(0,15);
+	for(int x; x<62; x+=3)
+	{
+		adcSampleR();
+		int right=(int)(((nat)(_adcR+512))>>3)-49;
+		draw(x,right,14);
+	}
+}
+
+//create and display the 4 operators windows
+displayTYOperator(0,13+0,0);
+displayTYOperator(1,13+27,0);
+displayTYOperator(2,13+0,17);
+displayTYOperator(3,13+27,17);
+
+
+//the rest
+displayChip(0,0);
+
+displayAlgo(4,34);
+
+displayFeedback(19,34);
+
+displayKeyboard(26,34);
+displayModulation(56,34);
+
+displayNames(namesPos.x, namesPos.y);
+updateNames(true);
+displayToolbox(0,30);
+
+displayWaveform(67,0);
+displayGlobals(67,15);
+
+displayLFO(LFOposX,LFOposY);
+
+
+//-------Main loop----------
+bool FCTN;
+bool exit;
+while(!exit)
+{
+	mouseUpdt();
+	if(_mouse == 0) mouseHold=-1;
+
+	opUpdate();	
+	algoUpdate(false);
+	vWidgetUpdate(feedbackWidget);
+	vWidgetUpdate(ampModWidget);
+	vWidgetUpdate(freqModWidget);
+	vWidgetUpdate(LFOWidget);
+	LFOcheckBoxUpdate();
+	octaveUpdate();
+	updateNames(false);
+
+	if(midiUpdt())//if there is at least an event available in the queue
+	{
+		midiEvent mE=midiGet();//get event
+		if(mE.t==0x90 && mE.p2>0)//check for Note ON event type
+		{
+			ymNoteOn(allocVoice(mE.p1),mE.p1,mE.p2);
+		}
+		else if(mE.t==0x80 || mE.t==0x90 && mE.p2==0)//some devices send note OFF as note ON with velocity=0
+		{
+			int voice=releaseVoice(mE.p1);
+			if(voice>=0)	ymNoteOff((byte)voice);
+		}
+	}
+	
+	//keyboard
+	byte keyDwn=getKeyDwn();
+	byte keyUp=getKeyUp();
+
+	if(keyDwn==12 && FCTN) exit=true; //FCTN+Esc to exit
+	else if(keyDwn==79) FCTN=true;
+	else if(keyDwn==33 && FCTN) //FCTN+f for change folder
+	{
+		changeFolder();
+		FCTN=false;
+	}
+	else if(keyDwn==54 && FCTN) //FCTN+n for name file
+	{
+		enterFileName();
+		updateNames(true);
+		FCTN=false;
+	}
+	else if(keyDwn==17 && FCTN) //FCTN+l for load file
+	{
+		enterFileName();
+		loadFile();		
+		updateNames(true);
+		opRefresh();	
+		FCTN=false;
+	}
+	else if(keyDwn==32 && FCTN) //FCTN+s for save file
+	{
+		saveFile();
+		FCTN=false;
+	}
+	else if(keyDwn && findVoiceByKey(keyDwn)==-1)//all other keys for notes
+	{
+		ymNoteOn(allocVoice(keyDwn),keyNoteMap[keyDwn-1],128);
+	}
+
+	if(keyUp)
+	{
+		int voice=releaseVoice(keyUp);
+		if(voice>=0) ymNoteOff((byte)voice);
+		if(keyUp==79) FCTN=false;
+	}
+
+	renderWaveform();
+}
+
+ymNoteOff(voice);

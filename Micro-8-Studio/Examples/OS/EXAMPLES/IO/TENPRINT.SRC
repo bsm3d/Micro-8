@@ -1,0 +1,7 @@
+
+//classic 10 print maze example Lofi equivalent
+
+text t={1}; while(_keyDwn!=12) {poke(&t,0x0e+rnd(0,1)); print(t);}
+
+
+

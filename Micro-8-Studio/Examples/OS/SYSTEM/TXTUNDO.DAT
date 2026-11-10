@@ -1,0 +1,540 @@
+f();
+print(plates[1].y);
+print(plates[1].y);
+print(plates[1].y);
+f();
+print(plates[1].y);
+f();//23
+un(0);
+	if (player.plateCatched!=100) {
+		byte j;
+		j=player.plateCatched;
+		plates[j].X=player.X;
+		plates[j].Y=player.Y-6;
+		sprPos(plates[j].spId,plates[j].X,plates[j].Y);
+	}
+}
+*/
+G_STEP();
+		curPos(10,14);print("tileX:",tileX,"  ");
+		curPos(10,14);print("tileX:",tileX,"  ");
+		curPos(10,15);print("tileY:",tileY,"  ");
+		curPos(10,16);print("action:",n," "); 
+		curPos(10,17);print("offset:",offset," "); 
+		DEBUG_STEP();
+bool DEBUG=true;
+
+		areaCpy(cpuWinOrg,200,zoomOutPosx,clamp(ty-10,0,239),100,20,scratchPad,100,0,0,bmpPage);
+		byte cy=clamp(ty-10,0,239)
+		areaCpy(cpuWinOrg,200,zoomOutPosx,clamp(ty-10,0,239),100,20,scratchPad,100,0,0,bmpPage);
+		areaCpy(scratchPad,100,0,0,100,20,cpuWinOrg,200,0,clamp(ty-10,0,239),zoomOutPage);
+
+		areaCpy(scratchPad,100,0,0,100,20,cpuWinOrg,200,0,cy,zoomOutPage);
+		byte ln=min(20,239-cy);//lines to copy
+		areaCpy(cpuWinOrg,200,zoomOutPosx,cy,100,20,scratchPad,100,0,0,bmpPage);
+: ",toolHold," ");
+		curPos(x,y++); print("hasSelection: ",hasSelection," ");
+		curPos(x,y++); print("zoom: ",zoom," ");
+		curPos(x,y++); print("inZoom ",inZoom," ");
+		curPos(x,y++); print("zoomFactor ",zoomFactor," ");
+		curPos(x,y++); print("zoomRefreshAll: ",zoomRefreshAll," ");
+		curPos(x,y++); print("zoomOrg(x,y) ",zoomOriginX,",",zoomOriginY," ");
+		curPos(x,y++); print("(tx,ty) ",tx,",",ty," ");
+		curPos(x,y++); print("(ptx,pty) ",ptx,",",pty," ");
+		curPos(x,y++); print("isMoving: ",isMoving," ");
+		curPos(x,y++); print("isRotatable: ",isRotatable()," ");
+	}
+void displayDebugInfo()
+	if(DEBUG)displayDebugInfo()
+
+			if(DEBUG) displayDebugInfo();
+
+void displayDebugInfo()
+void displayDebugInfo()
+{
+	byte x=15; byte y=27;
+	curPos(x,y++); print("currentTool: ",currentTool," ");
+	curPos(x,y++); print("toolHold: ",toolHold," ");
+	curPos(x,y++); print("hasSelection: ",hasSelection," ");
+	curPos(x,y++); print("zoom: ",zoom," ");
+	curPos(x,y++); print("inZoom ",inZoom," ");
+	curPos(x,y++); print("zoomFactor ",zoomFactor," ");
+	curPos(x,y++); print("zoomRefreshAll: ",zoomRefreshAll," ");
+	curPos(x,y++); print("zoomOrg(x,y) ",zoomOriginX,",",zoomOriginY," ");
+	curPos(x,y++); print("(tx,ty) ",tx,",",ty," ");
+	curPos(x,y++); print("(ptx,pty) ",ptx,",",pty," ");
+	curPos(x,y++); print("isMoving: ",isMoving," ");
+	curPos(x,y++); print("isRotatable: ",isRotatable()," ");
+}
+byte color = 1;
+byte color = 1;
+byte eraser = 0;
+byte shape=1;//default square
+bool paint;
+
+byte brushSizes[8]={1,2,3,4,6,9,13,20};
+
+bool grid;
+-r, zwx+r, zwy+r, color);
+						else if(_mouse==2) box(zwx-r, zwy-r, zwx+r, zwy+r, eraser);
+					}
+					else if(shape==2)//round
+					{
+						if(_mouse==1) disk(zwx, zwy, r, color);
+						else if(_mouse==2) disk(zwx, zwy, r, eraser);
+					}
+					else if(shape==3)//dither
+					{
+						if(_mouse==1)
+						{
+							if(zwx%2==0 && zwy%2==0 || (zwx%2!=0 && zwy%2!=0))
+							{
+								line(zwx-r,zwy-r,zwx+r,zwy+r,color);
+								for(int i=1; i<=r; i++)
+								{
+									line(zwx-r+i<<1,zwy-r,zwx+r,zwy+r-i<<1,color);
+									line(zwx-r,zwy-r+i<<1,zwx+r-i<<1,zwy+r,color);
+
+									line(zwx-r+i<<1-1,zwy-r,zwx+r,zwy+r-i<<1+1,eraser);
+									line(zwx-r,zwy-r+i<<1-1,zwx+r-i<<1+1,zwy+r,eraser);
+								}
+							}
+							else
+							{
+								line(zwx-r,zwy-r,zwx+r,zwy+r,eraser);
+								for(int i=1; i<=r; i++)
+								{
+									line(zwx-r+i<<1,zwy-r,zwx+r,zwy+r-i<<1,eraser);
+									line(zwx-r,zwy-r+i<<1,zwx+r-i<<1,zwy+r,eraser);
+
+									line(zwx-r+i<<1-1,zwy-r,zwx+r,zwy+r-i<<1+1,color);
+									line(zwx-r,zwy-r+i<<1-1,zwx+r-i<<1+1,zwy+r,color);
+								}
+							}
+						}
+						else if(_mouse==2) box(zwx-r, zwy-r, zwx+r, zwy+r, eraser);
+					}
+				}
+				zoomUpdate(zoomOriginX,zoomOriginY);//update tiles
+			}
+			else if(currentTool==7)//flood fill
+			{
+				if(actionPushed) actions[undoId]=0;
+				//undo push is handled inside the floodFill function
+				floodFill(zwx,zwy);
+				actionPushed=false;
+			}
+			else if(currentTool==11 && !pasted)//actual paste action on clic
+			{
+				rect(zwx,zwy,zwx+selDim.x,zwy+selDim.y,0xf0);
+				pasteSelection(zwx,zwy);
+				pasted=true;
+				rect(zwx,zwy,zwx+selDim.x,zwy+selDim.y,0xf0);
+				hold=true;
+			}
+			else// other tools
+			{
+				if(!toolHold)//origin
+				{
+					toolX1=zwx; toolY1=zwy;
+					toolX2=zwx; toolY2=zwy;
+					if(SHIFT) snapTool();
+
+					toolHold=true;
+				}
+				if(toolHold && (toolX2!=zwx || toolY2!=zwy))//mouse has moved
+				{
+					if(currentTool==2)//line
+					{
+						line(toolX1,toolY1,toolX2,toolY2,0xf0);//restore
+						toolX2=zwx; toolY2=zwy;
+						if(SHIFT) snapTool();
+						line(toolX1,toolY1,toolX2,toolY2,0xf0);//invert
+					}
+					else if(currentTool==3 || currentTool==4 || currentTool==8)//rect or box
+					{
+						rect(toolX1,toolY1,toolX2,toolY2,0xf0);//restore
+						toolX2=zwx; toolY2=zwy;
+						if(SHIFT) snapTool();
+						rect(toolX1,toolY1,toolX2,toolY2,0xf0);//invert
+					}
+					else if(currentTool==5 || currentTool==6)//circle or disk
+					{
+						real u=((real)(toolX2-toolX1))/100;//would be out of range without the divide
+						real v=((real)(toolY2-toolY1))/100;
+						int r=(int)(sqrt(u*u+v*v)*100);
+						circle(toolX1,toolY1,r,0xf0);//restore
+						toolX2=zwx; toolY2=zwy;
+						if(SHIFT) snapTool();
+
+						u=((real)(toolX2-toolX1))/100;
+						v=((real)(toolY2-toolY1))/100;
+						r=(int)(sqrt(u*u+v*v)*100);
+						circle(toolX1,toolY1,r,0xf0);//invert
+					}
+					zoomUpdate(zoomOriginX,zoomOriginY);//update tiles
+				}
+			}
+			modified = true;
+		}
+		else if(!pickMode) //normal draw (out of zoom window)
+		{
+			if(zoom)//zoom is active and we draw in the zoomOut area
+			{
+				//modify x coords according to the zoomOut position
+				mx+=zoomOutPosx<<1;//byte pos to pixel
+			}
+
+			if(currentTool==1)//draw
+			{
+				//record for undo
+				if(actionPushed) actions[undoId]=0;
+				if(brush==1 || brush==2) pushDraw(8, mx, my, px, py);
+				else
+				{
+					int r = brushSizes[brush-3];
+					pushDraw(8+r, mx, my, px, py);
+				}
+				actionPushed=false;
+
+				if(brush==1)
+				{
+					if(shape==3) //dithering
+					{
+						if(_mouse==1)
+						{
+							if(mx%2==0 && my%2==0 || (mx%2!=0 && my%2!=0))
+								plot(mx, my, color);
+							else plot(mx, my, eraser);
+						}
+						else if(_mouse==2) draw(mx, my, eraser);//right button draw
+					}
+					else
+					{
+						if(_mouse==1) draw(mx, my, color);//left button draw
+						else if(_mouse==2) draw(mx, my, eraser);//right button draw
+					}
+				}
+				else if(brush==2)
+				{
+					if(shape==3)//dithering
+					{
+						if(_mouse==1)
+						{
+							if(mx%2==0 && my%2==0 || (mx%2!=0 && my%2!=0))
+							{
+								plot(mx, my, color);
+								plot(mx+1, my, eraser);
+								plot(mx, my+1, eraser);
+								plot(mx+1, my+1, color);
+							}
+							else
+							{
+								plot(mx, my, eraser);
+								plot(mx+1, my, color);
+								plot(mx, my+1, color);
+								plot(mx+1, my+1, eraser);
+							}
+						}
+						else if(_mouse==2) box(mx, my, mx+1, my+1, eraser);
+					}
+					else
+					{
+						if(_mouse==1) box(mx, my, mx+1, my+1, color);
+						else if(_mouse==2) box(mx, my, mx+1, my+1, eraser);
+					}
+				}
+				else //larger brushes
+				{
+					int r = brushSizes[brush-3];
+					if(shape==1)//square brush
+					{
+						if(_mouse==1) box(mx-r, my-r, mx+r, my+r, color);
+						else if(_mouse==2) box(mx-r, my-r, mx+r, my+r, eraser);
+					}
+					else if(shape==2)//round brush
+					{
+						if(_mouse==1) disk(mx, my, r, color);
+						else if(_mouse==2) disk(mx, my, r, eraser);
+					}
+					else if(shape==3)//dither (drawned with diag lines)
+					{
+						if(_mouse==1)
+						{
+							if(mx%2==0 && my%2==0 || (mx%2!=0 && my%2!=0))
+							{
+								line(mx-r,my-r,mx+r,my+r,color);
+								for(int i=1; i<=r; i++)
+								{
+									line(mx-r+i<<1,my-r,mx+r,my+r-i<<1,color);
+									line(mx-r,my-r+i<<1,mx+r-i<<1,my+r,color);
+
+									line(mx-r+i<<1-1,my-r,mx+r,my+r-i<<1+1,eraser);
+									line(mx-r,my-r+i<<1-1,mx+r-i<<1+1,my+r,eraser);
+								}
+							}
+							else
+							{
+								line(mx-r,my-r,mx+r,my+r,eraser);
+								for(int i=1; i<=r; i++)
+								{
+									line(mx-r+i<<1,my-r,mx+r,my+r-i<<1,eraser);
+									line(mx-r,my-r+i<<1,mx+r-i<<1,my+r,eraser);
+
+									line(mx-r+i<<1-1,my-r,mx+r,my+r-i<<1+1,color);
+									line(mx-r,my-r+i<<1-1,mx+r-i<<1+1,my+r,color);
+								}
+							}
+						}
+						else if(_mouse==2) box(mx-r, my-r, mx+r, my+r, eraser);
+					}
+				}
+			}
+			else if(currentTool==7)//flood fill
+			{
+				if(actionPushed) actions[undoId]=0;
+				//undo push is handled inside the floodFill function
+				floodFill(mx,my);
+				actionPushed=false;
+			}
+			else if(currentTool==11 && !pasted)//actual paste action on clic
+			{
+				rect(mx,my,mx+selDim.x,my+selDim.y,0xf0);
+				pasteSelection(mx,my);
+				rect(mx,my,mx+selDim.x,my+selDim.y,0xf0);
+				pasted=true;
+				hold=true;
+			}		
+			else //other tools
+			{
+				if(!toolHold)//origin
+				{
+					toolX1=mx; toolY1=my;
+					toolX2=mx; toolY2=my;
+					if(SHIFT) snapTool();
+					toolHold=true;
+				}
+				if(toolHold && (mx!=px || my!=py))//mouse has moved
+				{
+					if(currentTool==2)//line
+					{
+						line(toolX1,toolY1,toolX2,toolY2,0xf0);//restore line
+						toolX2=mx; toolY2=my;
+						if(SHIFT) snapTool();
+						line(toolX1,toolY1,toolX2,toolY2,0xf0);//invert line
+					}
+					else if(currentTool==3 || currentTool==4 || currentTool==8)//rect or box
+					{
+						rect(toolX1,toolY1,toolX2,toolY2,0xf0);//restore
+						toolX2=mx; toolY2=my;
+						if(SHIFT) snapTool();
+						rect(toolX1,toolY1,toolX2,toolY2,0xf0);//invert
+					}
+					else if(currentTool==5 || currentTool==6)//circle or disk
+					{
+						real u=((real)(toolX2-toolX1))/100;
+						real v=((real)(toolY2-toolY1))/100;
+						int r=(int)(sqrt(u*u+v*v)*100);
+						circle(toolX1,toolY1,r,0xf0);//restore
+						toolX2=mx; toolY2=my;
+						if(SHIFT) snapTool();
+
+						u=((real)(toolX2-toolX1))/100;
+						v=((real)(toolY2-toolY1))/100;
+						r=(int)(sqrt(u*u+v*v)*100);
+						circle(toolX1,toolY1,r,0xf0);//invert
+					}
+				}
+			}
+			drawing = true;
+			if(zoom) cpy2zoomOut();
+			modified = true;
+		}		
+	}
+	else if(!toolHold && currentTool==11 && hold && (mx!=px || my!=py)) //the user moved while holding
+	{
+		if(zoom)
+		{
+			rect(zwx,zwy,zwx+selDim.x,zwy+selDim.y,0xf0);//current
+			rect(pzwx,pzwy,pzwx+selDim.x,pzwy+selDim.y,0xf0);//previous
+			zoomRefreshAll = true;
+		}
+		else
+		{
+			rect(mx,my,mx+selDim.x,my+selDim.y,0xf0);//current
+			rect(px,py,px+selDim.x,py+selDim.y,0xf0);//previous
+		}
+	}
+	else if(_mouse==0)
+	{
+		if(zoom && isPtrBox(zwtx,zwty,zwbx,zwby))
+		{			
+			//update zoom pos for display correct coordinates
+			zwx=toZPos(mx+1,zwtx)+zoomOriginX<<1;
+			zwy=toZPos(my,zwty)+zoomOriginY;
+		
+			//	skip(zwx+zoomOriginX<<1, zwy+zoomOriginY);
+			inZoom=true;
+		}
+		else 
+		{
+			if(zoom)//zoom is active but we are in the zoomOut area
+			{
+				//modify x coords according to the zoomOut position
+				mx+=zoomOutPosx<<1;//byte pos to pixel
+			}
+
+			skip(mx, my);
+			inZoom=false;
+		}
+		if(toolHold)
+		{
+			if(currentTool==2)//line
+			{
+				//record for undo
+				//first hide the temporary line by reverting pixels again
+				line(toolX1,toolY1,toolX2,toolY2,0xf0);
+				plot(toolX1,toolY1,0xf0);
+				//then record previous state for undo
+				if(actionPushed) actions[undoId]=0;
+				pushDraw(4,toolX1,toolY1,toolX2,toolY2);
+				actionPushed=false;
+
+				if(lastButton!=2) line(toolX1,toolY1,toolX2,toolY2,color);//draw actual line on release
+				else line(toolX1,toolY1,toolX2,toolY2,eraser);//draw actual line on release
+			}
+
+			else if(currentTool==3)//rect
+			{
+				//record for undo
+				//first hide the temporary rect by reverting pixels again
+				rect(toolX1,toolY1,toolX2,toolY2,0xf0);
+				//then record previous state for undo
+				if(actionPushed) actions[undoId]=0;
+				pushDraw(1,toolX1,toolY1,toolX2,toolY1);
+				pushDraw(1,toolX2,toolY1,toolX2,toolY2);
+				pushDraw(1,toolX2,toolY2,toolX1,toolY2);
+				pushDraw(1,toolX1,toolY2,toolX1,toolY1);
+				actionPushed=false;
+
+				if(lastButton!=2) rect(toolX1,toolY1,toolX2,toolY2,color);
+				else rect(toolX1,toolY1,toolX2,toolY2,eraser);
+			}
+
+			else if(currentTool==4)//box
+			{
+				//record for undo
+				//first hide the temporary rect by reverting pixels again
+				rect(toolX1,toolY1,toolX2,toolY2,0xf0);
+				if(actionPushed) actions[undoId]=0;
+				pushArray(toolX1,toolY1,toolX2,toolY2);
+				actionPushed=false;
+
+				if(lastButton!=2) box(toolX1,toolY1,toolX2,toolY2,color);
+				else box(toolX1,toolY1,toolX2,toolY2,eraser);
+			}
+
+			else if(currentTool==5)//circle
+			{
+				real u=((real)(toolX2-toolX1))/100;
+				real v=((real)(toolY2-toolY1))/100;
+				int r=(int)(sqrt(u*u+v*v)*100);
+				
+				//record for undo
+				//first hide the temporary circle by reverting pixels again
+				circle(toolX1,toolY1,r,0xf0);
+				//then record previous state for undo
+				//we record along a circle in a few steps
+				if(actionPushed) actions[undoId]=0;
+				real TWOPI=6.2832;
+				real STEP=TWOPI/18;
+				int prevX=clamp(toolX1+r,0,399);
+				int prevY=toolY1;				
+				for(real angle=STEP; angle<TWOPI; angle+=STEP)
+				{
+					int x=clamp(toolX1+(int)(cos(angle)*r),0,399);
+					int y=clamp(toolY1+(int)(sin(angle)*r),0,239);
+					pushDraw(8,x,y,prevX,prevY);
+					prevX=x;
+					prevY=y;
+				}				
+				actionPushed=false;
+						
+				if(lastButton!=2) circle(toolX1,toolY1,r,color);
+				else circle(toolX1,toolY1,r,eraser);
+			}
+			else if(currentTool==6)//disk
+			{
+				real u=((real)(toolX2-toolX1))/100;
+				real v=((real)(toolY2-toolY1))/100;
+				int r=(int)(sqrt(u*u+v*v)*100);
+
+				//record for undo
+				//first hide the temporary circle by reverting pixels again
+				circle(toolX1,toolY1,r,0xf0);
+				//then record previous state for undo
+				if(actionPushed) actions[undoId]=0;
+				pushArray(toolX1-r,toolY1-r,toolX1+r,toolY1+r);
+				actionPushed=false;
+
+
+				if(lastButton!=2) disk(toolX1,toolY1,r,color);
+				else disk(toolX1,toolY1,r,eraser);
+			}
+			else if(currentTool==8)//select
+			{
+				//first hide the temporary rect by reverting pixels again
+				rect(toolX1,toolY1,toolX2,toolY2,0xf0);
+				selOrg={toolX1,toolY1};
+				selEnd={toolX2,toolY2};
+				initSelection();
+				displayToolBox();
+			}
+			else if(currentTool==11 && !hasPasteRect)//mouse up icon
+			{
+				if(zoom || mx!=px || my!=py)//iconholdrelease while moving
+				{
+					rect(px,py,px+selDim.x,py+selDim.y,0xf0);
+				}
+				else rect(mx,my,mx+selDim.x,my+selDim.y,0xf0);
+				hasPasteRect=true;
+			}
+
+			toolHold = false;
+			zoomRefreshAll = true;
+		}
+		if(currentTool==11  && (mx!=px || my!=py))//free move pasting rect
+		{
+			if(zoom && inZoom)
+			{
+				rect(zwx,zwy,zwx+selDim.x,zwy+selDim.y,0xf0);//current
+				if(!wasInZoom) rect(px,py,px+selDim.x,py+selDim.y,0xf0);
+				else rect(pzwx,pzwy,pzwx+selDim.x,pzwy+selDim.y,0xf0);//previous
+			}
+			else
+			{
+				rect(mx,my,mx+selDim.x,my+selDim.y,0xf0);//current
+				if(wasInZoom) rect(pzwx,pzwy,pzwx+selDim.x,pzwy+selDim.y,0xf0);
+				else
+				{
+					if(pasted) rect(px+zoomOutPosx<<1,py,px+zoomOutPosx<<1+selDim.x,py+selDim.y,0xf0);
+					else rect(px,py,px+selDim.x,py+selDim.y,0xf0);
+				}
+			}
+			zoomRefreshAll = true;
+			pasted=false;
+		}
+//		else if(hasPasteRect && leftUpEvent)
+//		{
+//			if(zoom && inZoom) rect(zwx,zwy,zwx+selDim.x,zwy+selDim.y,0xf0);
+//		}
+
+		hold = false;
+
+		if(drawing)
+		{
+			drawing = false;		
+			zoomRefreshAll = true;
+		}
+*/
+	}

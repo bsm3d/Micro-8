@@ -1,0 +1,51 @@
+
+//Moving sprites example
+
+nat gfxModes=0x2f00;
+nat sprPalA=0x11d0;
+byte sprPage=0x20;
+nat cpuWindow=0x3000;
+
+import("res/sprites.spr", cpuWindow, 16384, sprPage);//load sprites data
+import("res/sprites.pla", sprPalA, 48);//load first palette
+
+poke(gfxModes,peek(gfxModes)|0b00000100); //enable sprites
+
+//initialize sprites
+for(byte id; id<32; id++)
+{
+	sprPal(id, 0);//set sprite palette. immediate
+	sprPrio(id, 0);//set sprite priority. immediate
+}
+
+//Precompute a table of positions
+real pi=3.1416;
+int posX[256];
+int posY[256];
+
+for(int i; i<256; i++)
+{
+	posX[i]=424+(int)(sin((real)i/256*2*pi)*350.0);//sprite positions are subpixel @800x480
+	posY[i]=261+(int)(sin((real)i/256*4*pi)*210.0);
+}
+
+byte frame;//the animation wraps after 256 frames (size of above table)
+
+//main loop
+while(_keyDwn!=12)//esc
+{
+	//set sprites position and reference during frame
+	for(byte id; id<32; id++)
+	{
+		byte i=frame+id<<2;
+		sprPos(id,posX[i],posY[i]);//set deferred position
+		sprRef(id,(i>>2)%2);//set deferred reference
+	}
+	vSync();//wait for vertical blanking
+	sprUpdt();//update deferred data during vblank
+
+	frame++;
+}
+
+
+

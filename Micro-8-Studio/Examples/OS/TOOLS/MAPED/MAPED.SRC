@@ -1,0 +1,1004 @@
+
+//                    
+//                     
+//           
+//                  
+//           
+//            
+//            
+//
+// Tilemap Editor (c)2025 Written by David Gervais
+//
+// Version 1.2
+
+//init registers
+import("/system/reginit.dat",0x1100,0);
+
+nat cpuWindow = 0x3000;
+nat scratchPad = 0xf000;
+text boxReturn={30};
+text tempBuf={80};
+nat tempLen=0;
+nat maxX=50;								// max X tilemap
+nat maxY=15;								// max Y tilemap
+nat gfxModes=0x2f00; //graphics modes register
+nat statusReg=0x2f0b;
+nat maxsizeMap=2500;  // maxsize  80*50
+nat level=0x3000+896;
+nat undoLevel=0x3000+15896;
+nat layer=0x3000+30896;
+nat select=0x3000+45896;
+bool undoState;
+nat tileBufferA=0x2b00;  // tileset grid
+nat tileBufferB=0x2d00;  // tilemap grid
+text returnBuf={20};
+int selectTile;
+int selTilesX=0;
+int selTilesXX=0;
+int selTilesY=4;
+int selTilesYY=4;
+int sizeX=1;
+int sizeY=1;
+int speedScroll;
+int bufX; 
+int bufY;
+int buftX; 
+int buftY;
+nat bufNat;
+
+int selectTile2;
+int eraseTile;
+bool scroll;
+text textBuf={80};
+text Tinput={80}; 
+byte finalTile;
+int mKey;
+int kKey;
+text fg={7};
+nat tempX;
+byte tempY;
+byte tempYbuf;
+bool menuSwap;
+bool selecType;
+int posX;
+int posY;
+bool FCTN;
+byte drawMode=1;
+nat randomStart;
+nat randomEnd;
+bool exit;
+byte selectedLayer;
+byte layerNum;
+nat tilPalet=0x1170;//tiles palette
+nat bmpPalet=0x11a0; //bitmap palette
+nat sprPalet=0x11d0; //first sprite palette
+
+
+byte sprPage=0x20; //default page for sprites in XSRAM: 0x08000
+byte bmpPage=0x60; //default page for bitmap in XSRAM: 0x18000
+byte tilPage=0x00; //default page for tiles in XSRAM: 0x00000
+byte bmpBuf=0x8E; //default page for buffer bitmap in XSRAM: 0x18000
+
+
+  int reduceX;
+	int reduceY;
+
+byte menuPos[10];			// array menu position
+byte maxmenuItems=23;
+byte menuFlag=maxmenuItems;	// maximum menu titles
+byte menuCnt;
+byte menuSel=0;
+bool menuArea;				// menu hit 
+int tilesX;
+int tilesY;
+int otilesX;
+int otilesY;
+
+bool menuStatus;
+bool menuState[30];  for (int i=0;i<30;i++)  { menuState[i]=false; }
+bool infoIcons=true;  menuState[20]=infoIcons;
+bool miniMap=true;    menuState[21]=miniMap; menuState[10]=true;   // default draw mode
+
+int uu;
+
+
+poke(0x11A8,15);poke(0x11B8,15);poke(0x11C8,0); // set color selection
+
+text menu[30]={"FILES","NEW TILEMAP","LOAD TILEMAP","SAVE TILEMAP","LOAD LAYER","SAVE LAYER","IMPORT TILESET","Exit",
+"","EDIT","MODE DRAW","MODE RANDOM","MODE LAYER","GENERATE PATHLAYER",
+"INVERSE LAYER","CLEAR LAYER","RESIZE TILEMAP","","PARAMETERS","SET SELECT COLOR","ERASER ICON","MINI MAP","",""};
+
+text error[14]={"OK","DISK ERROR","VOLUME ERROR","DEVICE NOT READY","FILE NOT FOUND",
+"PATH/FOLDER NOT FOUND","INVALID NAME","ACCESS DENIED",
+"FILE EXISTS","INVALID NAME","WRITE PROTECTED","INVALID DRIVE",
+"VOLUME NOT MOUNTED","INVALID VOLUME"};
+
+
+memSet(cpuWindow,48000,0,0x60);   // clear bmp
+memSet(cpuWindow,32768,0,0x0);    // clear tileset
+memSet(tileBufferA,512,0);
+memSet(0x1200,6400,0);	      // clear text
+poke(0x2f01,0);  					// reset tiles offset
+poke(0x2f02,0);
+
+byte grid[200];
+import("grid",&grid,200);
+memCpy(&grid,scratchPad,200);
+
+
+poke(gfxModes,0b10111101);// set bitmap mode
+poke(0x2f0b,peek(0x2f0b) | 0b00000100);//display buffer B
+
+clkSet();
+	
+ptrShape(3);
+
+nat len(nat adr) {						// function text length
+	nat i=0;
+	while (peek(adr+i)) { i++;}
+	return i;
+}
+	
+void clearMem(){
+	memSet(level,15000,0,0x8e);
+	memSet(undoLevel,15000,0,0x8e);
+	memSet(layer,15000,0,0x8e);
+}
+void drawMinimap(){
+	nat    ratioX=(maxX/200)+1;
+	nat	 ratioY=(maxY/100)+1;
+	nat    ratioF=max(ratioX,ratioY);
+	nat    miniMapsizeX=maxX/ratioF;
+	nat    miniMapsizeY=maxY/ratioF;
+	rect(379-miniMapsizeX,19,381,21+miniMapsizeY,8);  // draw mini map
+	int mapX=380-miniMapsizeX+(tilesX/ratioF);		// draw minimap
+   box(380-miniMapsizeX,20,380,20+miniMapsizeY,0); 
+	rect(mapX,20+(tilesY/ratioF),mapX+(25/ratioF),20+(15/ratioF)+(tilesY/ratioF),10);  // x/Y info
+	
+	curPos(62,1); print("21X:     "); curPos(65,1);print((nat)_mouseX>>5+tilesX);
+	curPos(69,1); print("Y:       "); curPos(72,1);print ((nat)_mouseY>>5+tilesY);
+   curPos(62,2); print("SIZE: ",maxX," x ",maxY,"   10");
+}
+
+void pause(int timer) {    				// pause function
+	int start;
+	while(start<timer*10) {start++;}
+}
+void clearBmp() {
+	memSet(cpuWindow,48000,0,bmpPage);   // clear bmp
+}
+void waitRelease() {   // wait until release all mouse button
+	while(_mouse){ }
+}
+void waitPress() {   // wait until release all mouse button
+	while( (_mouse!=0) || (_keyDwn!=0) ) { }
+	while( (_mouse==0) && (_keyDwn==0) ) { }
+
+}
+
+void initTileset() {
+	memSet(tileBufferB,465,0); // clear tileBufferB
+	int val=0;
+	for (int i=0;i<=256;i++) {
+		if (val % 25==0 ) { i=(val/24)*32  ;}	
+		poke (tileBufferB+(nat)i+(4*32),(byte)val);
+		val++;
+	}
+}
+void clearTxt(nat pos) {
+ 	memSet(0x1200+pos,3120,0);
+	memSet(0x1E80+pos,3120,0);
+}
+
+int txt2Int(nat addr)				// convert txt to int
+{
+	byte size;
+	while(peek(addr+size)!=0) size++;
+	int acc;
+	if (size==0){ acc=-1;} 
+	int rank=1;
+	for(int i=size-1; i>=0; i--)//from right to left
+	{
+		int val=peek(addr+(nat)i)-48; //ASCII to numeric value
+		if(val<0 || val>9)continue; // skip non numeric character
+		acc+=val*rank;
+		rank*=10;//next decimal rank
+	}
+	return acc;
+}
+
+
+
+text rpt( byte char,nat size ) {			// repeat char function
+	memSet(&textBuf,80,0); // define txt buffer 
+	memSet(&textBuf,size,char);
+	return textBuf;
+}
+text tBox(byte x,byte y,byte z,text boxTitle,bool inP) {					// text box
+	byte xx=40-(x/2);
+	byte yy=20-((y+3)/2);
+	curPos(xx,yy ); print ("25‰",rpt('Å',x),"Â"); yy++;
+	curPos(xx,yy ); print ("25í",rpt(' ',x),"î");
+	curPos(xx+1,yy );  print ("25",boxTitle);yy++;
+	for (int i=1;i<y;i++) {
+	curPos(xx,yy ); print ("25í",rpt(' ',x),"î"); yy++;	
+	}
+	curPos(xx,yy ); print ("25",rpt('Å',x),"Ò"); yy-=2;
+	if (inP) {
+		curPos(xx+1,yy ); input (Tinput,z);
+	}
+	else
+	{
+		waitPress();
+	}
+	clearTxt(80);print("10");
+	return (text)&Tinput;
+}
+
+nat adrIndex( nat adr, byte offset) { 
+	adr=adr+(offset << 1);
+	return ( peek(adr+1) << 8 ) | peek(adr) ;
+}
+
+void selectGrid() {	
+	nat size=(nat)sizeX<<3;
+	nat dest=0x3000+((nat)selTilesY*3200)+((nat)selTilesX*8);
+   for (nat i=0;i<((selTilesYY-selTilesY)+1)*8;i++) {
+		memCpy(0xf000,dest+((nat)i*400),size,0x60);
+	}
+}
+void drawSelect(nat x,nat y) {
+	nat dest=0x3000+(y*3200)+(x*8);
+
+	memCpy(0xf000,dest,8,0x60);
+	memCpy(0xf000,dest+800,8,0x60);
+	memCpy(0xf000,dest+1600,8,0x60);
+	memCpy(0xf000,dest+2400,8,0x60);
+
+//		box(x*16,y*16,(x*16)+16,(y*16)+16,8);	
+}
+
+
+void Menu() {
+	if ((_mouseY>18) && (menuFlag<11)  ) {
+	tempX=menuFlag*120+12; 	tempY=2; menuArea=false;
+	for ( byte j=menuPos[menuFlag]+1; j<menuPos[menuFlag+1]-1;j++) {   	  
+		if (isPtrBox(tempX,tempY*12,tempX+190,tempY*12+12))   {
+			if (menuSel && j!=menuSel) {	     				// clear previous inverted item
+				curPos(menuFlag*12+2,tempYbuf);
+            tempBuf=menu[menuSel];
+				tempLen=len(&tempBuf);
+				print ("25",tempBuf,rpt(32,18-tempLen),"");
+  				print("10");
+		
+			}
+			curPos(menuFlag*12+2,tempY);  // invert selected item
+			tempBuf=menu[j];
+			tempLen=len(&tempBuf);
+			print ("52",tempBuf,rpt(32,18-tempLen),"");
+			print("10");
+		
+				menuSel=j;tempYbuf=tempY;
+			menuArea=true;					
+			break;	
+			}
+       	tempY++;	
+   	}		
+		if (!menuArea && menuSel>0) {		// clear item if out of menu
+			curPos(menuFlag*12+2,tempYbuf);
+			tempBuf=menu[menuSel];
+			tempLen=len(&tempBuf);
+			print ("25",tempBuf,rpt(32,18-tempLen),"");
+  			print("10");
+			menuSel=0;   
+   	}
+	}
+else
+	{
+	
+
+	for ( byte i;i<menuCnt;i++){
+   	if ((isPtrBox(i*120+10,0,i*120+130,18)) & (i!=menuFlag)  ) {
+			curPos(i*12+2,0);
+			print ("52",menu[menuPos[i]],"");
+
+ 		// close previous menu
+		   if (menuFlag<11) {
+			curPos(menuFlag*12+2,0);  
+			print ("25",menu[menuPos[menuFlag]],"");
+			clearTxt(80);
+         tempYbuf=0;menuSel=0;   	   			
+			print("10");
+         }
+			text stateChar={1};
+		// open new mnopen new mnopen new mnopen new mnu 
+				
+			ptrShape(0);
+
+			curPos(i*12+1,1);
+      	print ("25‰ÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÂ");
+      	for ( byte j=menuPos[i]+1; j<menuPos[i+1]-1;j++) {
+	     		curPos(i*12+1,j-menuPos[i]+1);
+				tempBuf=menu[j];
+				tempLen=len(&tempBuf);
+				if (menuState[j]) { stateChar="ö";} else { stateChar="í"; }
+				print (stateChar,tempBuf,rpt(32,18-tempLen),"î");	
+			}
+      	curPos(i*12+1,menuPos[i+1]-menuPos[i]);
+      	print ("ÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÒ10");
+			menuFlag=i;
+		
+		}
+		
+	}
+   }
+}
+
+void scrollTiles() {
+	nat stepX=1;
+	nat stepY=1;
+	if (FCTN){ stepX=25; stepY=15; }	
+		if  (_mouseX==0 || kKey==57 ) { tilesX-=stepX; if (tilesX<0) {tilesX=0;} else {scroll=true;}}
+		if  ( _mouseX==799 || kKey==59 ) { tilesX+=stepX; if (tilesX>maxX-25) {tilesX=maxX-25;} else {scroll=true;}}
+		if  (_mouseY==0 || kKey==77 ) { tilesY-=stepY; if (tilesY<0) {tilesY=0;} else {scroll=true;}}
+		if  (_mouseY==479 || kKey==80 ) { tilesY+=stepY; if (tilesY>=maxY-15) {tilesY=maxY-15;} else {scroll=true;}}
+		if (FCTN){ pause(150);}
+ 	
+
+}
+void drawBloc() {
+	box(bufX*16,bufY*16,(bufX+sizeX)*16,(bufY+sizeY)*16,0);
+	reduceX=25-(posX+sizeX) ; if (reduceX>0) { reduceX=0 ; }
+	reduceY=15-(posY+sizeY) ; if (reduceY>0) { reduceY=0 ; }
+	areaCpy(select,32,0,0,sizeX+reduceX,sizeY+reduceY,tileBufferA,32,posX,posY,0x8e);
+	rect(posX*16,posY*16,(posX+sizeX+reduceX)*16,(posY+sizeY+reduceY)*16,8);
+	rect(1+(posX*16),1+(posY*16),((posX+sizeX+reduceX)*16)-1,((posY+sizeY+reduceY)*16)-1,8);
+		
+}
+void drawMenubar() {   // draw menubar
+	curPos(0,0) ; print ("25",rpt(32,80));
+	for ( byte i;i<menuCnt;i++)  {  
+		curPos(i*12+2,0); print ("25",menu[menuPos[i]],"");
+	}
+   print("10");
+}
+
+void initMenu() {
+	for (byte i ; i<maxmenuItems; i++) {
+		if  ( peek(adrIndex(&menu,i))==false ) { 
+  			if ( peek(adrIndex(&menu,i-1))==false) break;
+			menuCnt++;
+			menuPos[menuCnt]=i+1;       	
+		}
+	}
+}
+void resetGrid() {
+	memCpy(&grid,scratchPad,200);
+
+	selTilesX=0; selTilesXX=0; selTilesY=4; selTilesYY=4;sizeX=1;sizeY=1;
+				clearBmp();
+				selectGrid();
+}
+void testMenu() {
+	nat bmaxX=maxX;
+	nat bmaxY=maxY;
+	byte returnBox;
+
+			if (menuSel==1) {											// new
+
+				boxReturn=tBox(30,4,4,"NEW TILEMAP : ENTER X LIMIT",true);  maxX=(nat)txt2Int(&boxReturn);
+				boxReturn=tBox(30,4,4,"NEW TILEMAP : ENTER Y LIMIT",true);  maxY=(nat)txt2Int(&boxReturn);
+				if ((maxX>24)&&(maxY>14)){
+					if (maxX>15000 / maxY){
+						boxReturn=tBox(32,0,1,"SIZE OVERFLOW : MAX 15000 bytes",false);
+						maxX=bmaxX; maxY=bmaxY;
+					}					
+					else {
+						clearMem();
+						tilesX=0;
+						tilesY=0;
+						areaCpy(level,maxX,0,0,27,16,tileBufferA,32,0,0,0x8e);
+					}
+				}
+				else {
+					boxReturn=tBox(32,0,1,"MIN SIZE IS 25x15",false);
+					maxX=bmaxX; maxY=bmaxY;
+				
+				}
+			}
+			if (menuSel==2) {											// load tilemap			
+				boxReturn=tBox(30,4,30,"LOAD TILESMAP",true);
+				concat(boxReturn,".LVL");
+				fOpen(0,boxReturn);
+				
+				if (_fError) {
+					boxReturn=tBox(32,0,1,error[_fError],false);
+				   waitRelease();
+				}
+				else {
+					fRead(0,&maxX,0,2);
+					fRead(0,&maxY,2,2);
+					fRead(0,level,4,maxX*maxY,0x8e);
+				   // resize layer
+					areaCpy(layer,bmaxX,0,0,bmaxX,bmaxY,undoLevel,maxX,0,0,0x8e);
+					areaCpy(undoLevel,maxX,0,0,maxX,maxY,layer,maxX,0,0,0x8e);
+					// reinit undo buffer
+					memCpy(level,undoLevel,maxY*maxX,0x8e); 
+						
+					tilesX=0;  tilesY=0; undoState=false;
+				}
+				fClose(0);		
+			   
+			}
+			if (menuSel==3) {											// save tilemap	
+				boxReturn=tBox(30,4,30,"SAVE TILESMAP",true);
+				concat(boxReturn,".LVL");
+				fOpen(0,boxReturn);
+				if (_fError) {
+					boxReturn=tBox(32,0,1,error[_fError],false);
+				   waitRelease();
+				} else {
+					fWrite(0,&maxX,0,2);
+					fWrite(0,&maxY,2,2);
+					fWrite(0,level,4,maxX*maxY,0x8e);
+					
+				}
+				fClose(0);
+				
+			}	
+			if (menuSel==4) {											// load layer
+				boxReturn=tBox(30,4,30,"LOAD LAYER",true);
+				concat(boxReturn,".LAY");
+				fOpen(0,boxReturn);
+				if (_fError) {
+					boxReturn=tBox(32,0,1,error[_fError],false);
+				   waitRelease();
+				}
+				else {
+					fRead(0,&maxX,0,2);
+					fRead(0,&maxY,2,2);
+					fRead(0,layer,4,maxX*maxY,0x8e);
+					// resize layer
+					areaCpy(layer,maxX,0,0,maxX,maxY,undoLevel,bmaxX,0,0,0x8e);
+					areaCpy(undoLevel,bmaxX,0,0,bmaxX,bmaxY,layer,bmaxX,0,0,0x8e);
+					maxX=bmaxX;  maxY=bmaxY; undoState=false;	
+					// reinit undo buffer
+					memCpy(level,undoLevel,maxY*maxX,0x8e); 
+						
+				}
+				fClose(0);
+			}
+
+			if (menuSel==5) {											// save layer	
+				boxReturn=tBox(30,4,30,"SAVE LAYER",true);
+				concat(boxReturn,".LAY");
+				fOpen(0,boxReturn);
+				if (_fError) {
+					boxReturn=tBox(32,0,1,error[_fError],false);
+				   waitRelease();
+				}
+				else
+				{
+					fWrite(0,&maxX,0,2);
+					fWrite(0,&maxY,2,2);
+					fWrite(0,layer,4,maxX*maxY,0x8e);
+				}
+				fClose(0);				
+			}	
+		
+			if (menuSel==6) {											// load tileset		
+				boxReturn=tBox(30,4,30,"LOAD TILESET",true);
+				concat(boxReturn,".TLS");
+				fOpen(0,boxReturn);
+				if (_fError) {
+					boxReturn=tBox(32,0,1,error[_fError],false);
+				   waitRelease();
+				}
+				else {
+				fRead(0,sprPalet,0,48);
+
+				fRead(0,tilPalet,0,48);
+				fRead(0,cpuWindow,48,32768,tilPage);
+			   resetGrid();
+				}
+				fClose(0);
+			}
+			
+			if (menuSel==7) {											// exit
+				exit=true;
+			}
+			
+			if (menuSel==10) {											// draw
+				drawMode=1;
+				for (int i=10;i<13;i++) { menuState[i]=false; }
+				menuState[10]=true;
+			}
+			
+			
+			if (menuSel==11) {											// randomt
+				drawMode=3;
+				for (int i=10;i<13;i++) { menuState[i]=false; }
+				menuState[11]=true;
+			}
+			if (menuSel==12) {											// layer
+				boxReturn=tBox(30,4,4,"SELECT LAYER #  (0..7) :",true);   returnBox=(byte)txt2Int(&boxReturn);
+				if (returnBox>7)  {
+					boxReturn=tBox(32,0,1,"WRONG LAYER SELECTED",false ); 
+				}
+				else {
+					layerNum=returnBox;
+					selectedLayer=(byte)pow(2,layerNum);
+					for (int i=10;i<13;i++) { menuState[i]=false; }
+					menuState[12]=true;
+					drawMode=2;
+
+				} 
+			}
+
+			if (menuSel==13) {											// layer
+				for ( nat i=0;i<maxX*maxY;i++){
+						if (peek(level+i,0x8e)==0){
+							poke(layer+i,peek(layer+i,0x8e)&(~ selectedLayer),0x8e);
+						} else {
+							poke(layer+i,peek(layer+i,0x8e) | selectedLayer,0x8e);
+						}
+			
+				}
+				boxReturn=tBox(20,0,1,"PATH BUILT",false ); 
+			}
+			
+			if (menuSel==14) {											// layer
+				for ( nat i=0;i<maxX*maxY;i++){
+							poke(layer+i,~peek(layer+i,0x8e),0x8e);	
+				}
+				boxReturn=tBox(20,0,1,"LAYER INVERTED",false ); 
+			}
+			
+			if (menuSel==15) {											// clear layer
+				boxReturn=tBox(31,4,4,"SELECT LAYER # TO CLEAR  (0..7)",true);  layerNum=(byte)txt2Int(&boxReturn);
+				if (layerNum>7) {
+					boxReturn=tBox(32,0,1,"WRONG LAYER SELECTED",false ); 
+				}
+				else {
+					selectedLayer=(byte)pow(2,layerNum);
+					for (nat i=0;i<maxX*maxY;i++){
+						poke(layer+i,peek(layer+i,0x8e) &(~ selectedLayer),0x8e);
+			   	}
+				}
+			}
+			
+			if (menuSel==16) {											// resize
+
+				boxReturn=tBox(30,4,4,"RESIZE TILEMAP : ENTER X LIMIT",true);  maxX=(nat)txt2Int(&boxReturn);
+				boxReturn=tBox(30,4,4,"RESIZE TILEMAP : ENTER Y LIMIT",true);  maxY=(nat)txt2Int(&boxReturn);
+				if ((maxX>24)&&(maxY>14)){
+					if (maxX>15000 / maxY){
+						boxReturn=tBox(32,0,1,"SIZE OVERFLOW : MAX 15000 bytes",false);
+						maxX=bmaxX; maxY=bmaxY;
+				
+					}					
+					else {
+						tilesX=0;
+						tilesY=0;
+						// resize map
+						areaCpy(level,bmaxX,0,0,bmaxX,bmaxY,undoLevel,maxX,0,0,0x8e);
+						areaCpy(undoLevel,maxX,0,0,maxX,maxY,level,maxX,0,0,0x8e);
+						areaCpy(level,maxX,0,0,27,16,tileBufferA,32,0,0,0x8e);
+//						 resize layer
+						areaCpy(layer,bmaxX,0,0,bmaxX,bmaxY,undoLevel,maxX,0,0,0x8e);
+						areaCpy(undoLevel,maxX,0,0,maxX,maxY,layer,maxX,0,0,0x8e);
+						// reinit undo buffer
+						memCpy(level,undoLevel,maxY*maxX,0x8e); 
+						}
+					
+				}
+				
+				else {
+					boxReturn=tBox(32,0,1,"MIN SIZE IS 25x15",false);
+					maxX=bmaxX; maxY=bmaxY;
+				
+				}
+			}
+			if (menuSel==19) {											// new
+
+				boxReturn=tBox(30,4,4,"COLOR RED: ",true);  int color=(nat)txt2Int(&boxReturn);
+				poke(0x11A8,(byte)color);
+				boxReturn=tBox(30,4,4,"COLOR GREEN: ",true); color=(nat)txt2Int(&boxReturn);
+				poke(0x11B8,(byte)color);
+				boxReturn=tBox(30,4,4,"COLOR BLUE: ",true);  color=(nat)txt2Int(&boxReturn);
+				poke(0x11C8,(byte)color);
+		
+		}
+		
+			if (menuSel==20) {											// load tileset		
+				menuState[20]=!menuState[20];
+				infoIcons=menuState[20];
+		   }
+			if (menuSel==21) {											// load tileset		
+				menuState[21]=!menuState[21];
+				miniMap=menuState[21];
+			}		
+			menuSel=0;
+			waitRelease();
+
+}
+void displayInfoicons(bool stat){
+	if (stat) { sprPos(1,798,484); }
+	else { sprPos (1,0,0) ; }
+	sprUpdt();
+}
+void refreshTilesmap(){
+	if (drawMode==2) {
+			clearBmp();
+			for (nat x=0;x<25;x++) {
+				for (nat y=0;y<15;y++) {
+					if (peek(layer+(((nat)tilesY+y)*maxX)+x+(nat)tilesX,0x8e)& selectedLayer==selectedLayer) {
+						drawSelect(x,y);
+					}
+				}
+			}
+	}
+	areaCpy(level,maxX,tilesX,tilesY,27,16,tileBufferA,32,0,0,0x8e) ;
+	pause(speedScroll);
+}
+clearBmp();
+clearMem();
+initTileset(); 
+
+
+rect(1,0,18,17,1);
+bmpToSpr(0,0,1,1,0);
+sprRef(1,0);
+rect(1,0,18,17,0);
+
+
+displayInfoicons(true);
+
+initMenu();
+drawMenubar();
+selectGrid();	
+
+memCpy(&grid,0x3000+24000,1600,0x60);
+waitRelease();
+
+boxReturn=tBox(41,0,0,"TILEMAP EDITOR 1.2 (c) David Gervais 2025",false);  
+waitRelease();
+
+//routine principale
+
+while (!exit) {
+
+	mouseUpdt();
+	posX=_mouseX>>5;							
+	posY=_mouseY>>5; 
+	mKey=_mouse;
+   
+	
+	if (_keyDwn==79) { FCTN=true; }
+	if (_keyUp==79) { FCTN=false; }
+	
+	kKey=_keyDwn;
+	
+	
+	
+	if (menuSwap){		                        // tilemap menu
+
+		if ( kKey==7 && FCTN ){               // clear zorking screen
+				for (nat y=0;y<15;y++){
+					for ( nat x=0;x<25;x++) {
+			         if (drawMode==2) {
+							poke(layer+(((nat)tilesY+y)*maxX)+x+(nat)tilesX,peek(layer+(((nat)tilesY+y)*maxX)+x+(nat)tilesX,0x8e) &(~ selectedLayer),0x8e);
+			   		}
+						else
+						{
+							poke(level+(((nat)tilesY+y)*maxX)+x+(nat)tilesX,0,0x8e);
+			   		}					
+					}
+				}
+				refreshTilesmap();	
+		}
+
+
+		
+		if (drawMode==2) {    //  select layer 
+
+		if ( kKey==15 && FCTN ){               // generate path working zone
+				
+				for (nat y=0;y<15;y++){
+					for ( nat x=0;x<25;x++) {
+						bufNat=(((nat)tilesY+y)*maxX)+x+(nat)tilesX;
+			
+						if (peek(level+bufNat,0x8e)==0){
+							poke(layer+bufNat,peek(layer+bufNat,0x8e)&(~ selectedLayer),0x8e);
+						} else {
+							poke(layer+bufNat,peek(layer+bufNat,0x8e) | selectedLayer,0x8e);
+						}
+						
+					}
+				}
+				refreshTilesmap();	
+		}
+
+		if ( kKey==53 && FCTN ){               // inverse layer working zone
+				
+				for (nat y=0;y<15;y++){
+					for ( nat x=0;x<25;x++) {
+						bufNat=(((nat)tilesY+y)*maxX)+x+(nat)tilesX;
+			
+							poke(layer+bufNat,~peek(layer+bufNat,0x8e),0x8e);
+						
+					}
+				}
+				refreshTilesmap();	
+		}
+
+
+		if ( kKey==1 && FCTN ){
+			layerNum=0 ;selectedLayer=(byte)pow(2,layerNum);refreshTilesmap();
+				
+		}
+		if ( kKey==21 && FCTN ){
+			layerNum=1 ;selectedLayer=(byte)pow(2,layerNum);refreshTilesmap();
+				
+		}
+		if ( kKey==2 && FCTN ){
+			layerNum=2 ;selectedLayer=(byte)pow(2,layerNum);refreshTilesmap();
+				
+		}
+		if ( kKey==22 && FCTN ){
+			layerNum=3 ;selectedLayer=(byte)pow(2,layerNum);refreshTilesmap();
+				
+		}
+		if ( kKey==3 && FCTN ){
+			layerNum=4 ;selectedLayer=(byte)pow(2,layerNum);refreshTilesmap();
+				
+		}
+		if ( kKey==23 && FCTN ){
+			layerNum=5 ;selectedLayer=(byte)pow(2,layerNum);refreshTilesmap();
+				
+		}
+		if ( kKey==4 && FCTN ){
+			layerNum=6 ;selectedLayer=(byte)pow(2,layerNum);refreshTilesmap();
+				
+		}
+		if ( kKey==24 && FCTN ){
+			layerNum=7 ;selectedLayer=(byte)pow(2,layerNum);refreshTilesmap();
+				
+		}
+		
+	}
+		
+		
+		
+		
+   	if ( kKey==44 && FCTN ){
+			memCpy(undoLevel,level,maxsizeMap,0x8e);              // undo function
+			refreshTilesmap();
+		}
+   	if ( kKey==45 && FCTN ){
+		ptrShape(1);
+		refreshTilesmap();
+		clearBmp();
+		drawMinimap();	
+		while(_mouse==0){ scrollTiles();refreshTilesmap();drawMinimap();	 
+			mouseUpdt();
+   	}
+		posX=_mouseX>>5;							
+		posY=_mouseY>>5; 
+					selTilesX=posX;
+					selTilesY=posY;
+					otilesX=tilesX;
+					otilesY=tilesY;
+					bufX=0;bufY=0;
+					while (_mouse) {             
+						if ( (_mouseX==0 || _keyDwn==57 ) && tilesX>0 && tilesX+selTilesXX>otilesX+posX ) {tilesX-=1;scroll=true;}
+						if ( ( _mouseX==799 || _keyDwn==59 ) && tilesX+25<maxX ) {selTilesX-=1;tilesX++;scroll=true;}
+						if ( (_mouseY==0 || _keyDwn==77 ) && tilesY>0 && tilesY+selTilesYY>otilesY+posY) {tilesY-=1;scroll=true;}
+						if ( (_mouseY==479 || _keyDwn==80 ) && tilesY+15<maxY ) {selTilesY-=1;tilesY++;scroll=true;}    
+						if (selTilesX<0) { selTilesX=0;}  
+						if (selTilesY<0) { selTilesY=0;}
+						selTilesXX=(_mouseX>>5);
+	   				selTilesYY=(_mouseY>>5);		
+						if (scroll){ refreshTilesmap(); }
+						if (scroll || (selTilesXX != bufX) || (selTilesYY!=bufY)) {
+							if ((selTilesXX>=selTilesX) && (selTilesYY>=selTilesY)) {
+									bufX=selTilesXX ; bufY=selTilesYY;
+									clearBmp();
+         						// draw grid selection
+									sizeX=selTilesXX-selTilesX+1;
+									sizeY=selTilesYY-selTilesY+1;
+									selectGrid();scroll=false;
+									drawMinimap();
+							}
+						}
+						mouseUpdt();
+					}
+					sizeX=(selTilesXX+tilesX)-(otilesX+posX)+1;
+					sizeY=(selTilesYY+tilesY)-(otilesY+posY)+1;
+   				areaCpy(level,maxX,otilesX+posX,otilesY+posY,sizeX,sizeY,select,32,0,0,0x8e);
+					selecType=true;
+					clearBmp();  drawMinimap();          
+					ptrShape(3);
+				}
+
+
+
+   	if ( kKey==1) {
+		speedScroll=100;
+	   }
+		if ( kKey==21) {
+		speedScroll=50;
+	   }
+		if ( kKey==2) {
+		speedScroll=20;
+	   }
+		if ( kKey==22) {
+		speedScroll=0;
+	   }
+		
+		
+		
+		if (mKey==1 || mKey==2 ){
+			if (!undoState) { memCpy(level,undoLevel,maxsizeMap,0x8e); }
+
+			if (mKey==2) {
+				if (drawMode==2) {                        // LAYER
+					bufNat=layer+(nat)posX+(nat)tilesX+((nat)posY+(nat)tilesY)*maxX;
+					poke(bufNat,peek(bufNat,0x8e) &(~ selectedLayer),0x8e);
+
+ 					box(posX*16,posY*16,(posX*16)+16,(posY*16)+16,0);
+				} else
+				{
+				poke(level+(nat)posX+(nat)tilesX+((nat)posY+(nat)tilesY)*maxX,(byte)eraseTile,0x8e);
+				}
+			}
+			else {
+				if (drawMode==1) {	 							// DRAW BLOC
+						reduceX=maxX-tilesX-sizeX-posX ; if (reduceX>0) { reduceX=0 ; }
+						reduceY=maxY-tilesY-sizeY-posY ; if (reduceY>0) { reduceY=0 ; }
+					areaCpy(select,32,0,0,sizeX+reduceX,sizeY+reduceY,level,maxX,tilesX+posX,tilesY+posY,0x8e);
+				}
+				if (drawMode==3) {                        // RANDOMBLOC
+					areaCpy(select,32,rnd(0,sizeX-1),rnd(0,sizeY-1),1,1,level,maxX,tilesX+posX,tilesY+posY,0x8e);
+				}
+				if (drawMode==2) {                        // LAYER
+					bufNat=layer+(nat)posX+(nat)tilesX+((nat)posY+(nat)tilesY)*maxX;
+					poke(bufNat,peek(bufNat,0x8e) | selectedLayer,0x8e);
+					drawSelect((nat)posX,(nat)posY);
+				} else {
+
+				refreshTilesmap();}
+   		}
+			undoState=true;
+		}
+		else {
+			undoState=false;
+		}	
+		scrollTiles();  
+			if (drawMode==2){				
+				curPos(62,0); print("21LAYER: ",layerNum,"        10");
+			}
+			if (drawMode==1) {	
+				if (  (bufX!=posX)|| (bufY!=posY)) { 
+		      refreshTilesmap();
+					drawBloc();
+					if (miniMap){ drawMinimap();}
+					bufX=posX; bufY=posY;
+				}
+			} 
+		if (scroll ||  (buftX!=tilesX)|| (buftY!=tilesY) ) { 
+      	refreshTilesmap(); if (drawMode==1){	drawBloc();}
+				
+			buftX=tilesX; buftY=tilesY;
+			
+			scroll=false;
+			if (miniMap){ drawMinimap();}
+					
+	}
+	}
+	else 																	// tileset menu
+	{      		
+			
+		Menu();
+		selectTile=((posY-4)*25)+posX;
+		if (selectTile<256 && selectTile>0) {curPos(66,2); print("TILES # ",selectTile,"   ");}
+      else { curPos(66,2); print(rpt(32,13)); }
+
+
+		if (mKey==2){
+			eraseTile=((_mouseY>>5)-4)*25+(_mouseX>>5);		// select erase tiles
+			if (eraseTile>=0 && selectTile<256) {
+				areaCpy(cpuWindow+(byte)eraseTile*128,8,0,0,8,16,scratchPad,8,0,0,tilPage);
+				areaCpy(scratchPad,8,0,0,8,16,cpuWindow,12,1,1,sprPage);
+				memCpy(&grid,scratchPad,200);
+
+			}
+			waitRelease();
+		}	
+	
+		if (mKey==1){
+			if (menuFlag<11) {											// close menu
+				curPos(menuFlag*12+2,0);  
+				print ("25",menu[menuPos[menuFlag]],"");	
+				clearTxt(80);
+      		tempYbuf=0;menuFlag=11;
+				if (menuSel>0) {testMenu(); }
+				waitRelease();
+			   ptrShape(3);
+			}
+			else
+			{
+   	      if ((selectTile>=0) && (selectTile<256) ) {
+				ptrShape(1);
+
+				selTilesX=posX;
+				selTilesY=posY;
+				bufX=0;bufY=0;
+				while (_mouse) {             
+					selTilesXX=_mouseX>>5;
+	   			selTilesYY=_mouseY>>5;
+					selectTile=((selTilesYY-4)*25)+selTilesXX;
+					if ((selectTile>=0) && (selectTile<256) ) {
+						if ((selTilesXX != bufX) || (selTilesYY!=bufY)) {
+							if ((selTilesXX>=selTilesX) && (selTilesYY>=selTilesY)) {
+								bufX=selTilesXX ; bufY=selTilesYY;
+								clearBmp();
+         					// draw grid selection
+								sizeX=selTilesXX-selTilesX+1;
+								sizeY=selTilesYY-selTilesY+1;
+								selectGrid();	
+							}
+						}
+					}	
+					mouseUpdt();
+				}
+   			areaCpy(tileBufferB,32,selTilesX,selTilesY,sizeX,sizeY,select,32,0,0,0x8e);
+				waitRelease();
+				selecType=false;
+				ptrShape(3);
+
+			}
+		}}
+	}
+	
+	if (mKey==3){												// swap tilemap / menu
+		menuSwap=!menuSwap;
+			if (!menuSwap) {
+				clearTxt(0);
+				clearBmp();
+				drawMenubar();
+  				poke(gfxModes,0b10111100);
+				poke(0x2f0b,peek(0x2f0b) | 0b00000101);//display Tileset
+				displayInfoicons(true);
+				sprPos(0,0,0);sprUpdt();
+				if (!selecType) {selectGrid();}	
+
+ 			}
+			else { 
+				clearTxt(0);
+				clearBmp();
+				tempYbuf=0;menuFlag=11;
+				poke(0x2f0b,peek(0x2f0b) & 0b11111011);//display Tilesmap
+   			poke(gfxModes,0b11111101);
+				displayInfoicons(infoIcons);
+				refreshTilesmap();						
+		
+			}
+		waitRelease();
+	}
+
+
+//curPos(1,20);print(kKey,"  ",_mouseX,"  ",_mouseY,"   ",menuSel,"     ");
+
+//	curPos(1,20);print(_mouseX,"  ",_mouseY,"   ",menuSel,"     ");
+//	curPos(1,21);print( (_mouseX>>5),"  ",(_mouseY>>5),"   " );
+//curPos(1,21);print( selTilesX,"  ",selTilesY,"   " );
+
+
+}
+
+clearBmp();
+clearTxt(0);
+
+print ("edit tiles9.src");
+ 

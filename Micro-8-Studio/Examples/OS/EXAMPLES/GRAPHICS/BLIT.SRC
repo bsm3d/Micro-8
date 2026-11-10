@@ -1,0 +1,42 @@
+//blit example
+
+box(0,0,399,239,0);//clear bitmap
+
+nat scratchpad=0xf000; //2KiB scratchpad buffer
+nat cpuWin=0x3000;
+nat bmpPal=0x11a0;
+
+//first we create a procedural image of a sphere
+//alternatively we could also load an image directly in the scratchpad buffer
+
+//generate palette
+for(byte i=1; i<9; i++)
+{
+	poke(bmpPal+i,i-1);//red gradient
+	poke(bmpPal+16+i,0);
+	poke(bmpPal+32+i,0);
+}
+poke(bmpPal+9,7);//white
+poke(bmpPal+16+9,7);
+poke(bmpPal+32+9,7);
+
+//render sphere
+int r=31;
+for(byte i; i<8; i++)//red sphere
+{
+	disk(32-i,32-i,r,i+1);
+	r-=3;
+}
+disk(20,20,5,9);//highlight
+
+
+//now we copy the image to the scratchpad
+areaCpy(cpuWin,200,0,0,32,64,scratchpad,32,0,0,0x60);//copy image to scratchpad
+
+//we can now clear the bitmap
+memSet(cpuWin,48000,0,0x60);
+
+//now we can blit the image from scratchpad
+for(int i; i<100; i++)
+	blit(scratchpad,32,0,0,64,64,rnd(-32,432),rnd(-32,272));
+

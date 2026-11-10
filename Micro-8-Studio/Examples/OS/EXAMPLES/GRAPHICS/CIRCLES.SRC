@@ -1,0 +1,19 @@
+
+//Draws circles and disks of different colors with different radius
+
+nat cpuWin=0x3000;
+
+memSet(cpuWin,48000,0,0x60);//clear bitmap. Another way would be to use box() but it is slower.
+
+
+for(byte r; r<=140; r+=10)
+{
+	circle(100,120,r,(r/10)%16); //x,y,radius,col
+}
+
+for(byte r=140; r>0; r-=10)
+{
+	disk(300,120,r,(r/10)%16); //x,y,radius,col
+}
+
+

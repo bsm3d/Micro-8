@@ -1,0 +1,25 @@
+
+
+//This example shows how to retrieve and display items from a directory
+
+text name={12};//variable to hold the name of an item
+nat size;//vriable to hold the size of an item
+bool subd;
+
+fOpDir(".");//open current directory for read
+
+while(true)//iterate over items
+{
+	subd=fRdDir(&name, &size);//read item from directory. Args are outputs.
+	if(peek(&name)==0) break;//when no more items we stop
+	
+	if(subd)//item is a sub directory
+	{
+		print("a",name,"");
+	}
+	else//item is a file
+	{
+		print(name,"",size,"Bytes");
+	}
+}
+

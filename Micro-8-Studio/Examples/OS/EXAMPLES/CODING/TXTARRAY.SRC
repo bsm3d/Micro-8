@@ -1,0 +1,30 @@
+
+
+//Given an array of text. How to get the actual size of each text?
+
+//The array stores the address of each text, not the text itself.
+
+//The $ or # operators cannot be used because text elements do not exist
+//as symbols. The only existing symbol is the array itself.
+
+//Furthermore, the referenced texts can change, so their size can only be
+//evaluated at runtime.
+
+memSet(0x1200,3200,' ');//clear text
+
+text t[3]={"Hello","Joe","Infinitesimal"};
+
+t[2]="Magnificent";
+
+nat txtSize(nat addr)
+{
+	nat size;
+	while(peek(addr++)) size++;
+	return size;
+}
+
+for(int i; i<#t; i++)
+{
+	nat addr=peekW(&t[i]);//get the address of the actual text
+	print(t[i]," is ",txtSize(addr)," characters long.");
+}	

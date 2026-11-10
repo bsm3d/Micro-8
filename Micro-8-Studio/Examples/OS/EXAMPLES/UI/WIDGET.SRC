@@ -1,0 +1,219 @@
+
+
+//value selector widget with up/down arrows
+//drag bar for continuous value change
+//click field for direct numeric input
+//																					 --
+//Note: only supports positive values atm. Feel free to improve аб
+
+type vWidget //value widget
+{
+	byte posX;//position in character coordinates
+	byte posY;
+
+	int BBx0;//bounding box for quick mouse detection
+	int BBy0;
+	int BBx1;
+	int BBy1;
+
+	int minVal;//value limits
+	int maxVal;
+
+	//The widget does not store the value it manipulates
+	//Instead it stores an index to a property value array
+	//This provides loose coupling between the ui and the subject it controls
+	nat propertyID;
+
+	byte digits;//number of display digits
+
+	bool up;//up arrow is clicked
+	bool down;//down arrow is clicked
+	bool drag;//middle bar is clicked
+	real speed;//changing speed when draging (computed automatically at instantiation)
+};
+
+//globals
+int mouseHold;
+real subMouseDY;//used for smoothly changing values with the mouse
+real subDYDivider=20;
+text vWidgetTxt={3};//to hold the numeric input (increase size if needed)
+
+vWidget vWidgets[64];//max number of widgets (increase size if needed)
+int vWidgetID;//unique vWidget ID
+int wProperty[#vWidgets];//data storage for the widgets (loose coupling)
+
+//helper function
+int txt2Int(nat addr)
+{
+	byte size;
+	while(peek(addr+size)!=0) size++;
+	int acc;
+	int rank=1;
+	for(int i=size-1; i>=0; i--)//from right to left
+	{
+		int val=peek(addr+(nat)i)-48;//ASCII to numeric value
+		if(val<0 || val>9)continue;//skip non numeric character
+		acc+=val*rank;
+		rank*=10;//next decimal rank
+	}
+	return acc;
+}
+
+void vWidgetCreate(byte x, byte y, int minV, int maxV, int v, byte d, nat id)
+{
+	vWidgets[vWidgetID].posX=x;
+	vWidgets[vWidgetID].posY=y;
+	vWidgets[vWidgetID].minVal=minV;
+	vWidgets[vWidgetID].maxVal=maxV;
+	vWidgets[vWidgetID].propertyID=id;
+	vWidgets[vWidgetID].digits=d;
+
+	//store value to global property array
+	wProperty[id]=v;
+
+	//compute bounding box
+	vWidgets[vWidgetID].BBx0=x*10;
+	vWidgets[vWidgetID].BBy0=y*12;
+	vWidgets[vWidgetID].BBx1=vWidgets[vWidgetID].BBx0+(d+3)*10;
+	vWidgets[vWidgetID].BBy1=vWidgets[vWidgetID].BBy0+3*12;
+
+	//compute drag speed accoring to min-max
+	vWidgets[vWidgetID].speed=((real)abs(maxV-minV))/subDYDivider;
+
+	vWidgetID++;
+	if(vWidgetID>=#vWidgets) print("Increase array!");
+} 
+
+void vWidgetRender(int id)
+{
+	curPos(vWidgets[id].posX,vWidgets[id].posY);
+
+	if(vWidgets[id].up) print("2¬");//highlight up arrow
+	else print("¬");
+	
+	print("");
+
+	if(vWidgets[id].drag) print("2Б");//highlight drag bar
+	else print("Б");
+
+	print("");
+
+	if(vWidgets[id].down) print("2√");//highlight down arrow
+	else print("√");
+
+	curPos(vWidgets[id].posX+1,vWidgets[id].posY);
+	print("Й");
+	for(int i; i<vWidgets[id].digits; i++) print("Б");
+	print("К");
+	curPos(vWidgets[id].posX+1,vWidgets[id].posY+1);
+	print("А");
+
+	//leading zeroes (todo support for negative values)
+	nat propertyID=vWidgets[id].propertyID;//index into the global widget data storage
+	int val=wProperty[propertyID];//get value
+
+	if(val<10)
+	{
+		for(int i; i<vWidgets[id].digits-1; i++) print("0");
+	}
+	else if(val<100)
+	{
+		for(int i; i<vWidgets[id].digits-2; i++) print("0");
+	}
+
+	print(val);//the value
+
+	print("А");
+	curPos(vWidgets[id].posX+1,vWidgets[id].posY+2);
+	print("И");
+	for(int i; i<vWidgets[id].digits; i++) print("Б");
+	print("З");
+}
+
+void vWidgetStep(int id, int step)
+{
+	nat propertyID=vWidgets[id].propertyID;//index into the global widget data storage
+	int val=wProperty[propertyID];//get value from global property array
+	val+=step;
+	val=clamp(val,vWidgets[id].minVal,vWidgets[id].maxVal);
+	wProperty[propertyID]=val;//write new value to global property array
+}
+
+void vWidgetUpdate(int id)
+{
+	//test if dragging or mouse is hovering the bounding box
+	if(mouseHold==id && vWidgets[id].drag || mouseHold==-1 && isPtrBox(vWidgets[id].BBx0,vWidgets[id].BBy0,vWidgets[id].BBx1,vWidgets[id].BBy1))
+	{
+		int cx=_mouseX/10; int cy=_mouseY/12;
+		if(mouseHold==-1 && _mouse==1 && cx>vWidgets[id].posX+1 && cx<vWidgets[id].posX+2+vWidgets[id].digits)
+		{
+			if(cy==vWidgets[id].posY+1)//we are in the numeric input field
+			{
+				curPos(vWidgets[id].posX+2,vWidgets[id].posY+1);
+				input(vWidgetTxt,vWidgets[id].digits);
+				int val=txt2Int(&vWidgetTxt);
+				val=clamp(val,vWidgets[id].minVal,vWidgets[id].maxVal);
+				nat propertyID=vWidgets[id].propertyID;//index into the global widget data storage
+				wProperty[propertyID]=val;//write value to global property array
+			}
+		}
+		else if(isPtrGlyph('¬') && _mouse==1 && mouseHold==-1)
+		{
+			vWidgets[id].up=true;
+			vWidgetStep(id,1);
+			mouseHold=id;
+		}
+		else if(isPtrGlyph('√') && _mouse==1 && mouseHold==-1)
+		{
+			vWidgets[id].down=true;
+			vWidgetStep(id,-1);
+			mouseHold=id;
+		}
+		else if(mouseHold==id && vWidgets[id].drag==true || isPtrGlyph('Б') && _mouse==1) //drag bar
+		{
+			vWidgets[id].drag=true;
+			int pixDY=_mouseDY/16;
+			subMouseDY+=(real)pixDY*vWidgets[id].speed;
+			if(subMouseDY >= 1)
+			{
+				vWidgetStep(id,min(-pixDY/2,-1));//fast and slow threshold
+				subMouseDY=0;
+			}
+			else if(subMouseDY <= -1)
+			{
+				vWidgetStep(id,max(-pixDY/2,1));//fast and slow threshold
+				subMouseDY=0;
+			}
+									
+			mouseHold=id;
+		}
+	}
+	if(mouseHold==-1)
+	{
+		vWidgets[id].up=false;
+		vWidgets[id].down=false;
+		vWidgets[id].drag=false;
+	}
+}
+
+memSet(0x1200,3200,' ');//cls
+
+//example value widgets
+vWidgetCreate(10,10,0,15,8,2,0);//posx, posy, min, max, default value, digits, id
+vWidgetCreate(20,10,0,15,8,2,1);
+vWidgetCreate(30,10,0,15,8,2,2);
+vWidgetCreate(40,10,0,15,8,2,3);
+
+while(_keyDwn !=12)
+{
+	mouseUpdt();
+
+	for(int i; i<vWidgetID; i++)
+	{
+		vWidgetUpdate(i);
+		vWidgetRender(i);
+	}
+
+	if(_mouse == 0) mouseHold=-1;
+}
+

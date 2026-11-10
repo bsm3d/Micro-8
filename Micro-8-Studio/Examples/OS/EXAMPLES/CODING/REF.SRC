@@ -1,0 +1,50 @@
+
+//Passing values by 'reference' (addresses)
+
+memSet(0x1200,3200,' ');//clear text
+
+
+void swapB(nat a, nat b) //swap two byte values (e.g. bool, byte)
+{
+	byte t=peek(a);
+	poke(a,peek(b));
+	poke(b,t);
+}
+
+void swapW(nat a, nat b) //swap two word values (e.g. int, real, nat)
+{
+	int t=peekW(a);
+	pokeW(a,peekW(b));
+	pokeW(b,t);
+}
+
+void main()
+{
+	byte a=4;
+	byte b=10;
+
+	swapB(&a, &b); //local addresses are valid as long as they are used
+						//in a visible scope
+
+	print(a,"",b,"");
+
+	int i=1024;
+	int j=-9999;
+
+	swapW(&i,&j);
+
+	print(i,"",j,"");
+
+
+	real q=3.1415;
+	real r=-0.707;
+
+	swapW(&q,&r);
+
+	print(q,"",r,"");
+}
+
+main();
+
+
+

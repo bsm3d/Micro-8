@@ -1,0 +1,56 @@
+
+//External memory tests
+
+memSet(0x1200,3200,' ');
+curPos(0,0);
+
+print("Testing XSRAM up to VM space:");
+
+nat error;
+
+void pageTest(nat origin, byte startPage, byte endPage)
+{
+	for(byte page=startPage; page<endPage; page++)
+	{
+		print("Testing page: ",page,"");
+		for(nat addr; addr<1024; addr++)
+		{
+			byte val=rnd(0,255);
+			poke(origin+addr,val,page);
+			if(peek(origin+addr,page) != val)
+			{
+				error++;
+				print("Error at address: ",addr," page: ",page,"");
+			}
+		}
+	}
+}
+
+void memTest(nat from, nat to)
+{
+	for(nat addr=from; addr<=to; addr++)
+	{
+		byte val=rnd(0,255);
+		poke(addr,val);
+		if(peek(addr) != val)
+		{
+			error++;
+			print("Error at address: ",addr,"");
+		}	
+	}
+}
+
+pageTest(0x3000,0x00,0xcc);//test up to VM
+
+memSet(0x3000,48000,0,0x60);//clear bitmap
+
+print("Testing VM space starting after the program itself.");
+memTest(0x3000+600,0xafff);//assuming the program is 600 bytes long
+
+print("Testing VM space starting after the data.");
+memTest(0xb000+10,0xefff);//assuming the data is 10 bytes
+
+print("Testing Scratchpad.");
+memTest(0xf000,0xf7ff);
+
+if(error == 0) print("External memory tested successfully!");

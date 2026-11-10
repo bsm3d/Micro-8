@@ -1,0 +1,69 @@
+
+//32 ball sprites bouncing around the screen
+
+nat cpuWindow=0x3000;
+nat gfxReg=0x2f00;
+nat sprPLA=0x11d0;
+byte sprPage=0x20;
+
+import("res/ball.spr",cpuWindow,256,sprPage);
+import("res/ball.pla",sprPLA,48);
+
+//turn on sprites:
+poke(gfxReg,peek(gfxReg)|0b00000100);
+
+type vec2 //we define a custom vector type to hold positions and velocities
+{
+	int x;
+	int y;
+};
+
+vec2 pos[32]; //arrays of positions and velocities
+vec2 vel[32];
+
+for(byte i; i<32; i++)
+{
+	pos[i].x=rnd(48,847);//initialize with random positions and velocities
+	pos[i].y=rnd(42,521);
+	vel[i].x=rnd(-10,10);
+	vel[i].y=rnd(-10,10);
+
+	sprRef(i,0);//first image for all sprites
+	sprPal(i,0);//first palette for all sprites
+}
+
+while(_keyDwn!=12)//esc key
+{
+	for(byte i; i<32; i++)
+	{
+		
+		pos[i].x+=vel[i].x;
+		pos[i].y+=vel[i].y;
+	
+		if(pos[i].x>806)
+		{
+			pos[i].x=806;
+			vel[i].x=-vel[i].x;
+		}
+		else if(pos[i].x<48)
+		{
+			pos[i].x=48;
+			vel[i].x=-vel[i].x;
+		}
+		
+		if(pos[i].y>480)
+		{
+			pos[i].y=480;
+			vel[i].y=-vel[i].y;
+		}
+		else if(pos[i].y<42)
+		{
+			pos[i].y=42;
+			vel[i].y=-vel[i].y;
+		}
+	
+		sprPos(i,pos[i].x,pos[i].y);
+	}
+	vSync();
+	sprUpdt();	
+}

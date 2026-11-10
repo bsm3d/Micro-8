@@ -1,0 +1,28 @@
+
+//custom type example
+
+memSet(0x1200,3200,' ');//clear text
+
+type human
+{
+	text name={10};
+	int age;
+	int size;
+	bool sex;//true=male, false=female
+};
+
+void printInfo(human h)
+{
+	print(h.name," is ",h.age," years old.");
+	text sex={10};
+	if(h.sex) sex="male";
+	else sex="female";
+	print(h.name," is a ",sex," ",h.size," cm tall.");
+}
+
+human h[3]={{"Jonny",24,182,true},
+				{"Anna",18,162,false},
+				{"Peter",45,176,true}};
+
+for(int i; i<#h; i++) printInfo(h[i]);
+

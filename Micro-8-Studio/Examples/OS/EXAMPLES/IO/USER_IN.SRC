@@ -1,0 +1,51 @@
+
+//This example shows how to read the user port and various usages of the
+//input values
+
+memSet(0x1200,3200,' ');
+
+portDir(0b00000000);//input on all lines
+portSet(0b11111111);//pullups on all lines  assert on low
+
+// Example wiring using momentary switches:
+
+// User port pin 1 (3.3v) unused
+
+// User port pin 2 ••••••••••/•••••
+//											 ”
+// User port pin 3 ••••••••••/••••˜
+//											 ”
+// User port pin 4 ••••••••••/••••˜
+//											 ”
+// User port pin 5 ••••••••••/••••˜
+//											 ”
+// User port pin 6 ••••••••••/••••˜
+//											 ”
+// User port pin 7 ••••••••••/••••˜
+//											 ”
+// User port pin 8 ••••••••••/••••˜
+//											 ”
+// User port pin 10 (Ground)ñ
+
+nat count;
+
+while(_keyDwn!=12)
+{
+	//display raw port value
+	curPos(30,18);
+	print("Value: ",_port);
+	
+	//display immediate
+	curPos(30,20);
+	if(~_port) print("Button pressed!  ");
+	else print("Nothing pressed! ");
+	
+	//identify specific lines with the binary rank (1, 2, 4, 8, 16...)
+	//in this example we increment when pushing first button
+	//and decrement when pushing second button
+	if(~_port & 1) count++;
+	if(~_port & 2) count--;
+	curPos(30,22);
+	print(count,"     ");
+}
+

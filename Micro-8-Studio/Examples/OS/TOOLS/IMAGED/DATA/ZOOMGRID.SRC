@@ -1,0 +1,240 @@
+
+//this utility generates the various zoomgrids for imagEd
+
+memSet(0x1200,3200,' ');
+
+poke(0x2f00,peek(0x2f00)|0b01000000);//native grid
+
+//we redefine micro-8 logo glyphs into a grid that
+//matches the 16 fat pixels tile grid
+
+byte zoomGlyphId[24]={0x20,
+					0xe6,0xe7,0xe8,0xe9,0xea,0xeb,0xec,0xed,0xee,0xef,
+					0xf6,0xf7,0xf8,0xf9,0xfa,0xfb,0xfc,0xfd,0xfe,0xff,
+					0xd2,0xd3,0xe2};
+
+void zoomGenGlyphs()
+{
+	for(byte b; b<23; b++)
+	{
+		nat addr=zoomGlyphId[b+1]*120; //index 0 is for ' '
+	
+		for(byte y; y<12; y++)
+			for(byte x; x<10; x++)
+			{
+				bool bit;
+				if(b>=20) bit=x%2==0 && y==(((b-20)%4)*4);
+				else bit=y%2==0 && x==(b%5)*2 || x%2==0 && y==((b/5)%4)*4;
+				glyphSet(addr++,bit);
+			}
+	}
+}
+zoomGenGlyphs();
+
+void zoomRenderGrid(byte buff[], byte gx[], byte gy[], byte gxy[], byte gyx[])
+{						
+	
+	for(byte y; y<40; y++)
+		for(byte x; x<45; x++)
+		{
+			byte glyph;
+			if(gy[y]==0) glyph=zoomGlyphId[gx[x]];
+			else if(gx[x]==0) glyph=zoomGlyphId[gy[y]];			
+			else glyph=zoomGlyphId[gxy[x]+gyx[y]*5];
+			buff[x+y*45]=glyph;
+		}
+}
+
+void zoomDisplayGrid(nat buffAddr)
+{
+	areaCpy(buffAddr,45,0,0,45,40,0x1200,80,35,0);
+
+	areaSet(0x1200,80,35,0,1,40,'’');//bake separator in
+}
+
+byte buffer[1800];//45x40 chars (zoom window)
+
+//zoom factor 2 grid
+
+byte gx32x32[45]={17,00,00,00,00,00,19,00,00,00,
+						00,00,00,16,00,00,00,00,00,18,
+						00,00,00,00,00,20,00,00,00,00,
+						00,00,17,00,00,00,00,00,19,00,
+						00,00,00,00,00 };
+
+byte gy32x32[40]={21,00,00,00,00,22,00,00,00,00,
+						23,00,00,00,00,00,21,00,00,00,
+						00,22,00,00,00,00,23,00,00,00,
+						00,00,21,00,00,00,00,22,00,00 };
+
+byte gxy[45]={	2,0,0,0,0,0,4,0,0,0, 0,0,0,1,0,0,0,0,0,3,
+					0,0,0,0,0,5,0,0,0,0, 0,0,2,0,0,0,0,0,4,0,
+					0,0,0,0,0 };
+					
+byte gyx[40]={	0,0,0,0,0,1,0,0,0,0, 2,0,0,0,0,0,0,0,0,0,
+					0,1,0,0,0,0,2,0,0,0, 0,0,0,0,0,0,0,1,0,0 };
+
+zoomRenderGrid(buffer, gx32x32, gy32x32, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("32x0y0.dat",0x1200+35,80,45,40);
+
+
+//zoom factor 4 grid (4 variants)
+
+byte gx64x64[45]={17,00,00,00,00,00,00,00,00,00,
+						00,00,00,16,00,00,00,00,00,00,
+						00,00,00,00,00,20,00,00,00,00,
+						00,00,00,00,00,00,00,00,19,00,
+						00,00,00,00,00 };
+
+byte gy64x64[40]={21,00,00,00,00,00,00,00,00,00,
+						23,00,00,00,00,00,00,00,00,00,
+						00,22,00,00,00,00,00,00,00,00,
+						00,00,21,00,00,00,00,00,00,00 };
+
+//x offset by 1
+byte gx64x64x[45]={00,00,00,00,00,00,19,00,00,00,
+						00,00,00,00,00,00,00,00,00,18,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,17,00,00,00,00,00,00,00,
+						00,00,00,00,00 };
+
+//y offset by 1
+byte gy64x64y[40]={00,00,00,00,00,22,00,00,00,00,
+						00,00,00,00,00,00,21,00,00,00,
+						00,00,00,00,00,00,23,00,00,00,
+						00,00,00,00,00,00,00,22,00,00 };
+
+zoomRenderGrid(buffer, gx64x64, gy64x64, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("64x0y0.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, gx64x64x, gy64x64, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("64x1y0.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, gx64x64, gy64x64y, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("64x0y1.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, gx64x64x, gy64x64y, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("64x1y1.dat",0x1200+35,80,45,40);
+
+
+//zoom factor 8 grid (16 variants)
+
+byte g128x0[45]={	17,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,20,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00 };
+
+byte g128x1[45]={	00,00,00,00,00,00,19,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,17,00,00,00,00,00,00,00,
+						00,00,00,00,00 };
+
+byte g128x2[45]={	00,00,00,00,00,00,00,00,00,00,
+						00,00,00,16,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,19,00,
+						00,00,00,00,00 };
+
+byte g128x3[45]={	00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,18,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00 };
+
+byte g128y0[40]={	21,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,22,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00 };
+
+
+byte g128y1[40]={	00,00,00,00,00,22,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,23,00,00,00,
+						00,00,00,00,00,00,00,00,00,00 };
+
+
+byte g128y2[40]={	00,00,00,00,00,00,00,00,00,00,
+						23,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,21,00,00,00,00,00,00,00 };
+
+
+byte g128y3[40]={	00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,21,00,00,00,
+						00,00,00,00,00,00,00,00,00,00,
+						00,00,00,00,00,00,00,22,00,00 };
+
+//zoom factor 8 grid (16 variants)
+
+zoomRenderGrid(buffer, g128x0, g128y0, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x0y0.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x1, g128y0, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x1y0.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x2, g128y0, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x2y0.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x3, g128y0, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x3y0.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x0, g128y1, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x0y1.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x1, g128y1, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x1y1.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x2, g128y1, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x2y1.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x3, g128y1, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x3y1.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x0, g128y2, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x0y2.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x1, g128y2, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x1y2.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x2, g128y2, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x2y2.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x3, g128y2, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x3y2.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x0, g128y3, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x0y3.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x1, g128y3, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x1y3.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x2, g128y3, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x2y3.dat",0x1200+35,80,45,40);
+
+zoomRenderGrid(buffer, g128x3, g128y3, gxy, gyx);
+zoomDisplayGrid(&buffer);
+export2D("128x3y3.dat",0x1200+35,80,45,40);
+
+

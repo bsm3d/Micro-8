@@ -1,0 +1,1902 @@
+// Mr. CHANG V 1.1
+// Based on the MSX game "Mr. Chin" from HAL
+// Game for Micro-8 computer
+// Jean-arthur Silve 2026
+// License GNU GPL3
+// github.com/ludosevilla
+
+
+nat gfxModes=0x2f00; // Couches graphique
+nat sprPlaA=0x11d0; // Premiere palette
+nat tilPal=0x1170;
+byte sprPage=0x20; // Page def des sprites (defaut)
+byte bmpPage=0x60;// Page bitmap
+byte tilPage=0x00;// Page tiles
+nat setSprPg=0x2f04; //Registre config page sprites
+nat cpuWindow=0x3000; // Debut xsram
+nat tilBufA=0x2b00;
+nat tilBufB=0x2d00;
+
+
+// Types defs
+
+type tpole {
+	byte state;//0: no pole/16:x1pole/32:x2pole/48:x3pole (height of pole)
+	nat posTileDown; //Pos of first tile (bottom) of pole
+	byte animState; // for animation
+	byte plateNum; //plate num if plate on top (100:no plate) 
+	nat X; // X coord
+	nat Y; // Y coord (bottom)
+	
+};
+
+type tplayer {
+	int X;
+	int Y;
+	nat pathList; //Address of path list 
+	byte pathDir;// Path direction 0:none 1:left 2:right
+	byte pathStep;// Current index in path array
+	byte pathMax;// Max index in path array
+	byte plateCatched;
+	byte spId; // Will be 0
+	byte spRef;
+};
+
+type twitch {
+	byte level; // 0 (ground) to 2 (top)
+	byte side; // 0: left 1: right
+	byte state; //0:not present 1:head 2:body
+	bool willShot;// true if witch will shot
+	nat showTime;// time when witch appeared
+	nat shootTime;// when witch will shot
+	
+	// Each witch could have a different design
+	// sprite id from 1 to 12
+	byte spIdHead1;// Head only
+	byte spIdHead2;// Head with body
+	byte spIdBody;
+	byte spRefHead1;
+	byte spRefHead2;
+	byte spRefBody;
+};
+	
+
+type tweapon {
+	byte wtype;
+	int X;
+	int Y;
+	byte dir;//direction:0 to left, 1 to the right
+	bool gravity;//true:will drop
+	bool dropping;
+	int yOfs;//offset for floor tile detection
+	byte flipCnt;
+	nat tick;
+
+	nat pathList; //Address of path list 
+	byte pathStep;// Current index in path array
+	byte pathMax;// Max index in path array
+
+	byte spId;//from 13 to 16
+	byte spRef;
+}; 
+	
+type tweaponType {
+	byte spFirstRef;
+	int yOfs;
+	bool gravity; // true if will drop
+	bool bounce; // true bounce at start
+	int flip; // 0: none, 1: Hflip if shoot from left 2: cyclic
+	nat yStartL0; // Y coord at start for floor level X
+	nat yStartL1;
+	nat yStartL2;
+};
+	
+
+type tplate {
+	int X;
+	int Y;
+	//state:0:free,1:catched,2:on pole state 1,3:on pole st2,4:onpole st3
+	//5:is falling
+	byte state; 
+	nat tState; //time has started current state(from state 2)
+	byte poleNum; //pole num if state=2/3/4 (on pole)
+	byte animCnt;
+	nat tick;
+
+	byte spId;//from 17 to 29
+	byte spRef;
+};
+
+type tplatestateinterval {
+	byte int1; //sec to state 2 to 3
+	byte int2; //sec to state 3 to 4
+	byte int3; //sec to plate fall
+};
+
+type tfallenplate {
+	byte nplate;
+	byte floor;
+};
+
+type twitchesparams {
+	byte witchRndShow;//0: never 100:always
+	byte witchRndShot;//0:never 100:always
+	byte witchShotDelayMin; //min sec before shooting 
+	byte witchShotDelayMax; //max sec before shooting
+	byte weaponSpeed;
+};
+
+// App vars
+
+byte level=0;
+byte lives=3;
+nat score;
+nat hiscore;
+text buffer={45};
+text i2t={10};
+
+text bg[5]={"res/sea2","res/sea","res/junglej","res/junglen","res/nat"};
+text fileName={20};
+
+byte tileEmpty=1;
+byte tileFloorUp=89;
+byte tileFloorDown=95;
+byte tilePole=80;
+
+byte maxWitches = 4; // Max number of witches
+byte maxCurrWitches=1;// Max number of witch for current level
+byte currWitches=0; // Current number of witches
+byte witchRndShow;
+byte witchRndShot;
+byte witchShotDelayMin; //(sec)
+byte witchShotDelayMax;//(sec)
+nat timeWitch;
+
+tplatestateinterval plateStateInterval[5]={{70,40,25},
+														{50,40,25},
+														{30,40,25},
+														{30,30,25},
+														{30,30,15}
+													};
+twitchesparams witchesParams[5]={
+											{40,50,5,12,1},
+											{50,50,4,10,1},
+											{60,60,4,10,2},
+											{70,60,4,8,2},
+											{80,70,4,8,2}
+										};
+	
+	
+nat plateScore[5]={100,200,300,400,500};
+nat bonusScore[5]={1000,2000,3000,4000,5000};
+
+bool plateCatched;
+bool levelCompleted;
+bool isDead;
+tfallenplate fallenPlate;
+
+bool levelAccess[2]; // true if floor level X(0/1) has a pole to floor X+1
+nat sndTick[2];
+bool sndReady[2]={true,true};
+
+nat tilBuf;
+nat tick;
+bool stop;
+
+
+tplayer player;
+
+twitch witches[4]; 
+
+tweapon weapon[4]; //max 4 weapons at the same time
+
+tweaponType weapontype[2]={
+								{14,30,true,true,2,369,276,180},
+								{17,30,false,false,1,358,266,170}
+								};
+
+
+tpole poles[15]={
+	{0,325,0,100,201,358},
+	{0,327,0,100,265,358},
+	{0,329,0,100,329,358},
+	{0,331,0,100,393,358},
+	{0,333,0,100,457,358},
+	
+	{0,229,0,100,201,266},
+	{0,231,0,100,265,266},
+	{0,233,0,100,329,266},
+	{0,235,0,100,393,266},
+	{0,237,0,100,457,266},
+	
+	{0,133,0,100,201,170},
+	{0,135,0,100,265,170},
+	{0,137,0,100,329,170},
+	{0,139,0,100,393,170},
+	{0,141,0,100,457,170}
+};
+
+tplate plates[13];
+byte pStack[30]; // Plate stack
+
+// Tiles pos of floor (upper tile) for each poles from floor level 1 & 2
+nat posFloor[10]={261,263,265,267,269,
+						165,167,169,171,173}; 
+						
+// Tiles ref of "floor tiles" for dropping
+nat floorTiles[20]={89,88,108,95,133,134,135,136,137,138,139,140,141,142,
+143,144,145,90,109,146};
+
+int jumpC[42]={0,-4,-4,-3,-3,-3,-3,-3,-3,-2,-2,-2,-2,-1,-1,-1,-1,-1,-1,0,0,0,0,0,
+1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,4,4};
+
+int bounceC[42]={0,-3,-3,-3,-3,-3,-3,-2,-2,-2,-2,-2,-1,-1,-1,-1,-1,-1,-1,0,0,0,0,0,
+1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,3,3,3};
+
+
+byte music1[188]={
+105,2,62, 2,62, 8,64, 2,65, 2,64, 2,67, 2,67, 8,69, 2,71,
+2,69, 4,67, 4,69, 2,69, 2,69, 2,71, 4,69, 2,67,16,72,
+103,4,67, 8,72, 1,71, 4,74, 2,72, 2,67, 2,64, 8,69, 2,67,
+4,67, 4,67, 4,69, 2,69, 2,69, 2,67, 4,64, 2,60,16,62,
+
+104,2,62, 2,62, 8,64, 2,65, 2,64, 2,67, 2,67, 8,69, 2,71,
+2,69, 4,67, 4,69, 2,69, 2,69, 2,71, 4,69, 2,67,16,72,
+103,4,67, 8,72, 1,71, 4,74, 2,72, 2,67, 2,64, 8,69, 2,67,
+4,67, 4,67, 4,69, 2,69, 2,69, 2,67, 4,64, 2,60,16,62,
+
+106,2,62, 2,62, 8,64, 2,65, 2,64, 2,67, 2,67, 8,69, 2,71,
+2,69, 4,67, 4,69, 2,69, 2,69, 2,71, 4,69, 2,67,16,72,
+1,2,
+0};
+
+byte music2[188]={
+104,1,2,2,62, 2,62, 8,64, 2,65, 2,64, 2,67, 2,67, 8,69, 2,71,
+2,69, 4,67, 4,69, 2,69, 2,69, 2,71, 4,69, 2,67,16,72,
+102,4,67, 8,72, 1,71, 4,74, 2,72, 2,67, 2,64, 8,69, 2,67,
+4,67, 4,67, 4,69, 2,69, 2,69, 2,67, 4,64, 2,60,16,62,
+
+103,2,62, 2,62, 8,64, 2,65, 2,64, 2,67, 2,67, 8,69, 2,71,
+2,69, 4,67, 4,69, 2,69, 2,69, 2,71, 4,69, 2,67,16,72,
+102,4,67, 8,72, 1,71, 4,74, 2,72, 2,67, 2,64, 8,69, 2,67,
+4,67, 4,67, 4,69, 2,69, 2,69, 2,67, 4,64, 2,60,16,62,
+
+105,2,62, 2,62, 8,64, 2,65, 2,64, 2,67, 2,67, 8,69, 2,71,
+2,69, 4,67, 4,69, 2,69, 2,69, 2,71, 4,69, 2,67,16,72,
+
+0};
+
+byte musicCnt[2];
+int musicCounter[2];
+bool musicPaused=false;
+nat musicTick;
+
+
+// Functions
+
+bool natInArray(nat addr,byte size,nat v) {
+	for(byte i;i<size;i++)
+		if (peekW(addr+(i*2))==v) return true;
+	return false;
+}
+
+bool isFloor(nat r) {
+	if (r==89||r==88||r==108||r==133||r==134||r==135||r==136||r==137||r==138||r==139||r==140)
+		return true;
+	if(r==141||r==142||r==143||r==144||r==145||r==90||r==109||r==146)
+		return true;
+	return false;
+}
+
+int strcmp(nat str1,nat str2) {        // compare 2 strings
+	while (peek(str1) && peek(str1)==peek(str2)){
+		str1++;
+		str2++;
+	}
+	return (peek(str1)-peek(str2));
+}
+
+
+void musicReset() {
+	musicCnt[0]=0;
+	musicCnt[1]=0;    
+	musicCounter[0]=0;
+	musicCounter[1]=0;
+   musicTick=0;
+	ymNoteOff(0);    
+	ymNoteOff(1);    
+}
+
+void musicStart()
+{
+	ymInit(0);
+	ymVol(127);
+	ymLoad("res/bell01.ins",0);
+	musicReset();
+}
+
+		
+void musicStop()
+{
+   ymNoteOff(0);    
+	ymNoteOff(1);    
+}
+
+void musicUpd()
+{
+nat tadr;
+nat t;
+
+	if (musicPaused==true)
+		return;
+
+	if (musicTick>tick)
+		return;
+	
+
+	for(byte i=0;i<2;i++) {
+		if (i==0) tadr=&music1;
+		else tadr=&music2;
+		
+		if(musicCounter[i]) {
+			musicCounter[i]-=1;
+			if (musicCounter[i]<0) musicCounter[i]=0;
+			continue;
+		}
+
+		if(peek(tadr+musicCnt[i])==0) {
+			musicCnt[i]=0;
+		}
+		if(peek(tadr+musicCnt[i])>100) {
+			ymVoice(i,0,peek(tadr+musicCnt[i])-100,0b11,15);
+			musicCnt[i]++;
+		}
+		
+		ymNoteOn(i,peek(tadr+musicCnt[i]+1),27);
+		
+		musicCounter[i]=peek(tadr+musicCnt[i]);
+		
+		musicCnt[i]+=2;
+	}
+	musicTick = tick+4;	
+}
+
+
+void sndMngrReset() {
+	for(byte i;i<2;i++) {
+		sndTick[i]=0;
+		sndReady[i]=true;
+	}
+	
+}
+void sndMngrSet(byte voice,byte nticks) {
+	sndTick[voice]=tick+nticks;
+	sndReady[voice]=false;
+}
+
+void sndMngrUpd() {
+	for(byte i;i<2;i++) {
+		if (sndReady[i]==false && sndTick[i]<tick) {
+			sndReady[i]=true;
+		}
+	}
+}
+
+
+void soundBreak(byte voice){	
+	synNoteOff(voice);
+	synVoice(voice,2,5,0b11,15); //id,wform,octave,pan,volume
+	synEnv(voice,0,10,0,0);//id,attack,delay,sustain,release
+	synNoteOn(voice,48,120);//voice, note, velocity
+}
+
+void soundBounce(byte voice){
+	
+	synNoteOff(voice);
+	synVoice(voice,0,7,0b11,15); //id,wform,octave,pan,volume
+	synEnv(voice,0,10,0,0);//id,attack,delay,sustain,release
+	synNoteOn(voice,1,120);//voice, note, velocity
+}
+
+void soundRun(byte voice){
+	if (sndReady[voice]) {
+		sndMngrSet(voice,10);
+		synNoteOff(voice);
+		synVoice(voice,0,2,0b11,10);
+		synEnv(voice,2,2,0,10);
+		synNoteOn(voice,100,120);
+	}		
+}
+
+void soundCatch(byte voice){
+	synInit(voice);
+	synNoteOff(voice);
+	synVoice(voice,1,4,0b11,15);
+	synEnv(voice,6,2,0,10);
+	synNoteOn(voice,97,120);
+}
+	
+void soundRelease(byte voice){
+	synInit(voice);
+	synNoteOff(voice);
+	synVoice(voice,1,4,0b11,15);
+	synEnv(voice,6,10,0,10);
+	synNoteOn(voice,80,120);
+}	
+
+
+void soundBeep(byte voice){
+	if (sndReady[voice]) {
+		synInit(voice);
+		synNoteOff(voice);
+		synVoice(voice,1,4,0b11,15);
+		synEnv(voice,6,2,0,10);
+		synNoteOn(voice,97,120);
+		sndMngrSet(voice,1);
+	}
+}
+
+
+
+void soundEvt(byte evt,byte voice)
+{
+	byte music1[25] ={
+    55,20,
+    57,10,
+    55,10,
+    57,10,
+    55,10,
+    52,9,
+    50,10,
+    52,9,
+    55,10,
+    52,9,
+    50,10,
+    52,30,
+    255};
+
+	byte music2[11] ={
+    74,10,
+    71,10,
+    67,10,
+    64,20,
+    60,60,
+    255};
+
+
+	nat p;
+
+	byte note;
+	byte len;
+
+	synInit(0);
+	if (evt==1) {
+		p=&music1;
+		synEnv(voice,0,10,5,0);
+		synVoice(voice,0,6,0b11,15);
+	} else {
+		p=&music2;
+		synEnv(voice,0,10,5,0);
+		synVoice(voice,0,4,0b11,15);
+	}
+	while(true){
+		note=peek(p);
+		if(note==255) break;
+		p++;
+
+		len=peek(p);
+		p++;
+		synNoteOn(voice,note,127);
+
+		while(len>0){
+			vSync();
+			len--;
+      }
+		synNoteOff(voice);
+	}
+}
+
+// "floor" functions
+
+void floorClose(byte num) {
+	poke(tilBuf+posFloor[num],tileFloorUp);
+	poke(tilBuf+posFloor[num]+32,tileFloorDown);
+}
+
+void floorOpen(byte num) { //num from 0 to 9
+	poke(tilBuf+posFloor[num],tileEmpty); 
+	poke(tilBuf+posFloor[num]+32,tileEmpty);  
+	poke(tilBuf+posFloor[num]-32,tileEmpty); //No pole at floor opening
+	poles[num+5].state=0;// No upper pole 
+	poles[num+5].animState=0;
+}
+
+// "pole" functions
+
+void poleInit() {
+	for(byte i;i<15;i++) {
+		poke(tilBuf+poles[i].posTileDown,tilePole);
+		poles[i].state=16;// normal pole
+		poles[i].animState=16;
+		poles[i].plateNum=100;
+	}
+}	
+
+
+void poleSzUp(byte num,bool full) {//Pole from 0 to 15
+	if (num<10 && full==true) {
+		floorOpen(num);
+		poles[num].state=48;
+	} else { // last floor pole are 16 max and no top floor to open
+		poles[num].state=16; 
+		poles[num].animState=0;
+		poke(tilBuf+poles[num].posTileDown,tileEmpty);//Erase pole
+	}
+	
+}
+
+void poleAnim(){
+	nat posToChg;
+	byte refToChg;
+	// Tiles from 211 to 225, pole decreasing. Tile 80:full pole
+	for(byte i;i<15;i++) {
+		if(poles[i].state!=poles[i].animState){	
+			// Current state different from state (to reach)
+			if (poles[i].state>poles[i].animState) poles[i].animState++;
+			else poles[i].animState--;
+			if (poles[i].animState>=0 && poles[i].animState<=16) 
+				posToChg=poles[i].posTileDown; // 0 to 16
+			else if (poles[i].animState<=32) 
+				posToChg=poles[i].posTileDown-32; // 17 to 32		
+			else if (poles[i].animState<=48) 
+				posToChg=poles[i].posTileDown-64; // 33 to 48
+
+			
+			if (poles[i].animState==0)
+				refToChg=1; // no pole
+			else {
+				byte mod = poles[i].animState % 16;
+				if (mod == 0) refToChg=80;
+				else refToChg=(226-mod);
+			}
+			poke(tilBuf+posToChg,refToChg);
+
+			if (poles[i].plateNum!=100) {
+				//Extended pole has a plate on top:
+				//we move the plate with the pole
+				byte j;
+				j=poles[i].plateNum;
+				plates[j].Y=poles[i].Y-(poles[i].animState*2)+6;
+				sprPos(plates[j].spId,plates[j].X,plates[j].Y);
+
+			}
+
+			if (poles[i].state == poles[i].animState) {
+				if (poles[i].state ==48) {
+					if (poles[i].plateNum!=100) {
+						//Extended pole has a plate on top:
+						//we move the plate on the upper pole
+						byte j;
+						j=poles[i].plateNum;
+						poles[i+5].plateNum=j;
+						poles[i].plateNum=100;
+						plates[j].poleNum=i+5;
+						plates[j].Y=poles[i+5].Y-90;
+						sprPos(plates[j].spId,plates[j].X,plates[j].Y);
+					}
+					poleSzUp(i+5,false);
+				}
+			}
+		}
+	}
+}
+
+// "player" functions 
+
+void playerInit() {
+	player.X=329;
+	player.Y=358;
+	player.pathList=0;
+	player.pathDir=0;
+	player.pathStep=0;
+	player.plateCatched=100; // id of catched plate. 100:none
+	player.spRef=5; // Front view
+	player.spId=31;
+	sprRef(player.spId,5);
+	sprPal(player.spId,0);
+	sprPrio(player.spId,0);
+	sprFlip(player.spId,false,false);
+	sprPos(player.spId,329,358);
+}
+
+void _playerSetPos() {
+	sprPos(player.spId,player.X,player.Y);
+	soundRun(0);
+	if (player.plateCatched!=100) {
+		byte j;
+		j=player.plateCatched;
+		plates[j].X=player.X;
+		plates[j].Y=player.Y-6;
+		sprPos(plates[j].spId,plates[j].X,plates[j].Y);
+	}
+}
+
+bool _isPlayerOnFl() {
+	if (player.Y>=353 && player.Y<=393) {
+		// Floor level 0
+		player.Y=358;
+		return true;
+	}
+	if (player.Y>=261 && player.Y<=271) {
+		// Floor level 1
+		player.Y=266;
+		return true;
+	}
+	if (player.Y>=165 && player.Y<=175) {
+		// Floor level 2
+		player.Y=170;
+		return true;
+	}
+	return false;
+}
+
+void playerGoR(byte n) {
+	if (_isPlayerOnFl()) {
+		if (rnd(0,2)==1) {
+			if (player.spRef==6) player.spRef=7;
+				else player.spRef=6;
+		}
+		sprFlip(player.spId,true,false);
+		player.X+=n;
+		if (player.X>530) player.X=530;
+		sprRef(player.spId,player.spRef);
+		_playerSetPos();
+	}
+}
+
+void playerGoL(byte n) {
+	if (_isPlayerOnFl()) {
+		if (rnd(0,1)==1) {
+			if (player.spRef==6) player.spRef=7;
+				else player.spRef=6;
+		}	
+		sprFlip(player.spId,false,false);
+		player.X-=n;
+		if (player.X<130) player.X=130;
+		sprRef(player.spId,player.spRef);
+		_playerSetPos();
+	}
+}	
+
+void playerGoU(byte n) {
+	// Check if X pos is in scope of a pole
+	for(byte i;i<15;i++) {
+		if (player.X >= poles[i].X-8 && player.X <= poles[i].X+8) {
+			if (player.Y <= (poles[i].Y+1) && player.Y >= poles[i].Y-(poles[i].state*2)) {
+				if (rnd(0,1)==1) {
+					if (player.spRef==8) player.spRef=9;
+					else player.spRef=8;
+					sprRef(player.spId,player.spRef);
+				}
+				if (poles[i].state==16 && poles[i].plateNum==100 && plateCatched==true && player.Y-1 <= poles[i].Y-(poles[i].state*2)) {
+					byte k1;
+					byte k2;
+					byte k;
+					byte j;
+					
+					// player is on top of this empty pole and has a plate
+					poles[i].plateNum=player.plateCatched;
+					j=player.plateCatched;
+					
+					plates[j].Y=player.Y+6;
+					sprPos(plates[j].spId,plates[j].X,plates[j].Y);
+					
+					plates[j].state=2;
+					plates[j].tState=_time;
+					plates[j].poleNum=i;
+					plates[j].animCnt=0;
+					plates[j].tick=0;
+					plateCatched=false;
+					player.plateCatched=100;
+					score+=plateScore[level];
+					soundRelease(0);
+					
+					// Do we extend a pole and open upper floor?
+					
+					k1=100;
+					
+					if (i>=0 && i<5) { // First floor
+						k1=0;
+						k2=5;
+					} else if (i<10) { // Second floor
+						k1=5;
+						k2=10;
+					} else {
+						k1=10;
+						k2=15;
+					}
+					
+					if (k1<100) {
+						//Check if all poles of this floor have a plate
+						//and open floor if needed
+						for(k=k1;k<k2;k++)
+							if (poles[k].plateNum==100) // no plate
+								break;
+						if (k==k2) {// all poles have a plate:extend a pole
+							if (k1==10) { //Top floor: game level completed!
+								levelCompleted=true;
+								score+=bonusScore[level];
+							} else {
+								while(true) { // current pole cannot be extended
+									k=rnd(k1,k2-1);
+									if (k!=i)
+										break;
+								}
+								poleSzUp(k,true);
+							}
+						}
+					}			 
+				} else if (poles[i].state==16 && poles[i].plateNum!=100 && player.Y <= poles[i].Y-(poles[i].state*2)) {
+					//player is on top of a pole which has a plate
+					sprRef(player.spId,19);
+					player.spRef=19;
+
+					// Reset plate timer
+					byte j;
+					j=poles[i].plateNum;
+					plates[j].state=2;
+					plates[j].tState=_time;
+					plates[j].spRef=0;
+					plates[j].animCnt=0;
+					sprRef(plates[j].spId,0);
+				}
+				player.X=poles[i].X;
+				player.Y-=n;
+				_playerSetPos();
+
+				return;
+			} 
+		}
+	}
+}
+
+void playerGoD(byte n) {
+	// Check if X pos is in scope of a pole
+	for(byte i;i<15;i++) {
+		if (player.X >= poles[i].X-8 && player.X <= poles[i].X+8) {
+			if (player.Y <= poles[i].Y && player.Y >= poles[i].Y-(poles[i].state*2)-1) {
+				player.X=poles[i].X;
+				player.Y+=n;
+				if (rnd(0,1)==1) {
+					if (player.spRef==8) player.spRef=9;
+					else player.spRef=8;
+					sprRef(player.spId,player.spRef);
+				}
+				_playerSetPos();
+				return;
+			}
+		}
+	}
+	// Couldn't go down: player kneel down 
+	player.spRef=15;
+	sprRef(player.spId,player.spRef);	
+	if (player.plateCatched!=100) {
+		// plate position down
+		byte j;
+		j=player.plateCatched;
+		plates[j].X=player.X;
+		plates[j].Y=player.Y;
+		sprPos(plates[j].spId,plates[j].X,plates[j].Y);
+	}
+
+}
+void playerJump(byte direction) {
+	if (_isPlayerOnFl()) {
+		player.pathDir=direction; //0:none 1:left 2:right
+		player.pathList=&jumpC;
+		if (direction==1) { // To the left: start at array end
+			player.pathStep=(byte)#jumpC-1;
+		} else {
+			player.pathStep=0; 	
+			player.pathMax=(byte)#jumpC;
+		}
+		if (direction==0) sprRef(player.spId,16);
+		else sprRef(player.spId,4);
+	}
+}
+
+bool playerAnim() {
+
+	if (player.pathList==0) return false;
+	if (player.pathDir==0 || player.pathDir==2) { // None or to the right
+		if (player.pathDir==2) player.X++;
+		player.Y+=(int)peekW(player.pathList+(player.pathStep*2));	
+		player.pathStep++;
+		if (player.pathStep == player.pathMax) {
+			player.pathList=0;
+			if (player.pathDir==2)
+				sprRef(player.spId,6);
+			else sprRef(player.spId,5);
+		}
+	} else { // To the left
+		player.X--;		
+		player.Y+=-(int)peekW(player.pathList+(player.pathStep*2));
+		player.pathStep--;
+		if (player.pathStep == 0) {
+			player.pathList=0;
+			sprRef(player.spId,6);
+		}
+	}
+	if (player.X>530) player.X=530;
+	else if (player.X<130) player.X=130;
+	_playerSetPos();
+	return true;
+}
+
+// "weapon" functions 
+
+void weaponInit() {
+	for(byte i;i<#weapon;i++) {
+		weapon[i].X=0;
+		weapon[i].Y=0;
+		weapon[i].wtype=0;
+		weapon[i].dir=0;
+		weapon[i].gravity=false;
+		weapon[i].yOfs=0;
+		weapon[i].flipCnt=0;
+		weapon[i].tick=0;
+		weapon[i].dropping=false;
+		weapon[i].pathList=0;
+		weapon[i].pathStep=0;
+		weapon[i].spId=13+i;
+		weapon[i].spRef=14;			
+		sprPal(weapon[i].spId,0);
+		sprPrio(weapon[i].spId,0);
+		sprFlip(weapon[i].spId,false,false);
+		sprPos(weapon[i].spId,0,0);
+	}
+}
+	
+void weaponStart(byte level,byte side) {
+	// level 0 (ground) to 2(top)
+	// side 0:from left, 1:from right
+
+	for(byte i;i<#weapon;i++) {
+		if(weapon[i].X==0) {
+			weapon[i].wtype = rnd(0,#weapontype-1);
+			byte j = weapon[i].wtype; // BUG:NEED A VAR
+			weapon[i].spRef=weapontype[j].spFirstRef;
+			weapon[i].yOfs=weapontype[j].yOfs;
+			weapon[i].gravity=weapontype[j].gravity;
+			weapon[i].dropping=false;
+			weapon[i].pathList=0;
+			weapon[i].pathStep=0;
+			weapon[i].dir=(byte)(1-side);
+			if (weapontype[j].bounce==true) {
+				weapon[i].pathList=&bounceC;
+				if (weapon[i].dir==0) // To the left: start at array end
+					weapon[i].pathStep=(byte)#bounceC-1;
+				else {
+					weapon[i].pathStep=0;
+					weapon[i].pathMax=(byte)#bounceC;
+				}
+			}
+			if (level==0) weapon[i].Y=weapontype[j].yStartL0;
+			else if (level==1) weapon[i].Y=weapontype[j].yStartL1;
+			else weapon[i].Y=weapontype[j].yStartL2;
+			if (side==0) weapon[i].X=140;
+			else weapon[i].X=520;
+			sprRef(weapon[i].spId,weapon[i].spRef);
+			weapon[i].flipCnt=100;
+			weapon[i].tick=0;
+			if (side==0 && weapontype[j].flip==1) // Reverse
+				sprFlip(weapon[i].spId,true,false);
+			else {
+				sprFlip(weapon[i].spId,false,false);
+				if (weapontype[j].flip==2) //Cyclic
+					weapon[i].flipCnt=0;
+			}
+			sprPos(weapon[i].spId,weapon[i].X,weapon[i].Y);
+			return;
+		}
+	}
+}
+
+void weaponAnim() {	
+	byte wspeed=witchesParams[level].weaponSpeed;
+	for(byte i;i<#weapon;i++) {
+		if(weapon[i].X>0) {
+			if (weapon[i].dir==0) { // to the left
+				weapon[i].X-=wspeed;
+				if (weapon[i].pathList!=0) {
+					weapon[i].Y+=-(int)peekW(weapon[i].pathList+(weapon[i].pathStep*2));
+					weapon[i].pathStep--;
+					if (weapon[i].pathStep == 0) {
+						weapon[i].pathList=0;
+					}
+				}
+			} else { // To the right
+				weapon[i].X+=wspeed;
+				if (weapon[i].pathList!=0) {
+					weapon[i].Y+=(int)peekW(weapon[i].pathList+(weapon[i].pathStep*2));
+					weapon[i].pathStep++;
+					if (weapon[i].pathStep == weapon[i].pathMax) {
+						weapon[i].pathList=0;
+					}
+				}
+			}
+			if (weapon[i].X<112 || weapon[i].X>545) {
+				weapon[i].X=0;
+				weapon[i].Y=0;
+			} else {
+				if (weapon[i].gravity==true && weapon[i].pathList==0) {
+					int x;
+					int y;
+					byte r;
+					if (weapon[i].dir==0)  // to the left
+						x=weapon[i].X+40-42; // right border(24px)-4px (in subpx)
+					else x=weapon[i].X+8-42;	
+
+					y = weapon[i].Y+weapon[i].yOfs-48;
+
+
+					for(byte j=1;j<=4*wspeed;j++ ) {
+						r=tileGetRef(x,y+j);
+						if (isFloor(r)==false) {
+							// No floor
+							weapon[i].Y+=1;
+							weapon[i].dropping=true;
+						} else {	
+							// Floor
+							if (weapon[i].dropping==true) {
+								// Was dropping:will bounce	
+								weapon[i].pathList=&bounceC;
+								if (weapon[i].dir==0) { // To the left: start at array end
+									weapon[i].pathStep=(byte)#bounceC-1;
+								} else {
+									weapon[i].pathStep=0; 	
+									weapon[i].pathMax=(byte)#bounceC;
+								}	
+								soundBounce(1);							
+									
+							}
+							weapon[i].dropping=false;
+							break;
+						}
+					}
+				
+				}
+				if (weapon[i].tick<tick && weapon[i].flipCnt!=100) {
+					if(weapon[i].flipCnt==0)
+						sprFlip(weapon[i].spId,false,false);
+					else if(weapon[i].flipCnt==1)
+						if(weapon[i].dir==0) //to the left
+							sprFlip(weapon[i].spId,true,false);
+						else sprFlip(weapon[i].spId,false,true);
+					else if(weapon[i].flipCnt==2)
+						sprFlip(weapon[i].spId,true,true);
+					else if(weapon[i].flipCnt==3)
+						if(weapon[i].dir==0) //to the left
+							sprFlip(weapon[i].spId,false,true);
+						else sprFlip(weapon[i].spId,true,false);
+					weapon[i].flipCnt++;
+					if (weapon[i].flipCnt==4) weapon[i].flipCnt=0;
+					weapon[i].tick=tick+20;
+				}
+			}
+			sprPos(weapon[i].spId,weapon[i].X,weapon[i].Y);
+		}
+	}
+	
+}
+
+// "witch" functions
+
+void witchInit() {
+	for(byte i;i<maxWitches;i++){
+		witches[i].level=0;
+		witches[i].side=0;
+		witches[i].state=0;
+		witches[i].willShot=false;
+		witches[i].showTime=0;
+		witches[i].shootTime=0;
+		witches[i].spIdHead1=1+(3*i);
+		witches[i].spIdHead2=2+(3*i);
+		witches[i].spIdBody=3+(3*i);
+		witches[i].spRefHead1=11;
+		witches[i].spRefHead2=12;
+		witches[i].spRefBody=13;
+		sprRef(witches[i].spIdHead1,witches[i].spRefHead1);
+		sprPal(witches[i].spIdHead1,0);
+		sprPrio(witches[i].spIdHead1,0);
+		sprFlip(witches[i].spIdHead1,false,false);
+		sprPos(witches[i].spIdHead1,0,0);
+
+		sprRef(witches[i].spIdHead2,witches[i].spRefHead2);
+		sprPal(witches[i].spIdHead2,0);
+		sprPrio(witches[i].spIdHead2,0);
+		sprFlip(witches[i].spIdHead2,false,false);
+		sprPos(witches[i].spIdHead2,0,0);
+
+		sprRef(witches[i].spIdBody,witches[i].spRefBody);
+		sprPal(witches[i].spIdBody,0);
+		sprPrio(witches[i].spIdBody,0);
+		sprFlip(witches[i].spIdBody,false,false);
+		sprPos(witches[i].spIdBody,0,0);
+
+	}	
+}	
+
+
+	
+void witchActivate() {
+	nat y;
+	nat x;
+	byte side;
+	byte level;
+	
+	
+	// Add new witch?
+	if (timeWitch<_time && currWitches < maxCurrWitches) {
+		timeWitch=_time+1;
+		if (rnd(0,100)<witchRndShow) {
+			for (byte i;i<maxWitches;i++){
+				if(witches[i].state==0) {
+					witches[i].showTime=_time;
+					currWitches++;
+					if (rnd(0,100)<witchRndShot) {
+						witches[i].willShot=true;
+					} else {
+						witches[i].willShot=false;
+					}
+					witches[i].shootTime=_time+rnd(witchShotDelayMin,witchShotDelayMax);
+					while(true) {
+						level = rnd(0,2);
+						side = rnd(0,1);
+						// Is this place free?
+						byte j;
+						for(j=0;j<maxWitches;j++){
+							if (witches[j].state!=0 && witches[j].level==level && witches[j].side==side)
+								break;
+						}
+						if (j==maxWitches)
+							break;
+					}
+					witches[i].side=side;
+					witches[i].level=level;
+					if (side==1) {
+						sprFlip(witches[i].spIdHead1,true,false);
+						sprFlip(witches[i].spIdHead2,true,false);
+						sprFlip(witches[i].spIdBody,true,false);
+					} else {
+						sprFlip(witches[i].spIdHead1,false,false);
+						sprFlip(witches[i].spIdHead2,false,false);
+						sprFlip(witches[i].spIdBody,false,false);
+					}
+					witches[i].state=1; //we show just the head at first anyway
+					if (level==0) y=345;
+					else if (level==1) y=253;
+					else if (level==2) y=157;
+					if (side==0) x=148;
+					else x=515;
+					sprPos(witches[i].spIdHead1,x,y);
+					break;
+				}
+			}
+
+		}
+	}
+	// Manage current witches
+	for (byte i;i<maxWitches;i++){
+		if(witches[i].state>0) {
+			if (witches[i].state == 1) {
+				if (witches[i].shootTime<_time) {
+					if (witches[i].willShot == true) {
+						//Let's shot
+						if (witches[i].level==0) y=345;
+						else if (witches[i].level==1) y=253;
+						else if (witches[i].level==2) y=157;
+						if (witches[i].side==0) x=148;
+						else x=515;
+						sprPos(witches[i].spIdHead2,x,y);
+						sprPos(witches[i].spIdBody,x,y+32);
+						witches[i].state=2;
+						weaponStart(witches[i].level,witches[i].side);
+					} else {
+						//we remove the witch
+						sprPos(witches[i].spIdHead1,0,0);
+						witches[i].state=0;
+						currWitches--;
+					}
+				}
+			} else if (witches[i].state == 2) {
+				if (witches[i].shootTime+3<_time) {
+					//After 3sec, we remove this bitch
+					sprPos(witches[i].spIdHead1,0,0);
+					sprPos(witches[i].spIdHead2,0,0);
+					sprPos(witches[i].spIdBody,0,0);
+					witches[i].state=0;
+					currWitches--;
+				}
+			}
+		}
+	}
+}	
+
+// "plate" functions
+
+void _plateInit(byte i) {
+	plates[i].state=0;
+	plates[i].poleNum=0;
+	plates[i].animCnt=0;
+	plates[i].tick=0;
+	plates[i].spId=17+i;
+	plates[i].spRef=3;
+	plates[i].tState=0;
+	sprRef(plates[i].spId,3);
+	sprFlip(plates[i].spId,false,false);
+}
+
+
+
+void platePush(byte nplate,byte floor,byte side) {
+	// floor(3)/side(2)/num(5):plateStack[floor * (2*5) + side*5 + num]
+	byte i;
+	byte j;
+	i=(floor*10) + (side*5);
+	for(j=i;j<(i+5);j++) {
+		if (pStack[j]==100)
+			break;
+	}
+	if (j==(i+5)) // Too many plates (impossible)
+		return;
+	pStack[j]=nplate;
+	j=j-i;
+	if(side==0) { // to the left
+		plates[nplate].X=130;
+		plates[nplate].Y=5*(5-j);
+	} else {
+		plates[nplate].X=530;
+		plates[nplate].Y=5*(5-j);	
+	}
+	if (floor==0) plates[nplate].Y+=345;
+	else if (floor==1) plates[nplate].Y+=252;
+	else plates[nplate].Y+=156;
+	plates[nplate].state=0;
+	sprRef(plates[nplate].spId,3);
+	sprFlip(plates[nplate].spId,false,false);
+	sprPos(plates[nplate].spId,plates[nplate].X,plates[nplate].Y);
+}
+
+byte getFirstPlate(byte floor,byte side) {
+	byte i;
+	byte j;
+	i=(floor*10) + (side*5);
+	for(j=i;j<(i+5);j++) {
+		if (pStack[j]==100) {
+			if (j==i)  //no plate available
+				return 100;
+			return pStack[j-1];
+		}
+	}
+	return pStack[j-1];
+}
+
+void plateRemove(byte nplate) {
+	for(byte i=0;i<30;i++)
+		if (pStack[i]==nplate) {
+			pStack[i]=100;
+			return;
+		}
+}
+
+void plateInit() {
+	
+	for(byte i;i<13;i++) {
+		_plateInit(i);
+	}
+	for(byte i;i<30;i++) {
+		pStack[i]=100;
+	}
+	
+	byte nplate;
+	for (byte i;i<=2;i++) {
+		byte n;
+		if (i==0) n=5; // 5 plates on floor level 0
+		else n=4;// 4 plates on floor level 1 & 2
+		for (byte j=0;j<n;j++) {
+			platePush(nplate,i,(byte)rnd(0,1));
+			nplate++;
+		}
+	
+	}	
+}
+
+void plateAnim(){
+	for(byte i;i<13;i++) {
+		// Animations
+		if (plates[i].state>=2 && plates[i].tick<tick) {
+			if (plates[i].state==2) {
+				if (plates[i].animCnt==0) 
+					sprFlip(plates[i].spId,false,false);
+				else sprFlip(plates[i].spId,true,false);
+				plates[i].animCnt=1-plates[i].animCnt;
+			} else if (plates[i].state==3) {
+				if (plates[i].animCnt==0) {
+					sprFlip(plates[i].spId,false,false);
+					sprRef(plates[i].spId,0);
+				} else if (plates[i].animCnt==1) {
+					sprRef(plates[i].spId,1);
+				} else if (plates[i].animCnt==2) {
+					sprFlip(plates[i].spId,true,false);
+				} else if (plates[i].animCnt==3) {
+					sprRef(plates[i].spId,0);
+				}
+				plates[i].animCnt++;
+				if (plates[i].animCnt==4) plates[i].animCnt=0;
+			} else if (plates[i].state==4){
+				if (plates[i].animCnt==0) {
+					sprFlip(plates[i].spId,false,false);
+					sprRef(plates[i].spId,0);
+				} else if (plates[i].animCnt==1) {
+					sprRef(plates[i].spId,1);
+				} else if (plates[i].animCnt==2) {
+					sprRef(plates[i].spId,2);
+				} else if (plates[i].animCnt==3) {
+					sprFlip(plates[i].spId,true,false);
+				} else if (plates[i].animCnt==4) {
+					sprRef(plates[i].spId,1);
+				} else if (plates[i].animCnt==5) {
+					sprRef(plates[i].spId,0);
+				}
+				plates[i].animCnt++;
+				if (plates[i].animCnt==6) plates[i].animCnt=0;
+			} else {
+				nat maxY;
+				byte floor;
+				if (i<5) { 
+					maxY=358;
+					floor=0;
+				} else {
+					byte num;
+					num = i-5;
+					if (peek(tilBuf+posFloor[num])==tileEmpty) 
+						if(num>=0 && num<5) {
+							maxY=358;
+							floor=0;
+						} else {
+							maxY=266;
+							floor=1;
+						}	
+					else 
+						if(num>=0 && num<5) {
+							maxY=266;
+							floor=1;
+						} else {
+							maxY=170;
+							floor=2;
+						}
+				}
+				
+				plates[i].Y+=2;
+				if (plates[i].Y>=maxY) {
+					byte j;
+					isDead=true;
+					fallenPlate.nplate=i;
+					fallenPlate.floor=floor;
+					j=plates[i].poleNum;
+					poles[j].plateNum=100;
+					sprRef(plates[i].spId,18);
+					soundBreak(0);
+				}
+				sprPos(plates[i].spId,plates[i].X,plates[i].Y);
+				
+			
+			}
+			plates[i].tick=tick+1;
+		}
+		
+		// State change
+		if (plates[i].state>=2) {
+			if (plates[i].state==2 && plates[i].tState+plateStateInterval[level].int1<=_time) {
+				plates[i].state=3;
+				plates[i].tState=_time;
+			} else if (plates[i].state==3  && plates[i].tState+plateStateInterval[level].int2<=_time) {
+				plates[i].state=4;
+				plates[i].tState=_time;
+			} else if (plates[i].state==4  && plates[i].tState+plateStateInterval[level].int3<=_time) {
+				plates[i].state=5;
+			}
+		}
+	}	
+}
+// Misc functions
+
+void initLevel() {
+	maxCurrWitches=4; // No more than 4
+	currWitches=0;
+	plateCatched=false;
+	fallenPlate.nplate=100;
+	timeWitch=0;
+	
+	witchRndShow=witchesParams[level].witchRndShow;
+	witchRndShot=witchesParams[level].witchRndShot;
+	witchShotDelayMin=witchesParams[level].witchShotDelayMin;
+	witchShotDelayMax=witchesParams[level].witchShotDelayMax;
+
+
+	levelAccess[0]=false;
+	levelAccess[1]=false;
+	isDead=false;
+	levelCompleted=false;
+}
+
+void clearSprites() {
+	for (byte i=0;i<32;i++) {
+		sprPos(i,0,0);
+		sprFlip(i,false,false);
+		sprPrio(i,0);
+	}
+}
+
+void clearTiles(){
+	memSet(tilBufA,512,0);//Clear tiles buffer A
+	memSet(tilBufB,512,0);//Clear tiles buffer B
+}
+
+void clearTileSet(){
+	memSet(cpuWindow,32768,0,0);//Clear tileset
+}
+
+void clearBitMap(){
+	memSet(cpuWindow,48000,0,bmpPage);// Efface bitmap
+}
+
+
+
+void sleep(nat msec) {
+	clkSet();
+	while(_mSec<msec){}
+}
+
+
+
+void cls() {
+	memSet(0x1200,3200,32); //clear screen content
+	memSet(0x1e80,3200,1); //clear screen colors
+}
+
+void correctTime(nat sec) {
+	byte i;
+	for(i=0;i<4;i++) {
+		if (witches[i].showTime>0)
+			witches[i].showTime+=sec;
+		if (witches[i].shootTime>0)
+			witches[i].shootTime+=sec;
+	}
+	for(i=0;i<13;i++) {
+		if (plates[i].tState>0)
+			plates[i].tState+=sec;
+	}	
+}
+
+void pause() {
+	if (_keyDwn == 66) {
+		nat sec=_time;
+		sleep(300);
+		while(_keyDwn==0) {}
+		sleep(150);
+		correctTime(_time-sec);
+	}
+}
+
+void int2Txt(nat val,byte len)
+{
+	nat rank=1;
+	for(int n=len-1; n>=0; n--)
+	{
+		byte digit = (byte)((val%(10*rank))/rank);
+		poke(&i2t+(byte)n,digit+48);
+		rank*=10;
+	}
+	poke(&i2t+len,0);
+}
+			
+void drawBackground() {
+	poke(gfxModes,peek(gfxModes) & 0b11111110);//Disable bitmap display
+	fileName=bg[level];
+	concat(fileName,".pal");
+	import(fileName,0x11a0,48);
+	fileName=bg[level];
+	concat(fileName,".bmp");
+	import(fileName,cpuWindow,48000,bmpPage);
+	poke(gfxModes,peek(gfxModes) | 0b00000001); //Enable bitmap display
+}
+
+void selectTileBuffer(byte buf) {
+	if (buf==0) {
+		// Buffer A
+		poke(0x2f0b,peek(0x2f0b) & 0b11111011);
+	} else {
+		// Buffer B
+		poke(0x2f0b,peek(0x2f0b) | 0b00000100);
+	}
+}
+
+void setTile(byte buf,byte ref,byte x,byte y) {
+	nat addr;
+	nat tilBuff;
+	
+	if (buf==0)
+		tilBuff = tilBufA;
+	else
+		tilBuff = tilBufB;
+	addr = tilBuff + y*32 + x;
+	poke(addr,ref,0);
+}
+	
+void drawTemple() {
+	poke(gfxModes,peek(gfxModes) & 0b11110111);//Disable tiles display
+
+	cls();
+	clearTiles();
+	clearTileSet();			
+	
+	
+	import("res/tmpl.tls",cpuWindow,0,tilPage);
+	import("res/tmpl-cpl.tls",cpuWindow+27008,1920,tilPage);
+	import("res/tmpl.pal",tilPal,48);
+	import("res/tmpl.map",tilBuf,480);
+
+	poke(tilBuf+133,tileEmpty);
+	poke(tilBuf+229,tileEmpty);
+	poke(tilBuf+197,tileFloorDown);
+	
+	poke(gfxModes,peek(gfxModes) | 0b00001000); //Enable tiles display
+	
+}
+
+void drawScorePanel() {
+	curPos(62,0);
+	print("4¨ÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅ≠");
+	for (byte i=1;i<=9;i++) {
+		curPos(62,i);
+		print("4Ä5               0Ä");
+	}
+	curPos(62,10);
+	print("4´ÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅ™");
+
+	curPos(64,2);
+	print("52SCORE");
+
+	curPos(64,4);
+	print("52HI");
+
+	curPos(64,6);
+	print("52ROUND");
+
+	curPos(64,8);
+	print("52CHANG");
+
+	curPos(63,30);
+	print("f1 P 0c Pause");
+	curPos(63,32);
+	print("f1 M 0c Music on/off");
+	
+	curPos(66,37);
+	print("1de6e7e8e9eaebec93eeef");
+	curPos(66,38);
+	print("1df6f7f8f9fafbfcfdfeff");
+	curPos(67,39);
+	print("2forever!");
+}
+
+void displayInfos() {
+	if (score>hiscore)
+		hiscore=score;
+	curPos(70,2);
+	int2Txt(score,5);
+	print("57",i2t);
+	
+	curPos(70,4);
+	int2Txt(hiscore,5);
+	print("57",i2t);
+
+	curPos(70,6);
+	print("57",level+1);
+	
+	curPos(70,8);
+	for(byte i;i<lives;i++)
+		print("5dba");
+	for(byte i=lives;i<3;i++)
+		print("5dca");
+		
+	
+}
+
+void alert(text m1,text m2, byte x1,byte x2,byte sound) {
+nat sec;
+	
+	curPos(20,13);
+	print("e0¨ÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅ≠");
+	for (byte i=14;i<=20;i++) {
+		curPos(20,i);
+		print("e0Äd                        0Ä");
+	}
+	curPos(20,21);
+	print("e´ÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅÅ™");
+	
+	curPos(21+x1,15);
+	print("2d",m1);
+	curPos(21+x2,16);
+	print("2d",m2);
+	sprUpdt();
+	
+	if (sound>0) {
+		soundEvt(sound,1);
+	}
+	
+	curPos(22,19);
+	print("8d","PRESS FIRE TO CONTINUE");
+	
+	sleep(500);
+	sec=_time;
+	while((_padLft & 0b00000001) != 1){}
+	sleep(250);
+	curPos(20,13);
+	
+	for (byte i=13;i<=21;i++) {
+		curPos(20,i);
+		print("0                          ");
+	}
+	correctTime(_time-sec);
+}
+
+
+void _introDraw(byte X,byte Y,nat buffAddr) {
+	nat l;
+	byte map[78]={1,2,3,4,5,6,7,8,9,10,10,11,12,
+	13,14,15,16,17,18,18,20,21,22,22,23,24,
+	25,26,27,28,29,30,31,32,33,34,35,36,37,
+	38,39,40,41,42,43,44,45,46,47,48,49,50,
+	51,52,53,54,55,56,57,58,59,60,61,62,63,
+	0,64,65,65,65,65,65,65,65,65,65,66,67};
+	
+	if (Y<0) return;
+	memSet(buffAddr,512,0);
+	for (byte i;i<78;i++) {
+		l = Y+(i/13);
+		if (l<16) {
+			poke(buffAddr+(32*((byte)l))+(byte)X+(i%13),map[i]);
+		} else break;
+	}
+}
+
+
+	
+byte showIntro(){
+	memSet(0x1200,3200,32);//clear screen
+	memSet(0x1e80,3200,1);//clear screen colors
+	memSet(0x2b00,512,0);//clear tiles (buffer A)
+	memSet(0x2d00,512,0);//clear tiles (buffer B)
+	import("res/logo.tls",cpuWindow,0,tilPage);
+	import("res/logo.pal",tilPal,48);
+		
+	
+	byte X=6;
+	byte Y=15; // Start Y coord
+	int offs=30;
+	
+	nat prepareBuffAddr = 0x2d00;//B
+
+	poke(gfxModes,peek(gfxModes) & 0b11111110);//Disable bitmap display
+	import("res/nat.pal",0x11a0,48);
+	import("res/nat.bmp",cpuWindow,48000,bmpPage);
+	poke(gfxModes,peek(gfxModes) | 0b00000001); //Enable bitmap display
+
+	
+	 _introDraw(X,Y,prepareBuffAddr);	
+	
+	
+	while(true) {
+		vSync();
+		
+		if (offs==30) {
+			if (Y==3) break; // Stop Y coord
+			offs=0;
+			
+			if (prepareBuffAddr == 0x2b00) {
+				// "A" buffer has been prepared : we display it 
+				poke(0x2f0b,peek(0x2f0b) & 0b11111011);
+				poke(0x2f02,(byte)offs);
+				prepareBuffAddr = 0x2d00;				
+				Y--;
+				_introDraw(X,Y,prepareBuffAddr);
+			} else {
+				// "B" buffer has been prepared : we display it 
+				poke(0x2f0b,peek(0x2f0b) | 0b00000100);
+				poke(0x2f02,(byte)offs);
+				prepareBuffAddr = 0x2b00;
+				Y--;
+				_introDraw(X,Y,prepareBuffAddr);
+			}
+		} else {
+			offs+=2;
+			poke(0x2f02,(byte)offs);
+		}
+	}
+	curPos(55,22);
+	print("a1.1");
+
+	synInit(0);
+	buffer="Based on the 1984 MSX game 'Mr Chin' from HAL";
+	for(byte i=0;i<45;i++) {
+		poke(0x1e80+(24*80)+18+i,0);
+		poke(0x1200+(24*80)+18+i,peek(&buffer+i));
+		for(byte j=1;j<=15;j++) {
+			poke(0x1e80+(24*80)+18+i,j);
+			sleep(3);
+			poke(0x1e80+(24*80)+18+i,12);
+		}
+
+		synNoteOff(0);
+		synVoice(0,1,2,0b11,15); //id,wform,octave,pan,volume
+		synEnv(0,6,2,0,10);//id,attack,delay,sustain,release
+		synNoteOn(0,97,120);//voice, note, velocity
+		sleep(10);
+	}
+	curPos(35,33);
+	print("de6e7e8e9eaebec93eeef");
+	curPos(24,34);
+	print("2A game for df6f7f8f9fafbfcfdfeff 2computer");
+	curPos(27,35);
+	print("42026 - Jean-arthur Silve");
+	curPos(28,36);
+	print("4github.com/ludosevilla");
+	curPos(23,38);
+	print("bPRESS ANY KEY OR FIRE(A) TO BEGIN");
+	X=0;
+	while(true) {
+		X=_keyDwn;
+		if (X!=0 || (_padLft & 0b00000001)!=0) break;	
+	}
+	memSet(0x1200,3200,32);//clear screen
+	memSet(0x1e80,3200,1);//clear screen colors
+	memSet(0x2b00,512,0);//clear tiles (buffer A)
+	memSet(0x2d00,512,0);//clear tiles (buffer B)
+	poke(0x2f02,0);// Reset offset to 0
+	poke(0x2f0b,peek(0x2f0b) & 0b11111011); //display buffer A(default)
+	sleep(300);
+	if (X==12) return 1;
+	return 0;
+}
+
+
+
+void main() {
+	
+	// Starting
+	
+	import("/system/reginit.dat",0x1100,0);
+	synInit(0);
+	synInit(1);
+	rndSeed(_time);
+	poke(gfxModes,0);
+	cls();
+	clearSprites();
+	clearTiles();
+	clearTileSet();
+	clearBitMap();	
+	selectTileBuffer(0);
+	tilBuf=tilBufA;
+	
+	
+
+	// Black background
+	byte oldR=peek(0x2f13);
+	byte oldG=peek(0x2f14);
+	byte oldB=peek(0x2f15);
+	poke(0x2f13,0);
+	poke(0x2f14,0);
+	poke(0x2f15,0);
+	poke(0x2f0b,peek(0x2f0b)&0b01111111);// No mouse
+	
+
+	// Started
+
+	// Loading sprites
+	import("res/spr.spr",cpuWindow,0,sprPage);
+	import("res/spr.pla",sprPlaA,48);
+
+	musicStart();
+
+	while(true) {
+		
+	level=0;
+	lives=3;
+	score=0;
+	stop=false;
+	isDead=false;
+
+	poke(gfxModes,0b00011001); // text tiles bitmap
+	
+	if(showIntro()==1)
+		break;			
+
+	poke(gfxModes,0); // sprites text tiles bitmap
+				
+	while(stop==false) {
+		if (isDead==true) {
+			alert("OOPS... GAME OVER!","BETTER LUCK NEXT TIME!",3,1,2);
+			break;
+		}
+		
+		drawBackground();
+		drawTemple();
+
+		poleInit();
+		playerInit();
+		witchInit();
+		weaponInit();
+		plateInit();
+
+		initLevel();
+
+		drawScorePanel();
+		displayInfos();
+		poke(gfxModes,0b00011101); // sprites text tiles bitmap
+		sprUpdt();
+
+		int2Txt(level+1,1);
+		buffer = "ROUND ";
+		concat(buffer,i2t);
+		alert("READY FOR",buffer,7,8,1);
+
+		
+		musicReset();
+		sndMngrReset();
+		tick=0;
+		
+		while(stop==false) {
+			clkSet();
+			if (_keyDwn==12)
+				stop=true;
+			if(_keyDwn==75) {
+				musicPaused=!musicPaused;
+				sleep(200);
+			}
+			pause();
+			sndMngrUpd();
+			musicUpd();
+			poleAnim();
+			weaponAnim();
+			witchActivate();
+			plateAnim();
+			displayInfos(); 
+			if (playerAnim()==false) {
+				if (_padLft & 0b10000001 == 0b10000001) playerJump(2);
+				else if (_padLft & 0b01000001 == 0b01000001) playerJump(1);
+				else if (_padLft & 0b00000001) playerJump(0);
+				else {
+					if (_padLft & 0b00100000) { playerGoD(1);}
+					else if (_padLft & 0b00010000) { playerGoU(1);}	
+					else if (_padLft & 0b10000000) { playerGoR(1);}
+					else if (_padLft & 0b01000000) { playerGoL(1);}
+					if ((_padLft & 0b11110000)==0 && player.spRef==15) {
+						// player was knelt: get back up
+						player.spRef=5;
+						sprRef(player.spId,player.spRef);
+						if (player.plateCatched!=100) {
+							byte j;
+							j=player.plateCatched;
+							plates[j].X=player.X;
+							plates[j].Y=player.Y-6;
+							sprPos(plates[j].spId,plates[j].X,plates[j].Y);
+						}
+	
+					}
+				}
+			}
+	
+			if(levelCompleted==true) {
+				level++;
+				// 5 game levels max
+				if (level==5) level--;
+				break;
+			}
+ 			if(isDead==true) {
+				lives--;
+				alert("AHHH! A PLATE JUST","SMASHED THE FLOOR!",3,3,2);
+				if (lives==0)
+					break;
+				platePush(fallenPlate.nplate,fallenPlate.floor,rnd(0,1));
+				fallenPlate.nplate=100;
+				isDead=false;
+			}
+			// Collisions?
+			for(byte i;i<#weapon;i++) {
+				if (isSprSpr(player.spId,weapon[i].spId)) {
+					soundCatch(0);
+					lives--;
+					alert("OOPS! THE WITCH GOT YOU!","KEEP TRYING!",0,6,2);
+					weapon[i].X=0;
+					weapon[i].Y=0;
+					sprPos(weapon[i].spId,weapon[i].X,weapon[i].Y);
+					if (lives==0)
+						isDead=true;
+					break;
+				}
+			}
+			if (isDead==true) break;
+	
+			if (plateCatched == false) {
+				byte floor;
+				byte side;
+				byte nplate;
+				floor=100;
+				side=100;
+				if (player.Y==358) floor=0;
+				else if (player.Y==266) floor=1;
+				else if (player.Y==170) floor=2;
+				if (floor!=100) {
+					if (player.X==530) side=1;
+					else if (player.X==130) side=0;
+					if (side!=100) {
+						nplate=getFirstPlate(floor,side);
+						if (nplate!=100) {
+							if(isSprSpr(player.spId,plates[nplate].spId)==true) {
+								plateCatched=true;
+								plates[nplate].state=1;
+								plates[nplate].X=player.X;
+								plates[nplate].Y=player.Y-6;
+								player.plateCatched=nplate;
+								plateRemove(nplate);
+								soundCatch(0);
+								sprPos(plates[nplate].spId,plates[nplate].X,plates[nplate].Y);
+							}
+						}
+					}
+				}
+			}
+
+
+							
+	
+			//curPos(0,0);
+			//print("2X=",player.X," Y=",player.Y," currWitches=",currWitches," Tick=",tick,"       ");
+			tick+=(nat)(_mSec/10);
+			vSync();
+			
+			sprUpdt();
+			if (player.spRef==19 && (_padLft & 0b00010000)==0){
+				player.spRef=8;
+				sprRef(player.spId,8);
+			}
+
+
+		}
+	}
+	}
+	
+	// Exiting
+
+	musicStop();	
+	clearSprites();
+	clearTiles();
+	clearTileSet();
+	clearBitMap();	
+	cls();
+	clearSprites();
+			
+	import("/system/reginit.dat",0x1100,0);
+	
+	poke(0x2f13,oldR);
+	poke(0x2f14,oldG);
+	poke(0x2f15,oldB);
+
+}
+
+
+
+main();
+

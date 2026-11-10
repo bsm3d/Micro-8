@@ -1,0 +1,247 @@
+
+// fileselector 1.0  2025 (c)  David Gervais
+// max 200 items* 14 bytes = 2800 bytes
+// 1 entry is coded :  byte 0  type   0/1  : 1: filename 0:subdirectoy
+//                          1->13          : name
+//                          14        0    : end byte
+//
+// to open fileselector :  fileSelector( posX, posY , directory size )
+//
+// global variable to declare :
+// name[xxx]  xxxx= items* 14 bytes
+// extBuf : global buffer for extension
+// extension : file extension to sort
+//
+// 	select extension example :
+//
+//		text extension[2]={".SRC",".BIN"};    sort all files with SRC and BIN extension
+//		text extension[1]={""};					 sort all files
+// fileSelectorTitle :  file selector title ( max 25 char )
+//
+// exemple in a Fast Loader for .BIN and .SRC
+//
+
+byte name[10000];  // name zone 
+text extension[2]={".SRC",".BIN"};
+//text extension[1]={""};
+text extBuf={4};
+text fileSelectorTitle="FAST LOADER 1.0";
+
+text rpt( byte char,nat size ) {			// repeat char function
+	byte textBuf[80];
+	memSet(&textBuf,80,0); 
+	memSet(&textBuf,size,char);
+	return (text)&textBuf;
+}
+
+int strcmp(nat str1,nat str2) {        // compare 2 strings
+	while (peek(str1) && peek(str1)==peek(str2)){
+		str1++;
+		str2++;
+	}
+	return (peek(str1)-peek(str2));
+}
+
+nat len(nat adr) {						// function text length
+	nat i=0;
+	while (peek(adr+i)) { i++;}
+	return i;
+}
+
+bool compare(nat string1,nat string2) {
+	for (nat i=0;i<14;i++){
+    if (peek(string1+i)<peek(string2+i)){ return false;} 
+    else if (peek(string1+i)>peek(string2+i)){ return true;} 
+	}
+	return false;
+}
+	
+
+// fast alphabetical sort
+void shellSortEntries(nat base, nat start, nat end, byte nSize,byte posX,byte posY) {
+	byte tmp[14];
+	nat j;
+	nat count = end - start + 1;
+	if (end <= start) { return; }
+	for (nat gap = count >> 1; gap > 0; gap = gap >> 1) {
+		for (nat i = start + gap; i <= end; i++) {
+			// tmp = entry[i]
+			memCpy(base + (i*nSize), &tmp, nSize);
+		 	j = i;
+			// while entry[j - gap] > tmp, shift forward
+			while ((j - gap) >= start && compare(base + ((j - gap)*nSize), &tmp)) {
+				curPos(posX+25,posY+1);print("|");
+				memCpy(base + ((j - gap)*nSize), base + (j*nSize), nSize);
+				j = j - gap;
+				curPos(posX+25,posY+1);print("-");
+			}
+			// place tmp at position j
+			memCpy(&tmp, base + (j*nSize), nSize);
+		}	
+	}
+}
+
+byte refreshDir(nat adrName,byte posX,byte posY){
+	bool subd;
+	nat size;
+	byte nameBuf[14];
+	byte kKey;
+	byte maxItem;
+	byte nSize=14;  // emtry size
+	bool compExt;
+   nat adr;
+ 	bool brk=true;
+	fOpDir("");		 //open current dir
+	curPos(posX+25,posY+1);print("-");
+			
+
+	while(brk)     // read current directory
+	{
+		curPos(posX+25,posY+1);print("|");
+		adr=adrName+1+(maxItem*nSize);
+		subd=fRdDir(adr, &size);//read item from directory
+
+
+		if( peek(adr)==0) { brk=false;}  //when no more items we stop  
+		else
+		{
+			poke(adrName+(maxItem*nSize),(byte)~subd);
+			if (subd){maxItem++;} else		// if not a subdirectory
+			{
+ 				if (len(adr)>=len(&extBuf)) { // compare extensions
+						curPos(posX+25,posY+1);print("-");
+						for (int c=0;c<#extension;c++){		
+							extBuf=extension[c];
+							compExt=true;
+							if (len(&extBuf)>0) {
+								for (nat i=0;i<=len(&extBuf);i++){
+									if (peek(adr+len(adr)-i)!=peek(&extBuf+len(&extBuf)-i) ) {compExt=false;break;}
+								}
+							}
+						if (compExt) {	maxItem++;}		
+						}
+				}
+			}
+		}
+	}
+	// alphabetic sort
+	shellSortEntries(adrName, 1, maxItem-1, nSize,posX,posY);
+	curPos(posX+25,posY+1); print("15 10"); 
+return maxItem;
+}
+
+text fileSelector(byte posX,byte posY,byte dirSize) {
+	
+	text displayName={13};
+	byte kKey;
+	byte fKey;
+	byte selectItem;
+	byte cntY;
+	byte menuY=0;
+	text color="5";
+	byte maxItem=1;
+	bool fastScroll;
+	nat fastScrollCnt;
+	nat nSize=14;
+	bool exit;	
+	// draw fileselector
+
+	curPos(posX,posY);   print ("25äå");
+	curPos(posX,posY+1); print ("25’",fileSelectorTitle,rpt(32,25-len(&fileSelectorTitle)),"”");
+	curPos(posX+1,posY+1);print ();
+	curPos(posX,posY+2); print ("25šœ");
+	for (byte i=0;i<dirSize;i++){
+		curPos(posX,posY+i+3); print ("25’                         ”");
+	}
+	curPos(posX,posY+dirSize+3);print("ðñ10");
+	maxItem=refreshDir(&name,posX,posY); // load directory
+
+
+	// main loop
+
+	while (exit!=true) {
+		// display directory
+		cntY=0;
+		for (byte i=selectItem;i<selectItem+min(dirSize,maxItem);i++){
+			displayName=(text)(&name+1+(i*nSize));
+			curPos(posX,posY+cntY+3);
+			// select bar color
+			if (i==selectItem+menuY) { color="3"; } else {color="5";} 
+			if (peek(&name+(i*nSize))) { print("25’2",color); } else { print ("25’9",color);}
+			print(displayName,rpt(32,27-len(&displayName)),"25”10");	
+
+			cntY++;
+		}
+		
+		while(_keyDwn==0){ 	fastScroll=false; fastScrollCnt=0;}
+		kKey=_keyDwn;
+
+		// press escape
+		
+		if (kKey==12) {displayName="";exit=true;}
+	
+		// press retun
+
+		if (kKey==37) {
+			displayName=(text)(	&name+1+((selectItem+menuY)*nSize));
+			if (peek(&name+((selectItem+menuY)*nSize))){ exit=true;}
+			else
+			{
+         fCD(displayName);
+			for (byte i=0;i<dirSize;i++){
+				curPos(posX,posY+i+3); print ("25’                         ”10");
+
+			}
+			maxItem=refreshDir(&name,posX,posY);
+			selectItem=0;
+		   menuY=0;
+	   }
+		while (_keyDwn){}
+
+		}
+	
+		// cursor up / down
+	
+		if ((kKey==77) || (kKey==80)){		
+			if (kKey==80) {
+				if (menuY<min(dirSize-1,maxItem-1)) { menuY++;}
+				else { if (selectItem+dirSize<maxItem) {selectItem++;}}
+			}
+			else {
+				if (menuY>0) {menuY-=1;}
+				else  {if (selectItem>0) {selectItem-=1;}}
+			}
+		
+		// fastscroll
+		
+			while ((fastScroll==false)&& (_keyDwn)){
+				fastScrollCnt++;  if (fastScrollCnt>2000) {fastScroll=true;break;}
+			}
+		}
+		else
+		{
+			fastScroll=false; fastScrollCnt=0;}	
+		}
+
+		return displayName;
+
+}
+
+// main program
+//
+
+memSet(0x1228,3120,0);
+memSet(0x1ED0,3120,0);
+text fileName={13};
+fileName=fileSelector(27,10,20);
+memSet(0x1228,3120,0);
+memSet(0x1ED0,3120,0);
+curPos(0,2);
+nat sAdr=&fileName+len(&fileName)-3;  //suffix adress
+if ( (peek(sAdr)==66) && (peek(sAdr+1)==73) && (peek(sAdr+2)==78)) {
+	 print("run ",fileName);}
+else
+	{
+	 print("edit ",fileName);
+}
+curPos(0,0);

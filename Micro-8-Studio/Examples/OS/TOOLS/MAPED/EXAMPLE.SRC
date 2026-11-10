@@ -1,0 +1,47 @@
+//  exemple routine using files created by Tiles Editor  
+//
+//  load tilemap
+//  load tileset
+//  display tilemap  ( x , y )    in pixel
+//
+
+
+nat maxX;
+nat maxY;
+
+poke(0x2f00,0b00111100);  			//  init graphmode
+
+byte tiles[3000];						// buffer size for tilemap
+
+void loadTilemap(text fileName) {   // read tilemap
+	fOpen(0,fileName);			
+	fRead(0,&maxX,0,2);					// read width
+	fRead(0,&maxY,2,2);					// read height
+	print(maxX,"  ",maxY);
+	fRead(0,&tiles,4,maxX*maxY);		// read map
+	fClose(0);
+}
+
+void loadTileset(text fileName) { 	// read tileset
+	fOpen(0,fileName);			
+	fRead(0,0x1170,0,48);				// read palette
+	fRead(0,0x3000,48,32768,0x00);	// read tileset
+	fClose(0);
+}
+
+void displayMap(nat x,nat y) {  		// display tilemap
+   areaCpy(&tiles,maxX,x >> 5,y >> 5,32,16,0x2b00,32,0,0);
+  	poke(0x2f01,(byte)(x%32));
+	poke(0x2f02,(byte)(y%32));
+}
+
+// main
+
+loadTilemap("demo.lvl");
+loadTileset("demo.tls");
+
+while(_keyDwn!=12) {
+	displayMap((nat)_mouseX,(nat)_mouseY);
+	mouseUpdt();
+	vSync();
+}

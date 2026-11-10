@@ -1,0 +1,259 @@
+
+//Organ demo
+//Use the top 2 keyboard rows to play notes
+//Or use a MIDI keyboard
+
+//For faster response, disable waveforms visualization
+
+bool waveforms=true;
+
+memSet(0x1200,3200,' ');//clear text
+memSet(0x3000,48000,0,0x60);//clear bitmap
+
+curPos(19,5);	print("••••••••••••••••••••••••••••••••••••••••••");
+curPos(19,6);	print(" ”’   ”’    ”’   ”’   ");
+curPos(19,7);	print(" ”’   ”’    ”’   ”’   ");
+curPos(19,8);	print(" ”’   ”’    ”’   ”’   ");
+curPos(19,9);	print(" ”’   ”’    ”’   ”’   ");
+curPos(19,10);	print(" ”’   ”’    ”’   ”’   ");
+curPos(19,11);	print("’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”");
+curPos(19,12);	print("’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”’ ”");
+curPos(19,13);	print("’`”’Q”’W”’E”’R”’T”’Y”’U”’I”’O”’P”’[”’]”’\”");
+curPos(19,14);	print("™•˜™•˜™•˜™•˜™•˜™•˜™•˜™•˜™•˜™•˜™•˜™•˜™•˜™•˜");
+curPos(19,16); print("Or use a MIDI keyboard.");
+//See keyboard layout in doc for more info
+
+//							C0	C1	C2	C3	C4	C5	C6	C7	C8	C9
+byte keyNoteMap[80]={0,	51,54,58,61,0,	68,0,	0,	0,	//R0
+							0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	//R1
+							49,0,	56,0,	63,66,0,	0,	0,	0,	//R2
+							0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	//R3
+							48,52,55,59,62,65,69,0,	0,	0,	//R4
+							0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	//R5
+							47,50,53,57,60,64,67,0,	0,	0,	//R6
+							0,	0,	0,	0,	0,	0,	0,	0,	0,	0};//R7
+
+type Voice
+{
+	bool active;
+	int key;
+	int age;
+};
+
+Voice voices[6];//max polyphony
+int allocCounter;
+
+void initVoices()
+{
+	for(int i; i<#voices; i++)
+	{
+		voices[i].active=false;
+		voices[i].key=-1;
+		voices[i].age=0;
+	}
+	allocCounter=0;
+}
+
+int findVoiceByKey(int key)
+{
+	for(int i; i<#voices; i++)
+	{
+		if(voices[i].active && voices[i].key==key) return i;
+	}
+	return -1;
+}
+
+int findFreeVoice()
+{
+	for(int i; i<#voices; i++)
+	{
+		if(!voices[i].active) return i;
+	}
+	return -1;
+}
+
+int stealVoice()
+{
+	int best;
+	int bestAge=voices[0].age;
+	for(int i; i<#voices; i++)
+	{
+		if(voices[i].age<bestAge)
+		{
+			best=i;
+			bestAge=voices[i].age;
+		}
+	}
+	return best;
+}
+
+byte allocVoice(int key)
+{
+	int v=findVoiceByKey(key);
+	if(v>=0) return (byte)v;
+	v=findFreeVoice();
+	if(v<0) v=stealVoice();
+	voices[v].active=true;
+	voices[v].key=key;
+	voices[v].age=allocCounter;
+	return (byte)v;
+}
+
+int releaseVoice(int key)
+{
+	int v=findVoiceByKey(key);
+	if(v<0) return -1;
+	voices[v].active=false;
+	voices[v].key=-1;
+	return v;
+}
+
+//minimal MIDI support. Feel free to improve !
+type midiEvent
+{
+	byte t;
+	byte ch;
+	byte p1;
+	byte p2;	
+};
+
+midiEvent midiGet()
+{
+	midiEvent mE;
+	mE.t=peek(0xffd0); //Event type (e.g. note ON)
+	mE.ch=peek(0xffd1); //Channel
+	mE.p1=peek(0xffd2); //First parameter (e.g. note number)
+	mE.p2=peek(0xffd3); //Second parameter (e.g. velocity)
+	return mE;
+}
+
+//setup ADC & YM2612
+adcSampleL();
+ymInit(0);//set master tune and generate internal notes table
+adcSampleR();
+
+ymLFO(true,0);//0-7 range. 0 is the slowest
+ymSetReg(0,0x2a,0);//dac value to 0
+ymSetReg(0,0x2b,0);//dac disabled
+
+text instruments[10]={	"bass01",
+								"bass02",
+								"bass03",
+								"lead01",
+								"lead02",
+								"lead03",
+								"lead04",
+								"pad01",
+								"pad02",
+								"pick01"};
+
+text fullName={32};
+
+for(byte i; i<10; i++)
+{
+	fullName="sounds/";
+	concat(fullName,instruments[i]);
+	concat(fullName,".ins");
+	ymLoad(fullName,i);//load instruments (up to 10)
+	memSet(&fullName,32,0);
+}
+
+ymVol(127);//Global volume 0-127
+
+byte instr=0;//current instrument
+byte octave=4;//current octave
+byte voice=0;//current voice
+byte pan=0b11;//00=off 01=right 10=left 11=center
+byte vol=127;//current voice volume
+
+void setupVoices()
+{
+	for(byte v; v<#voices; v++) ymVoice(v,instr,octave,pan,vol);//setup voice
+}
+setupVoices();
+
+void updateInfos()
+{
+	curPos(19,30);
+	print("14 13 Instrument: ",instr,": ",instruments[instr],"     ");
+	curPos(19,32);
+	print("15 16 Octave: ",octave," ");
+}
+updateInfos();
+
+initVoices();
+bool exit;
+while(!exit)//esc to exit
+{
+	byte keyDwn=getKeyDwn();//get key from ring buffer (FIFO)
+	byte keyUp=getKeyUp();
+	
+	if(midiUpdt())//if there is at least an event available in the queue
+	{
+		midiEvent mE=midiGet();//get event
+		if(mE.t==0x90 && mE.p2>0)//check for Note ON event type
+		{
+			ymNoteOn(allocVoice(mE.p1),mE.p1,mE.p2);
+		}
+		else if(mE.t==0x80 || mE.t==0x90 && mE.p2==0)//some devices send note OFF as note ON with velocity=0
+		{
+			int voice=releaseVoice(mE.p1);
+			if(voice>=0)	ymNoteOff((byte)voice);
+		}
+	}
+
+	if(keyDwn==12) exit=true;
+	else if(keyDwn==80) //down
+	{
+		if(octave>0) octave--;
+		setupVoices();
+		updateInfos();
+	}
+	else if(keyDwn==77) //up
+	{
+		if(octave<7) octave++;
+		setupVoices();
+		updateInfos();
+	}
+	else if(keyDwn==59) //right
+	{
+		if(instr<9) instr++;
+		setupVoices();
+		updateInfos();
+	}
+	else if(keyDwn==57) //left
+	{
+		if(instr>0) instr--;
+		setupVoices();
+		updateInfos();
+	}
+	else if(keyDwn && findVoiceByKey(keyDwn)==-1)//all other keys for notes
+	{
+		ymNoteOn(allocVoice(keyDwn),keyNoteMap[keyDwn-1],128);
+	}
+
+	if(keyUp)
+	{
+		int voice=releaseVoice(keyUp);
+		if(voice>=0) ymNoteOff((byte)voice);
+	}
+
+	if(waveforms)
+	{
+		//display waveforms using Analog to Digital Converter values
+		skip(100,140);
+		for(int x=100; x<200; x+=2)//left channel
+		{
+			adcSampleL();
+			draw(x,140+_adcL/4,5);
+		}
+		skip(200,140);
+		for(int x=200; x<300; x+=2)
+		{
+			adcSampleR();
+			draw(x,140+_adcR/4,14);
+		}
+		box(100,90,299,190,0);//clear waveform
+	}
+}
+

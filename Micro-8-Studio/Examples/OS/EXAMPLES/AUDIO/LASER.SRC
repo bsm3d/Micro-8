@@ -1,0 +1,24 @@
+
+
+//Laser blast
+
+synInit(0);//Init tune and build internal notes table
+
+synEnv(0,0,0,15,0);//id, A, D, S, R
+synLFO(0,0,0,0);//id, waveform, freq, amp
+
+poke(0x1115,peek(0x1115)|0b00010000);
+
+synVoice(0,0,0,0b11,15);//voice, waveform, octave, pan, volume
+
+synNoteOn(0,0,128);//voice, A 440Hz
+
+poke(0x1112,0);
+for(byte freq=20; freq<250; freq-=2)
+{
+	poke(0x1111,freq);
+	vSync();
+}
+synNoteOff(0);
+
+

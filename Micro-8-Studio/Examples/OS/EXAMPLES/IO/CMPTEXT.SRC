@@ -1,0 +1,33 @@
+
+
+//compare two texts or two arrays of bytes
+
+memSet(0x1200,3200,' ');//clear char buffer
+
+
+bool equivalent(nat addr1, nat addr2)
+{
+	for(nat i;;i++)
+	{
+		byte val1=peek(addr1+i);
+		byte val2=peek(addr2+i);
+		if(val1 != val2) return false;
+		else if(val1==0) break;
+	}
+	return true;
+}
+
+text t1="Quit";
+text t2="Micro-8";
+text t3={10};
+
+while(true)
+{
+	print("Guess my name (Quit to exit) ? "); input(t3,10);
+	if(equivalent(&t3,&t1)) break;
+	else if(equivalent(&t3,&t2)) print("Well done!");
+	else print("Try again!");
+}
+
+
+

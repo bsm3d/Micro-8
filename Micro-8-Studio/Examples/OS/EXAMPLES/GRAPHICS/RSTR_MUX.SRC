@@ -1,0 +1,89 @@
+
+//Sprite multiplexing example using  raster interrupts
+
+//Check rstr_int.src first for a simpler example!
+
+//In this example we are moving a single sprite
+//The second apparent sprite only exists through multiplexing the first one
+
+poke(0x2f00,peek(0x2f00)|0b00000100);//enable sprites
+
+nat sprPalA=0x11d0; //first sprite palette
+nat sprPalB=0x2fa0; //second sprite palette
+
+byte sprPage=0x20; //default page for sprites in SRAM: 0x08000
+
+nat cpuWindow=0x3000; //default memory mapping (where the cpu sees XSRAM)
+
+import("res/sprites.spr", cpuWindow, 16384, sprPage);
+import("res/sprites.pla", sprPalA, 48);
+import("res/sprites.plb", sprPalB, 48);
+
+int posX=400;
+int speed=2;
+
+sprPos(0,posX,200);//initial setup for sprite 0 only
+sprRef(0,0);
+sprPal(0,0);
+sprUpdt();
+
+//Raster instruction opcodes for convenience (see manual for more info):
+byte HALT = 0;
+byte SET = 1;
+byte INC = 2;
+byte DEC = 3;
+byte ADD = 4;
+byte SUB = 5;
+byte OR = 6;
+byte AND = 7;
+byte POS = 8;
+byte NEXT = 9;
+byte NOP = 10;
+
+//we define a custom type that matches the instruction format
+type rasterInstr {byte opCode; nat word; byte val;};
+
+//and create a display list in memory
+//Beware that sprites visible Y position starts at line 42, not 0
+rasterInstr list[10]={	{SET, 0x2f22, 200},//at orginial Y pos
+								{AND, 0x2f23, 0b01011111},//palette A, no flip
+								{POS, 199, 0},//the multiplex raster position
+								{NEXT, &list[5], 0},
+								{HALT, 0, 0},
+								{SET, 0x2f22, 242},//at new Y pos
+								{OR, 0x2f23, 0b10100000},//palette B, flip Y
+								{POS, 100, 0},
+								{NEXT, &list[0], 0},
+								{HALT, 0, 0}};
+
+rstrInt(true); //enable raster interrupts
+rstrCmp(100,&list); //entry point (after the sprUpdt() is completed)
+
+byte frame;
+while(_keyDwn != 12)
+{
+	posX+=speed;
+
+	if(posX>800)
+	{
+		posX=800;
+		speed = -speed;
+	}
+	else if(posX<48)
+	{
+		posX=48;
+		speed = -speed;
+	}
+	sprPos(0,posX,0);//only sprite 0 is moving. Y value is overriden by interrupt
+	sprRef(0,(frame/4)%2);//animation
+	sprFlip(0,speed<0,false);//flip Y is overriden by interrupt
+
+	vSync();
+	sprUpdt();
+	frame++;
+}
+
+//rstrInt(false); //disable raster interrupts
+
+//poke(0x2f00,peek(0x2f00)&0b11111011);//disable sprites
+
