@@ -32,6 +32,8 @@ No Python installation or other dependency is needed: everything is included.
 
 ## Documentation
 
+- [`docs/Studio_README_en.md`](docs/Studio_README_en.md): the Micro-8 Studio manual (editor, debugger, emulator,
+  tools).
 - [`docs/Micro-8_User_Manual.md`](docs/Micro-8_User_Manual.md): the reference manual for the Micro-8 console
   (Lofi language, API, hardware).
 - [`docs/Tracker_README.md`](docs/Tracker_README.md): the Micro-8 music tracker bundled in Studio, its project
