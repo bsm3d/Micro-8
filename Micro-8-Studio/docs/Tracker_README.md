@@ -48,8 +48,8 @@ dans Micro-8 Studio.
   2,8 Ko de données). Ce réglage reste en EEPROM ; `data 0xB000` remet le partage par défaut.
 - **Limites du manuel** (6.4.5), toutes loin du maximum : table des symboles environ 3,7 Ko sur 11, 16 niveaux
   d'appel sur 64, 20 valeurs de pile au plus par fonction sur 256.
-- Contrôles sur le PC : l'analyseur de Micro-8 Studio (dans l'éditeur, ou `python micro8_studio/lofic.py FICHIER.SRC`)
-  applique les règles de la machine et estime la taille du code.
+- Contrôles sur le PC : l'analyseur intégré à l'éditeur de Micro-8 Studio applique les règles de la machine et
+  estime la taille du code.
 
 ## Fichiers d'un projet
 
