@@ -7,7 +7,7 @@
 - [3. Run & Debug](#3-run--debug)
 - [4. Image Converter](#4-image-converter)
 - [5. Asset Editors](#5-asset-editors)
-- [6. Icons & Narrow Windows](#6-icons--narrow-windows)
+- [6. Small Windows](#6-small-windows)
 - [7. Known Limitations](#7-known-limitations)
 
 ---
@@ -107,7 +107,7 @@ Limitation: this is a cost model, not a cycle-exact emulation of the ATmega128 a
 (memory copies, drawing) cost the same whatever their size.
 
 Tools menu: array-index checking (disabled like the real machine / warn in Output / stop), sound, the synth's
-note convention, PNG screenshot, exporting the session's sound as WAV, **Hardware Link...** (see §5.8).
+note convention, PNG screenshot, exporting the session's sound as WAV.
 
 ## 4. Image Converter
 
@@ -234,25 +234,10 @@ project made here opens unchanged on the real machine and back.
   zoom, undo/redo.
 - `Ctrl+←/→` cycles the ink color, `Ctrl+↑/↓` the paper color.
 
-A `.SCR` file is 6400 bytes (3200 glyphs then 3200 colors, exactly the screen-memory layout at 0x1200/0x1E80: a
-plain `import(name,0x1200,6400)` displays it from any Lofi program), plus an optional 2-byte Fletcher-16
-checksum, ignored by that same `import`, verified on load here and on the machine. A corrupted file is refused
-on load, an older file without the checksum still loads.
+A `.SCR` file is 6400 bytes (3200 glyphs then 3200 colors). A plain `import(name,0x1200,6400)` displays it
+from any Lofi program. A corrupted file is refused on load.
 
-### 5.8. Hardware Link (experimental)
-
-Tools > Hardware Link...: groundwork for a future USB-MIDI link to real Micro-8 hardware, through a USB-MIDI
-interface plugged into the PC.
-
-- Wraps raw bytes in SysEx frames (manufacturer ID reserved for non-commercial use, `0x7D`), versioned and
-  numbered (request/reply matching), checksummed (a plain 8-bit checksum).
-- Ping and Identify to validate a loopback cable.
-- Sending runs on a dedicated thread so it never freezes the interface.
-
-**The real Micro-8 firmware does not speak this protocol**, and SysEx never reaches a Lofi program: to exchange
-files with the machine, see §5.11 (Transfer with Machine), which works with the current firmware.
-
-### 5.9. Micro-8 Library
+### 5.8. Micro-8 Library
 
 Edit > Insert Micro-8 Library... pastes ready-made Lofi functions into the current program to read and write,
 **on the machine**, the files the Studio editors produce (`lib/M8LIB.SRC`). Lofi has no `#include` and compiles
@@ -266,14 +251,13 @@ A block already in the program is not copied again, and a single undo removes th
 | `sprites` | `loadSprites` / `saveSprites` | `.SPR`, 256 bytes a sprite, from a given number |
 | `tiles` | `loadTiles` / `saveTiles` | `.TLS`, 128 bytes a 16x16 tile |
 | `level` | `loadLevel` / `saveLevel` | `.LVL`, one tile number a cell, in a byte array |
-| `screen` | `loadScreen` / `saveScreen` | `.SCR` 3200 glyphs + 3200 colours + Fletcher-16 sum (the Screen designer's) |
+| `screen` | `loadScreen` / `saveScreen` | `.SCR` 3200 glyphs + 3200 colours (the Screen designer's) |
 | `song` | `songLoad` / `songStart` / `songTick` / `songStop` | tracker project `.M8S`, played by the PLAYER core |
 
-All return `true` on success (`_fError` is 0). A damaged `.SCR` is refused, an older `.SCR` without the sum is
-accepted. The end of `M8LIB.SRC` (`//@main`) is a self-test to run as is (F5): it writes and reads back every
+All return `true` on success (`_fError` is 0). A damaged `.SCR` is refused. The end of `M8LIB.SRC` (`//@main`) is a self-test to run as is (F5): it writes and reads back every
 kind of file and plays `NEWSONG.M8S` when there is one.
 
-### 5.10. Projects
+### 5.9. Projects
 
 File > Project: a project is **one folder of the SD card** holding a program and its assets, described by a
 small JSON manifest `NAME.M8P` (an 8.3 name, so it can travel on the card harmlessly). The manifest keeps the
@@ -290,16 +274,15 @@ main program, the project's files, the open tabs, the current tab and the X1 set
   code over the 32 KB segment, missing project files) and the files the program names in its strings that are
   not in the folder (only a note: the program may write them itself).
 - **Export Project to SD Card...**: copies the manifest, the program and its files into `CARD/FOLDER/` (asks
-  before replacing). **Send Project to Machine...**: the same, over MIDI (§5.11).
+  before replacing). **Send Project to Machine...**: the same, over MIDI (§5.10).
 - **Tools > Write System to SD Card...**: writes the card shipped with Studio (system files, examples and their
   compiled programs) onto a real SD card for the machine. A summary lists the new, replaced and identical files
   before writing, and the machine's clipboard or undo already on the card are kept. The target must be a
   removable drive (never a fixed disk nor Studio's own folder).
 - The project folder must sit under the Files tree's root (the emulated card) for the program's paths to
   resolve as on the machine: when it does not, the root moves up to its parent.
-- A hostile or damaged manifest cannot reach anything outside its folder (`..`, drives, absolute paths ignored).
 
-### 5.11. Transfer with the Machine (MIDI)
+### 5.10. Transfer with the Machine (MIDI)
 
 Tools > Transfer with Machine...: send, fetch and list the files on a real Micro-8's SD card, through its MIDI
 ports and any USB-MIDI interface. Run `LINK.SRC` on the machine (copy it to the card first, with the **Copy
@@ -310,32 +293,18 @@ MIDI OUT to the PC's MIDI IN, then pick the ports, **Test Connection**, and use 
 Without the machine: pick **Emulator**, **Start LINK in the Emulator**; everything works the same against the
 emulator.
 
-Why this protocol: a Lofi program only sees MIDI through `midiUpdt()`, a 16-event queue parsed by the firmware,
-and SysEx never reaches it. So everything travels as Note messages: two bytes a message (note, velocity and
-their top bits in the channel), 128-byte blocks with a checksum, acknowledgements, resends and automatic
-slowing down when the machine's queue overflows. A received file goes to `LINK.TMP` first and replaces the
-target only once complete: an interruption never damages it. Speed: about 1.3 KB/s (31.25 kbit/s), so a
-48000-byte picture takes about 40 s. Limits: files up to 64 KB (`fSize()` is a `nat`), 8.3 names.
+Speed is about 1.3 KB/s, so a 48000-byte picture takes about 40 s. Files up to 64 KB, 8.3 names. A received
+file replaces the target only once complete: an interruption never damages it.
 
-The emulator models the firmware's MIDI input: 960 µs a message on the cable, a 16-event queue that drops the
-overflow, `midiSend()` waiting for the UART (320 µs a byte). The MIDI keyboard chosen in Tools > MIDI Input also
-plays into the running program, through `midiUpdt()`, as on the machine.
+The MIDI keyboard chosen in Tools > MIDI Input also plays into the running program, as on the machine.
 
-## 6. Icons & Narrow Windows
+## 6. Small Windows
 
-- **Hand-drawn icons**: line-drawn glyphs on a 24×24 grid (1.6 px strokes, rounded caps), inked from the theme
-  (light gray on dark, near-black on light), normal / hover / disabled states, no image files and no Unicode
-  symbols in buttons. The toolbar, drawing tools, editors, tabs (a drawn dot marks a modified tab), Problems and
-  the program outline all use them; they follow theme changes.
-- **Narrow window**: every editor scrolls instead of being clipped, toolbars wrap onto several lines, the sound
-  editor stacks its areas (voices, operators, keyboard, oscilloscope) by width, the bottom panels scroll.
-  `Ctrl+Shift+M` (Focus Mode) hides every panel.
+Every editor and panel adapts to a narrower window instead of being cut off: toolbars wrap onto several lines,
+the sound editor stacks its areas (voices, operators, keyboard, oscilloscope) to fit the width, and the bottom
+panels scroll. `Ctrl+Shift+M` (Focus Mode) hides every panel to get more room.
 
 ## 7. Known Limitations
 
 The debugger works at line granularity (one statement at a time); `for(a;b;c)` does not stop on its three parts
-separately. Hardware Link has no real firmware to talk to yet: tested against real MIDI ports with a solid
-protocol on the Studio side, but without a genuine round trip (ping/pong) until a Micro-8 board or a MIDI
-loopback cable is available. The MIDI transfer (§5.11) is validated against a model of the firmware's MIDI
-input; on the real machine two unknowns are handled (channels counted from 0 or 1, a Lofi loop slower than the
-cable: resends and slowing down) but not measured yet.
+separately.
