@@ -2,28 +2,28 @@
 
 **Code. Debug. Play.**
 
-Micro-8 Studio est l'environnement de développement pour la console **Micro-8** (Franck Sauer) : éditeur,
-analyseur statique du langage Lofi, débogueur (points d'arrêt, pas à pas), émulateur fidèle au matériel
-(vidéo, son FM/synthé numérique, tuiles, sprites, raster, souris, manette, MIDI), et outils dédiés (tracker de
-musique, éditeurs de sprites/tuiles/écrans/sons/images).
+Micro-8 Studio is the development environment for the **Micro-8** console (Franck Sauer): editor, static
+analyzer for the Lofi language, debugger (breakpoints, step), hardware-accurate emulator (video, FM sound and
+digital synth, tiles, sprites, raster, mouse, gamepad, MIDI), and dedicated tools (music tracker, sprite / tile /
+screen / sound / image editors).
 
-Ce dépôt distribue l'application **compilée** : il ne contient pas son code source, les ROM de la console ni le
-code du FPGA, qui restent la propriété de Franck Sauer et sont fournis avec son accord, chiffrés à l'intérieur
-de l'application.
+This repository distributes the **compiled** application. No source code, console ROMs or FPGA code are
+included: those remain the property of Franck Sauer and are provided with his agreement, encrypted inside the
+application.
 
-## Téléchargement
+## Download
 
-Les binaires sont distribués via les [Releases GitHub](https://github.com/bsm3d/Micro-8/releases/tag/v1.0.0)
-de ce dépôt (ce dossier ne contient que la documentation et les exemples).
+Binaries are distributed as [GitHub Releases](https://github.com/bsm3d/Micro-8/releases/tag/v1.0.0) of this
+repository (this folder only holds documentation).
 
-| Fichier | Usage |
+| File | Use |
 |---|---|
-| [`Micro8Studio-1.0.0-Setup.exe`](https://github.com/bsm3d/Micro-8/releases/download/v1.0.0/Micro8Studio-1.0.0-Setup.exe) | Installeur Windows 64 bits (recommandé). Aucun droit administrateur requis. |
-| [`Micro8Studio-1.0.0-win64-portable.zip`](https://github.com/bsm3d/Micro-8/releases/download/v1.0.0/Micro8Studio-1.0.0-win64-portable.zip) | Version portable : décompresser et lancer, sans installation. |
+| [`Micro8Studio-1.0.0-Setup.exe`](https://github.com/bsm3d/Micro-8/releases/download/v1.0.0/Micro8Studio-1.0.0-Setup.exe) | Windows 64-bit installer (recommended). No admin rights required. |
+| [`Micro8Studio-1.0.0-win64-portable.zip`](https://github.com/bsm3d/Micro-8/releases/download/v1.0.0/Micro8Studio-1.0.0-win64-portable.zip) | Portable version: unzip and run, no installation. |
 
-Aucune installation de Python ni d'autre dépendance n'est nécessaire : tout est inclus.
+No Python installation or other dependency is needed: everything is included.
 
-### Empreintes SHA-256
+### SHA-256 checksums
 
 ```
 7b29a1f4def94c72cb14ffb567b0847a1a9ae225495bd79f5ac89a0f85d1134a  Micro8Studio-1.0.0-win64-portable.zip
@@ -32,25 +32,20 @@ Aucune installation de Python ni d'autre dépendance n'est nécessaire : tout es
 
 ## Documentation
 
-- [`docs/Studio_README_fr.md`](docs/Studio_README_fr.md) / [`docs/Studio_README_en.md`](docs/Studio_README_en.md)
-  : le manuel de Micro-8 Studio (éditeur, débogueur, émulateur, outils).
-- [`docs/Micro-8_User_Manual.md`](docs/Micro-8_User_Manual.md) : le manuel de référence de la console Micro-8
-  (langage Lofi, API, matériel).
-- [`docs/Tracker_README.md`](docs/Tracker_README.md) : le tracker de musique Micro-8 (TRACKER2.SRC), son
-  format de projet et ses programmes Lofi.
+- [`docs/Micro-8_User_Manual.md`](docs/Micro-8_User_Manual.md): the reference manual for the Micro-8 console
+  (Lofi language, API, hardware).
+- [`docs/Tracker_README.md`](docs/Tracker_README.md): the Micro-8 music tracker bundled in Studio, its project
+  format and programs.
 
-## Exemples
+The [`Tracker/`](../Tracker) and [`SidRush/`](../SidRush) folders of this repository hold the corresponding
+Lofi sample programs.
 
-Le dossier [`samples/micro8_tracker`](samples/micro8_tracker) contient le tracker de musique écrit en Lofi
-(`TRACKER.SRC`, `TRACKER2.SRC`, `PLAYER.SRC`), la démo musicale `SIDRUSH.SRC` et son projet `SIDRUSH.M8S` : des
-programmes source pour la console Micro-8, à ouvrir ou compiler dans Micro-8 Studio.
+## License
 
-## Licence
+(c) Benoit Saint-Moulin ([www.bsm3d.com](https://www.bsm3d.com)). All rights reserved.
 
-© Benoit Saint-Moulin ([www.bsm3d.com](https://www.bsm3d.com)). Tous droits réservés.
+Includes [Nuked-OPN2](https://github.com/nukeykt/Nuked-OPN2) (LGPL 2.1, (c) Nuke.YKT) for exact YM2612
+emulation.
 
-Inclut [Nuked-OPN2](https://github.com/nukeykt/Nuked-OPN2) (LGPL 2.1, © Nuke.YKT) pour l'émulation exacte du
-YM2612.
-
-Les ROM et le firmware de la console Micro-8 sont la propriété de Franck Sauer, fournis avec son accord ; ils ne
-sont jamais distribués en clair et ne sont déchiffrés qu'en mémoire, à l'intérieur de l'application.
+The Micro-8 console's ROMs and firmware are the property of Franck Sauer, provided with his agreement; they are
+never distributed in the clear and are only decrypted in memory, inside the application.
