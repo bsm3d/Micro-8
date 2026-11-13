@@ -1,11 +1,11 @@
 // MICRO-8 TRACKER 0.1
-// BSM
-// BSM3D
-// 8 tracks: 6 FM voices (YM2612), synth voice 0 (drums or oscillator),
-// synth voice 1 (VA).
-// No song mode: one pattern (up to 256 steps over several blocks) loops.
-// Bytes 128.. and 256.. of sng[] stay zero (reserved for a song, read by
-// Micro-8 Studio) but are not handled here.
+// Benoit (BSM) Saint-Moulin
+// www.bsm3d.com
+// 8 pistes : 6 voix FM (YM2612), voix 0 du synt (batterie ou oscillateur),
+// voix 1 du synth.
+// Pas de morceau : un pattern (jusqu'a 256 pas sur plusieurs blocs) joue en boucle.
+// Les octets 128.. et 256.. de sng[] restent a zero (reserves pour un morceau, lus
+// par Micro-8 Studio) mais ne sont pas geres ici.
 
 byte sng[384];
 byte bak[384];
@@ -447,6 +447,8 @@ void playNote(int t,int v,int vel,int ins)
 			lastIns[t]=ic;
 		}
 		if(mode==1) n=n%12;
+		// key off first so the FM envelope restarts on every note (same as SIDRUSH)
+		ymNoteOff((byte)t);
 		ymNoteOn((byte)t,(byte)n,(byte)vc);
 	}
 	else
@@ -771,7 +773,7 @@ void drawHelp()
 	puts(42,4,"SPACE      play/stop pattern",28,0x52);
 	puts(42,5,"9 / 0      tempo -/+",20,0x52);
 	puts(42,6,"TAB        next screen",22,0x52);
-	puts(42,7,"CTRL       same as FCTN",23,0x52);
+	puts(42,7,"CTRL+UP/DN same as FCTN",23,0x52);
 	puts(42,8,"FCTN+ESC   quit",15,0x52);
 
 	puts(42,11,"ABOUT",5,0x5B);
@@ -781,8 +783,8 @@ void drawHelp()
 void drawAbout()
 {
 	puts(25,12,"___- Micro-8 Tracker 0.1 -___",29,0x5B);
-	puts(25,14,"(C) BSM",29,0x52);
-	puts(32,15,"BSM3D",13,0x5D);
+	puts(25,14,"(C) Benoit (BSM) Saint-Moulin",29,0x52);
+	puts(32,15,"www.bsm3d.com",13,0x5D);
 }
 
 void drawPatternScreen()
@@ -1530,7 +1532,8 @@ void loadIns()
 		ymLoad(insName,(byte)cg(10+trkSel));
 		if(_fError==0) setMsg("INS LOADED");
 		else setMsg("INS NOT LOADED");
-		lastIns[trkSel]=-1;
+		// the slot may be used by other tracks too: all of them resend their voice
+		for(int t=0;t<8;t++) lastIns[t]=-1;
 	}
 	drawScreen();
 }
@@ -1539,7 +1542,17 @@ void renameProject()
 {
 	puts(0,37,"NAME:",5,0x5B);
 	int n=readLine(6,37,8);
-	if(n>0) bufToText(&pname,n);
+	// '.' and '/' would break NAME.M8S and the song list: they are dropped from the name
+	int m=0;
+	for(int i=0;i<n;i++)
+	{
+		if(tbuf[i]!='.'&&tbuf[i]!='/')
+		{
+			tbuf[m]=tbuf[i];
+			m++;
+		}
+	}
+	if(m>0) bufToText(&pname,m);
 	drawScreen();
 }
 
