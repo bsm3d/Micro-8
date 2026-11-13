@@ -1,7 +1,7 @@
 // MICRO-8 TRACKER - lecteur seul (exemple a coller dans un jeu ou une demo)
-// BSM
+// Benoit (BSM) Saint-Moulin - www.bsm3d.com
 //
-// Liste les morceaux NOM.M8S du dossier (format de TRACKER.SRC / TRACKER3.SRC, voir leur
+// Liste les morceaux NOM.M8S du dossier (format de TRACKER.SRC / TRACKER2.SRC, voir leur
 // README), haut/bas pour
 // choisir, ENTREE pour jouer, ECHAP pour revenir a la liste. Aucune des fonctions
 // d'edition (grille, souris,
@@ -354,6 +354,8 @@ void playNote(int t,int v,int vel,int ins) {
 			lastIns[t]=ic;
 		}
 		if(mode==1) n=n%12;
+		// key off first so the FM envelope restarts on every note (same as SIDRUSH)
+		ymNoteOff((byte)t);
 		ymNoteOn((byte)t,(byte)n,(byte)vc);
 	} else {
 		int sv=t-6;
