@@ -11,21 +11,26 @@ This repository distributes the **compiled** application.
 
 ## Download
 
-Binaries are distributed as [GitHub Releases](https://github.com/bsm3d/Micro-8/releases/tag/v1.0.0) of this
+Binaries are distributed as [GitHub Releases](https://github.com/bsm3d/Micro-8/releases/tag/v1.1.0) of this
 repository (this folder only holds documentation).
+
+**Micro-8 Studio 1.1.0 targets the Micro-8 console's OS 0.9.** If your console still runs OS 0.8, use
+[release v1.0.0](https://github.com/bsm3d/Micro-8/releases/tag/v1.0.0) instead; the two are not interchangeable
+(the Lofi compiler and emulator follow each OS version's own rules, and a program compiled for one OS version is
+not guaranteed to run on the other's hardware).
 
 | File | Use |
 |---|---|
-| [`Micro8Studio-1.0.0-Setup.exe`](https://github.com/bsm3d/Micro-8/releases/download/v1.0.0/Micro8Studio-1.0.0-Setup.exe) | Windows 64-bit installer (recommended). No admin rights required. |
-| [`Micro8Studio-1.0.0-win64-portable.zip`](https://github.com/bsm3d/Micro-8/releases/download/v1.0.0/Micro8Studio-1.0.0-win64-portable.zip) | Portable version: unzip and run, no installation. |
+| [`Micro8Studio-1.1.0-Setup.exe`](https://github.com/bsm3d/Micro-8/releases/download/v1.1.0/Micro8Studio-1.1.0-Setup.exe) | Windows 64-bit installer (recommended). No admin rights required. |
+| [`Micro8Studio-1.1.0-win64-portable.zip`](https://github.com/bsm3d/Micro-8/releases/download/v1.1.0/Micro8Studio-1.1.0-win64-portable.zip) | Portable version: unzip and run, no installation. |
 
 No Python installation or other dependency is needed: everything is included.
 
 ### SHA-256 checksums
 
 ```
-c3b8ecff511d48e7e194a0f9ab687b09da7ba93910610ce7dab7605d12655202  Micro8Studio-1.0.0-win64-portable.zip
-6b244b4057d4f3005722a3e642b862358ea5c07319d12a926a3db281010c5dd9  Micro8Studio-1.0.0-Setup.exe
+42ed97580159bb8dd908133ef1f2bb9baf5e36b41818fa1055e620410f4f2cf3  Micro8Studio-1.1.0-win64-portable.zip
+55a8cf98e3d8d47a43b73801f4408068fa22db4e64d90851fb8142cd98e7a053  Micro8Studio-1.1.0-Setup.exe
 ```
 
 ## Documentation
