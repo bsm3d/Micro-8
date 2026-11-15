@@ -28,6 +28,9 @@ The default root folder is the `Examples/OS` SD card (next to the app, with the 
 (`Root...` in the Files panel to pick another one): it is the emulated machine's file system (`import`,
 `export`, `fOpen`...).
 
+Targets **Micro-8 OS 0.9** (shown in About): the checker, the emulator and the size estimate follow that
+firmware's exact rules, found by compiling real programs on the console and reverse-engineering the firmware.
+
 ## 2. Editor
 
 - Tabs, line numbers, Lofi syntax highlighting (types, keywords, API, `_xxx` built-in variables, numbers, text,
