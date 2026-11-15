@@ -2383,6 +2383,8 @@ The incoming MIDI message stream (IN port) is parsed by the system interrupt han
 
 When events are present in the queue, the `midiUpdt()` function returns true and moves the oldest event content to four dedicated registers (starting at address `0xffd0`), to be read in Lofi. Please see `/examples/io/midi_in.src` for a simple MIDI input handling example.
 
+Since OS 0.9, `midiUpdt([raw])` accepts an optional `bool` parameter. Passing `true` turns on raw mode: the interrupt handler only fills `0xffd0` with the incoming byte, without any MIDI message filtering (the same 16-event queue is used, so up to 16 raw bytes can be buffered). Omitting the parameter (or passing `false`) keeps the normal, filtered behaviour. Please see `/examples/io/midi_raw.src`.
+
 #### midiSend()
 
 The `midiSend(data)` function sends raw data of the type `byte` to the MIDI-OUT port. Any kind of MIDI message can be built by sending the appropriate bytes in quick succession.
