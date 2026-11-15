@@ -28,6 +28,10 @@ Le dossier racine par défaut est la carte SD `Examples/OS` (à côté de l'appl
 `Examples/`) (`Root...` dans le panneau Files pour en choisir un autre) : c'est le système de fichiers de la machine
 émulée (`import`, `export`, `fOpen`…).
 
+Cible l'**OS 0.9 du Micro-8** (affiché dans About) : l'analyseur, l'émulateur et l'estimation de taille suivent
+les règles exactes de ce firmware, trouvées en compilant de vrais programmes sur la console et par rétro-ingénierie
+du firmware.
+
 ## 2. Éditeur
 
 - Onglets, numéros de ligne, coloration Lofi (types, mots-clés, API, variables `_xxx`, nombres, textes,
