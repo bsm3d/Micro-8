@@ -1,0 +1,80 @@
+// STARS FIELD - a parallax star field for the Micro-8 (code by Benoit Saint-Moulin)
+// Port of DemosScenes/Codes/Stars Field (BSM3D-starfield.html): 5 layers of one-pixel stars drift to the
+// right, each layer faster than the one before (0.1 + layer * 0.15 pixel a frame), each star with its own
+// grey (128 to 255 in the original, 4 levels here). A star that leaves on the right comes back on the left
+// on a new line with a new grey. Black background.
+// How: a star only has to be redrawn when it moves by a whole pixel, and the speeds are well under one pixel
+// a frame. So each frame, each layer moves only the next few stars of its list (its speed times its number
+// of stars, on average): every star still moves at exactly the speed of its layer, and the work of a frame
+// stays small and even. No screen clearing: the old pixel is erased, the new one is drawn.
+
+nat bmpPal=0x11A0;                  // 16 reds, 16 greens, 16 blues
+
+byte savedPal[48];
+// 0 = black background, 1 to 4 = the greys of the stars
+byte starPal[48]={
+	0,4,5,6,7,0,0,0,0,0,0,0,0,0,0,0,
+	0,4,5,6,7,0,0,0,0,0,0,0,0,0,0,0,
+	0,4,5,6,7,0,0,0,0,0,0,0,0,0,0,0};
+
+int NLAYERS=5;
+int PER=32;                         // stars in a layer
+int starX[160];
+byte starY[160];
+byte starCol[160];
+// stars to move each frame, times 256: 32 * speed of the layer (speeds 0.125 0.2 0.275 0.35 0.425 pixel a frame,
+// the original's 0.25 to 0.85 screen pixel: a bitmap pixel is 2 screen pixels wide)
+int rate[5]={1024,1638,2253,2867,3482};
+int acc[5];
+int next[5];                        // the next star to move in each layer
+
+memCpy(bmpPal,&savedPal,48);
+poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
+memSet(0x1200,3200,' ');            // no text over the stars
+memSet(0x3000,48000,0,peek(0x2F05));
+memCpy(&starPal,bmpPal,48);
+
+rndSeed(_mSec);
+for(int i=0;i<160;i++)
+{
+	starX[i]=rnd(0,399);            // spread over the whole screen at the start
+	starY[i]=(byte)rnd(0,239);
+	starCol[i]=(byte)rnd(1,4);
+	plot(starX[i],starY[i],starCol[i]);
+}
+
+while(_keyDwn!=12)
+{
+	for(int l=0;l<NLAYERS;l++)
+	{
+		int a=acc[l]+rate[l];
+		int n=a>>8;
+		acc[l]=a&255;
+		int p=next[l];
+		int base=l*PER;
+		for(int j=0;j<n;j++)
+		{
+			int i=base+p;
+			int x=starX[i];
+			plot(x,starY[i],0);
+			x++;
+			if(x>399)
+			{
+				x=0;
+				starY[i]=(byte)rnd(0,239);
+				starCol[i]=(byte)rnd(1,4);
+			}
+			starX[i]=x;
+			plot(x,starY[i],starCol[i]);
+			p++;
+			if(p>=PER) p=0;
+		}
+		next[l]=p;
+	}
+	vSync();
+}
+
+// leave the machine as it was
+memSet(0x3000,48000,0,peek(0x2F05));
+memCpy(&savedPal,bmpPal,48);
+poke(0x2F0B,peek(0x2F0B)|0x80);

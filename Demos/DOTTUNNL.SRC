@@ -1,0 +1,188 @@
+// DOTS TUNNEL - a moving dot tunnel for the Micro-8 (code by Benoit Saint-Moulin)
+// Direct port of DemosScenes/Codes/Dots Tunnel (BSM3D-dot-tunnel.html): 16 circles of 32 points on the same
+// 32 rays, radius = MIN + (MAX - MIN) / (z + 1 + move), the circles fly towards the viewer and wrap, each one
+// breathes a little (wobble), the points get brighter and bigger as they come closer. Black background.
+// 30 frames a second: every speed of the 60 Hz original is doubled.
+
+nat cpuWindow=0x3000;
+byte bmpPageA=0x60;//double buffer
+byte bmpPageB=0x8f;
+nat bmpDrawReg=0x2f16;
+nat bmpDisplayReg=0x2f05;
+nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
+
+// the palette: 0 = black background, 1 (far) to 7 (near) = the pink ramp of the original (r, r/2, r*0.8)
+byte savedPal[48];
+byte tunnelPal[48]={
+	0,1,2,3,4,5,6,7,7,7,7,7,7,7,7,7,
+	0,0,1,1,2,2,3,4,4,4,4,4,4,4,4,4,
+	0,1,2,2,3,4,5,6,6,6,6,6,6,6,6,6};
+memCpy(bmpPal,&savedPal,48);
+memCpy(&tunnelPal,bmpPal,48);
+memSet(0x1200,3200,' ');//no text over the tunnel
+memSet(cpuWindow,48000,0,bmpPageA);
+memSet(cpuWindow,48000,0,bmpPageB);
+
+bool swapState;
+void swap()
+{
+	if(swapState)
+	{
+		poke(bmpDisplayReg,bmpPageA);//display
+		poke(bmpDrawReg,bmpPageB);//draw
+	}
+	else
+	{
+		poke(bmpDisplayReg,bmpPageB);//display
+		poke(bmpDrawReg,bmpPageA);//draw
+	}
+	swapState=!swapState;
+}
+swap();
+
+byte NC=16;//circles in the tunnel
+int CX=200;
+int CY=120;
+real MAXR=108.0;//0.45 of the screen height, as in the original
+real MINR=3.0;
+real ZSPEED=0.006;
+real MOTION=0.02;
+
+// 32 points a circle = 8 times the same 5 angles (0, 11.25, 22.5, 33.75 and 45 degrees): cos and sin * 256
+int ca1=251;
+int sa1=50;
+int ca2=237;
+int sa2=98;
+int ca3=213;
+int sa3=142;
+int ca4=181;
+
+real circZ[16];
+for(int i;i<NC;i++) circZ[i]=(real)(i+1)/(real)NC;
+
+real moveTime;
+
+void ring(int r,byte c)
+{
+	int a=(ca1*r)>>8;
+	int b=(sa1*r)>>8;
+	plot(CX+r,CY,c);
+	plot(CX-r,CY,c);
+	plot(CX,CY+r,c);
+	plot(CX,CY-r,c);
+	plot(CX+a,CY+b,c);
+	plot(CX-a,CY+b,c);
+	plot(CX+a,CY-b,c);
+	plot(CX-a,CY-b,c);
+	plot(CX+b,CY+a,c);
+	plot(CX-b,CY+a,c);
+	plot(CX+b,CY-a,c);
+	plot(CX-b,CY-a,c);
+	a=(ca2*r)>>8;
+	b=(sa2*r)>>8;
+	plot(CX+a,CY+b,c);
+	plot(CX-a,CY+b,c);
+	plot(CX+a,CY-b,c);
+	plot(CX-a,CY-b,c);
+	plot(CX+b,CY+a,c);
+	plot(CX-b,CY+a,c);
+	plot(CX+b,CY-a,c);
+	plot(CX-b,CY-a,c);
+	a=(ca3*r)>>8;
+	b=(sa3*r)>>8;
+	plot(CX+a,CY+b,c);
+	plot(CX-a,CY+b,c);
+	plot(CX+a,CY-b,c);
+	plot(CX-a,CY-b,c);
+	plot(CX+b,CY+a,c);
+	plot(CX-b,CY+a,c);
+	plot(CX+b,CY-a,c);
+	plot(CX-b,CY-a,c);
+	a=(ca4*r)>>8;
+	plot(CX+a,CY+a,c);
+	plot(CX-a,CY+a,c);
+	plot(CX+a,CY-a,c);
+	plot(CX-a,CY-a,c);
+}
+
+// the near points are 2 pixels wide and high
+void ringBig(int r,byte c)
+{
+	int a=(ca1*r)>>8;
+	int b=(sa1*r)>>8;
+	box(CX+r,CY,CX+r+1,CY+1,c);
+	box(CX-r,CY,CX-r+1,CY+1,c);
+	box(CX,CY+r,CX+1,CY+r+1,c);
+	box(CX,CY-r,CX+1,CY-r+1,c);
+	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
+	box(CX-a,CY+b,CX-a+1,CY+b+1,c);
+	box(CX+a,CY-b,CX+a+1,CY-b+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
+	box(CX+b,CY+a,CX+b+1,CY+a+1,c);
+	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
+	box(CX-b,CY-a,CX-b+1,CY-a+1,c);
+	a=(ca2*r)>>8;
+	b=(sa2*r)>>8;
+	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
+	box(CX-a,CY+b,CX-a+1,CY+b+1,c);
+	box(CX+a,CY-b,CX+a+1,CY-b+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
+	box(CX+b,CY+a,CX+b+1,CY+a+1,c);
+	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
+	box(CX-b,CY-a,CX-b+1,CY-a+1,c);
+	a=(ca3*r)>>8;
+	b=(sa3*r)>>8;
+	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
+	box(CX-a,CY+b,CX-a+1,CY+b+1,c);
+	box(CX+a,CY-b,CX+a+1,CY-b+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
+	box(CX+b,CY+a,CX+b+1,CY+a+1,c);
+	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
+	box(CX-b,CY-a,CX-b+1,CY-a+1,c);
+	a=(ca4*r)>>8;
+	box(CX+a,CY+a,CX+a+1,CY+a+1,c);
+	box(CX-a,CY+a,CX-a+1,CY+a+1,c);
+	box(CX+a,CY-a,CX+a+1,CY-a+1,c);
+	box(CX-a,CY-a,CX-a+1,CY-a+1,c);
+}
+
+void frame()
+{
+	real moveOffset=sin(moveTime)*MOTION;
+	for(int i=0;i<NC;i++)
+	{
+		real z=circZ[i]-ZSPEED;
+		if(z<=0.0) z=z+1.0;
+		circZ[i]=z;
+		real radius=MINR+(MAXR-MINR)/(z+1.0+moveOffset);
+		radius=radius*(1.0+sin(moveTime*2.0+z*4.0)*MOTION);
+		int r=(int)radius;
+		real depth=z+moveOffset;
+		int ci=7-(int)(depth*7.0);
+		if(ci<1) ci=1;
+		if(ci>7) ci=7;
+		if(depth<0.34) ringBig(r,(byte)ci);
+		else ring(r,(byte)ci);
+	}
+	moveTime=moveTime+0.032;
+	if(moveTime>=6.2832) moveTime=moveTime-6.2832;
+}
+
+vCount(2);
+while(_keyDwn!=12)
+{
+	frame();
+	vSync();
+	swap();
+	memSet(cpuWindow,48000,0,peek(bmpDrawReg));//clear for the next frame
+}
+
+// leave the machine as it was
+vCount(1);
+poke(bmpDisplayReg,bmpPageA);
+poke(bmpDrawReg,bmpPageA);
+memSet(cpuWindow,48000,0,bmpPageA);
+memCpy(&savedPal,bmpPal,48);
