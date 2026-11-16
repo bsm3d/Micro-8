@@ -1,0 +1,921 @@
+// NESGALOP - the whole tune and a cracktro for the Micro-8 (code and arrangement by Benoit Saint-Moulin)
+// The whole song, converted note for note from the B-Tracker project by micro8_studio/dev/make_nesgalop.py:
+// this program plays the tracker files ("NESGALOP.M8S"), the same ones
+// TRACKER.SRC and PLAYER.SRC open, with PLAYER.SRC's own playback code. Copy them next to this program, or
+// leave them in /BSMCODE/TRACKER. Copper bar, level meters and parallax stars on top. ESC quits.
+//
+// Hardware notes (same as SIDRUSH and PLAYER): an FM envelope, a synth envelope or a DPCM sample restarts on a
+// key off then a key on; the music keeps its own millisecond clock (clkSet / _mSec), the picture follows the
+// frame counter (0x2F0C), so a slow frame never slows the tune down.
+
+// ------------------------------------------------------------------ the song files
+byte NPARTS=1;
+text files[1]={"NESGALOP.M8S"};
+byte pages[1]={0x90};       // where each file's 64 blocks are unpacked (24576 bytes)
+byte sng[384];              // 384 bytes a file: tempo, voices, synth, the song's blocks (see PLAYER.SRC)
+byte bank[540];              // the FM instruments saved in the first file, 54 parameters each
+int sbase=0;                 // the current file's place in sng[]
+byte ppage=0x90;             // and the page of its blocks
+int lastIns[8];
+int tempo=120;
+int stepMs=125;
+nat carry=0;
+int part=0;
+int playBlk=0;
+int playRow=0;
+int playPos=0;
+int vu[4];
+int shownVu[4];
+byte vuTrack[8]={0,1,2,2,2,255,3,255};  // the meter each track lights (255: none)
+
+int cg(int i) {
+	return sng[sbase+i];
+}
+
+int ci(int v,int lo,int hi) {
+	if(v<lo) return lo;
+	if(v>hi) return hi;
+	return v;
+}
+
+void cs(int i,int v) {
+	sng[sbase+i]=(byte)v;
+}
+
+// a cell (block, step, track, field: 0 note, 1 instrument, 2 velocity)
+int pget(int b,int s,int t,int f) {
+	nat i=(nat)b;
+	i=i*16+(nat)s;
+	i=i*8+(nat)t;
+	i=i*3+(nat)f;
+	return peek(0x3000+i,ppage);
+}
+
+// a damaged file must never send the chip a value out of its range
+void fixSng() {
+	cs(5,ci(cg(5),1,128));
+	cs(7,0);
+	for(int t=0;t<8;t++) {
+		cs(10+t,ci(cg(10+t),0,9));
+		cs(18+t,ci(cg(18+t),0,7));
+		cs(26+t,ci(cg(26+t),0,3));
+		cs(34+t,ci(cg(34+t),0,127));
+		cs(42+t,ci(cg(42+t),0,1));
+	}
+	for(int i=51;i<59;i++) cs(i,ci(cg(i),0,15));
+	cs(50,ci(cg(50),0,3));
+	cs(69,ci(cg(69),0,3));
+	cs(59,ci(cg(59),0,1));
+	cs(60,ci(cg(60),0,3));
+	cs(61,ci(cg(61),0,3));
+	cs(64,ci(cg(64),0,3));
+	cs(65,ci(cg(65),0,15));
+	cs(66,ci(cg(66),0,15));
+	for(int i=0;i<128;i++) cs(128+i,ci(cg(128+i),0,63));
+}
+
+int slen() {
+	return ci(cg(5),1,128);
+}
+
+int spat(int i) {
+	return sng[sbase+128+i];
+}
+
+// ------------------------------------------------------------------ loading (PLAYER.SRC's reader of NAME.M8S)
+byte cbits[16];
+byte bitv[8]={1,2,4,8,16,32,64,128};
+byte magic[4]={77,56,83,49};
+byte iobuf[128];
+int iopos;
+int iolen;
+nat fpos;
+nat rsize;
+byte ferr;
+int nt;
+int ni;
+int nv;
+text fnm={40};
+
+nat cellAddr(int b,int t,int k) {
+	return 0x3000+(nat)b*384+(nat)k*24+(nat)t*3;
+}
+
+void rd(int b,int t,int k) {
+	nat a=cellAddr(b,t,k);
+	nt=peek(a,ppage);
+	ni=peek(a+1,ppage);
+	nv=peek(a+2,ppage);
+}
+
+void wr(int b,int t,int k) {
+	nat a=cellAddr(b,t,k);
+	poke(a,(byte)nt,ppage);
+	poke(a+1,(byte)ni,ppage);
+	poke(a+2,(byte)nv,ppage);
+}
+
+bool has(int m,int i) {
+	return (m/bitv[i])%2==1;
+}
+
+int get1() {
+	if(ferr!=0) return 0;
+	if(iopos>=iolen) {
+		if(fpos>=rsize) {
+			ferr=253;
+			return 0;
+		}
+		nat n=rsize-fpos;
+		if(n>128) n=128;
+		fRead(0,&iobuf,fpos,n);
+		ferr=_fError;
+		fpos=fpos+n;
+		iolen=(int)n;
+		iopos=0;
+	}
+	int v=iobuf[iopos];
+	iopos++;
+	return v;
+}
+
+// the file next to the program, else the one in /BSMCODE/TRACKER
+bool findFile(int p) {
+	memSet(&fnm,41,0);
+	concat(fnm,files[p]);
+	import(fnm,&iobuf,4);
+	if(_fError==0) return true;
+	memSet(&fnm,41,0);
+	concat(fnm,"/BSMCODE/TRACKER/");
+	concat(fnm,files[p]);
+	import(fnm,&iobuf,4);
+	return _fError==0;
+}
+
+// file p into its 384 bytes of sng[] and its page of blocks; the FM instruments from the first file; 0 = fine
+byte loadPart(int p) {
+	sbase=p*384;
+	ppage=pages[p];
+	if(!findFile(p)) return 249;
+	for(int i=0;i<4;i++) {
+		if(iobuf[i]!=magic[i]) return 255;
+	}
+	fOpen(0,fnm);
+	rsize=fSize(0);
+	fpos=4;
+	iopos=0;
+	iolen=0;
+	ferr=0;
+	memSet(&sng+(nat)sbase,256,0);
+	memSet(&sng+(nat)sbase+256,128,64);
+	memSet(0x3000,24576,0,ppage);
+	for(int i=0;i<16;i++) cbits[i]=(byte)get1();
+	for(int i=0;i<128;i++) {
+		if(has(cbits[i/8],i%8)) cs(i,get1());
+	}
+	int len=ci(cg(5),0,128);
+	for(int i=0;i<len;i++) cs(128+i,get1());
+	if(get1()==1) {
+		for(int i=0;i<len;i++) cs(256+i,get1());
+	}
+	int m0=get1();
+	int m1=get1();
+	for(int i=0;i<10;i++) {
+		if((i<8&&has(m0,i))||(i>=8&&has(m1,i-8))) {
+			for(int q=0;q<54;q++) {
+				int x=get1();
+				if(p==0) bank[i*54+q]=(byte)x;
+			}
+		}
+	}
+	for(int kb=0;kb<64&&ferr==0;kb++) {
+		int b=get1();
+		if(b==255) break;
+		if(b>63) ferr=254;
+		int tm=get1();
+		for(int t=0;t<8&&ferr==0;t++) {
+			if(has(tm,t)) {
+				int h=get1();
+				if(h==254) {
+					int j=get1();
+					j=j+get1()*256;
+					int d=get1()-128;
+					if(j>=b*8+t) ferr=252;
+					for(int k=0;k<16&&ferr==0;k++) {
+						nt=peek(cellAddr(j/8,j%8,k),ppage);
+						if(nt!=0) {                   // an empty cell stays as the cleared page has it
+							rd(j/8,j%8,k);
+							if(nt!=255) nt=nt+d;
+							if(nt<0||nt>255) ferr=251;
+							wr(b,t,k);
+						}
+					}
+				} else if(h<=16) {
+					ni=0;
+					nv=0;
+					for(int k=0;k<h;k++) {
+						int e=get1();
+						nt=get1();
+						if((e/16)%2==1) ni=get1();
+						if((e/32)%2==1) nv=get1();
+						wr(b,t,e%16);
+					}
+				} else ferr=250;
+			}
+		}
+	}
+	fClose(0);
+	if(ferr==0&&(cg(0)!='M'||cg(1)!='8'||cg(2)!='T'||cg(3)!='1')) ferr=255;
+	fixSng();
+	return ferr;
+}
+
+// ------------------------------------------------------------------ sound (PLAYER.SRC's playback)
+bool slotUsed(int i) {
+	for(int q=0;q<54;q++) {
+		if(bank[i*54+q]!=0) return true;
+	}
+	return false;
+}
+
+void applyBank() {
+	for(int i=0;i<10;i++) {
+		if(slotUsed(i)) {
+			for(int q=0;q<54;q++) ymSetParam((byte)i,(byte)q,bank[i*54+q]);
+		}
+	}
+}
+
+void applyVoice(int t) {
+	if(t<6) {
+		ymVoice((byte)t,(byte)cg(10+t),(byte)cg(18+t),(byte)cg(26+t),(byte)cg(34+t));
+		lastIns[t]=cg(10+t);
+	} else if(t==6) {
+		int p=cg(40)/8;
+		synVoice(0,(byte)cg(50),(byte)cg(24),(byte)cg(32),(byte)p);
+	} else {
+		int p=cg(41)/8;
+		synVoice(1,(byte)cg(69),(byte)cg(25),(byte)cg(33),(byte)p);
+	}
+}
+
+void setupSound() {
+	ymInit(0);
+	synInit(0);
+	applyBank();
+	for(int t=0;t<6;t++) applyVoice(t);
+	synEnv(0,(byte)cg(51),(byte)cg(52),(byte)cg(53),(byte)cg(54));
+	synEnv(1,(byte)cg(55),(byte)cg(56),(byte)cg(57),(byte)cg(58));
+	synLFO(0,(byte)cg(64),(byte)cg(65),(byte)cg(66));
+	synFilter(cg(59)!=0,(byte)cg(60),(byte)cg(61));
+	poke(0x111D,(byte)cg(62));
+	poke(0x111E,(byte)cg(63));
+	applyVoice(6);
+	applyVoice(7);
+}
+
+void noteOff(int t) {
+	if(t<6) ymNoteOff((byte)t);
+	else {
+		int sv=t-6;
+		synNoteOff((byte)sv);
+	}
+}
+
+void stopAll() {
+	for(int t=0;t<8;t++) noteOff(t);
+}
+
+// the note of a cell (1..120) is the MIDI number + 1, shifted by sng[8] (64 = none)
+void playNote(int t,int v,int vel,int ins) {
+	int vc=ci(vel,0,127);
+	int ic=ci(ins,0,9);
+	int n=ci(v-1+cg(8)-64,0,127);
+	if(t<6) {
+		if(ic!=lastIns[t]) {
+			ymVoice((byte)t,(byte)ic,(byte)cg(18+t),(byte)cg(26+t),(byte)cg(34+t));
+			lastIns[t]=ic;
+		}
+		ymNoteOff((byte)t);
+		ymNoteOn((byte)t,(byte)n,(byte)vc);
+	} else {
+		int sv=t-6;
+		synNoteOff((byte)sv);
+		int wave=cg(50);
+		if(sv==1) wave=cg(69);
+		if(wave==3) synNoteOn((byte)sv,(byte)ci(v-1,0,19),(byte)vc);
+		else synNoteOn((byte)sv,(byte)n,(byte)vc);
+	}
+}
+
+// the 8 tracks of a step: 255 = note off, 0 = nothing; the position's transposition moves the FM tracks only
+void triggerRow(int b,int s) {
+	int tr=sng[sbase+256+playPos];
+	tr=tr-64;
+	for(int t=0;t<8;t++) {
+		int v=pget(b,s,t,0);
+		if(cg(42+t)!=0) v=0;
+		if(v==255) noteOff(t);
+		else if(v!=0) {
+			if(t<6) v=ci(v+tr,1,120);
+			playNote(t,v,pget(b,s,t,2),pget(b,s,t,1));
+			if(vuTrack[t]<4) vu[vuTrack[t]]=15;
+		}
+	}
+}
+
+void usePart(int p) {
+	part=p;
+	sbase=p*384;
+	ppage=pages[p];
+	tempo=ci(cg(4),40,255);
+	stepMs=15000/tempo;
+}
+
+// next step; after the last position of a file, the next file (after the last one, the first again)
+void advance() {
+	playRow++;
+	if(playRow<16) return;
+	playRow=0;
+	playPos++;
+	if(playPos>=slen()) {
+		playPos=0;
+		int p=part+1;
+		if(p>=NPARTS) p=0;
+		usePart(p);
+	}
+	playBlk=spat(playPos);
+}
+
+int frameAt=0;             // _mSec when the frame began (below 0 after the music restarted the clock)
+
+void startPlay() {
+	usePart(0);
+	playPos=0;
+	playBlk=spat(0);
+	playRow=0;
+	carry=(nat)stepMs;
+	clkSet();
+}
+
+void tickPlay() {
+	nat now=_mSec;
+	nat s=(nat)stepMs;
+	if(now+carry<s) return;
+	carry=now+carry-s;
+	if(carry>s) carry=0;
+	frameAt=frameAt-(int)now;
+	clkSet();
+	triggerRow(playBlk,playRow);
+	advance();
+}
+
+// ------------------------------------------------------------------ raster bar (display list run by the raster IRQ)
+byte HALT=0;
+byte SET=1;
+byte POS=8;
+byte NEXT=9;
+nat backR=0x2F13;
+nat backG=0x2F14;
+nat backB=0x2F15;
+type rasterInstr {byte code; nat word; byte val;};
+rasterInstr list[300]={
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,8,0},
+	{NEXT,&list[6],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,12,0},
+	{NEXT,&list[12],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,16,0},
+	{NEXT,&list[18],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,20,0},
+	{NEXT,&list[24],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,24,0},
+	{NEXT,&list[30],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,28,0},
+	{NEXT,&list[36],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,32,0},
+	{NEXT,&list[42],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,36,0},
+	{NEXT,&list[48],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,40,0},
+	{NEXT,&list[54],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,44,0},
+	{NEXT,&list[60],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,48,0},
+	{NEXT,&list[66],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,52,0},
+	{NEXT,&list[72],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,56,0},
+	{NEXT,&list[78],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,60,0},
+	{NEXT,&list[84],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,64,0},
+	{NEXT,&list[90],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,68,0},
+	{NEXT,&list[96],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,72,0},
+	{NEXT,&list[102],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,76,0},
+	{NEXT,&list[108],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,80,0},
+	{NEXT,&list[114],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,84,0},
+	{NEXT,&list[120],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,88,0},
+	{NEXT,&list[126],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,92,0},
+	{NEXT,&list[132],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,96,0},
+	{NEXT,&list[138],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,100,0},
+	{NEXT,&list[144],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,104,0},
+	{NEXT,&list[150],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,108,0},
+	{NEXT,&list[156],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,112,0},
+	{NEXT,&list[162],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,116,0},
+	{NEXT,&list[168],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,120,0},
+	{NEXT,&list[174],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,124,0},
+	{NEXT,&list[180],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,128,0},
+	{NEXT,&list[186],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,132,0},
+	{NEXT,&list[192],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,136,0},
+	{NEXT,&list[198],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,140,0},
+	{NEXT,&list[204],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,144,0},
+	{NEXT,&list[210],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,148,0},
+	{NEXT,&list[216],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,152,0},
+	{NEXT,&list[222],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,156,0},
+	{NEXT,&list[228],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,160,0},
+	{NEXT,&list[234],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,164,0},
+	{NEXT,&list[240],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,168,0},
+	{NEXT,&list[246],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,172,0},
+	{NEXT,&list[252],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,176,0},
+	{NEXT,&list[258],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,180,0},
+	{NEXT,&list[264],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,184,0},
+	{NEXT,&list[270],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,188,0},
+	{NEXT,&list[276],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,192,0},
+	{NEXT,&list[282],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,196,0},
+	{NEXT,&list[288],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,200,0},
+	{NEXT,&list[294],0},
+	{HALT,0,0},
+	{SET,backR,0},
+	{SET,backG,0},
+	{SET,backB,0},
+	{POS,480,0},
+	{NEXT,&list[0],0},
+	{HALT,0,0}};
+
+// the bar's top follows a sine: the bands stay where they are, their colours are rewritten (copper style), so
+// nothing the raster IRQ has already latched can disagree with the new position. Black outside the bar.
+byte barR[16]={0,0,1,2,4,5,6,4,4,6,5,4,2,1,0,0};
+byte barG[16]={2,3,5,7,7,7,6,4,4,6,7,7,7,5,3,2};
+byte barB[16]={0,1,1,2,2,4,6,4,4,6,4,2,2,1,1,0};
+byte sine[64]={
+	70,76,82,87,93,98,103,108,112,116,120,123,125,127,129,130,130,130,129,127,125,123,120,116,
+	112,108,103,98,93,87,82,76,70,64,58,53,47,42,37,32,28,24,20,17,15,13,11,10,
+	10,10,11,13,15,17,20,24,28,32,37,42,47,53,58,64};
+int lastB0=-100;
+
+void moveBar(int t) {
+	int b0=(sine[(t/2)%64]-8)/4;
+	if(b0==lastB0) return;
+	int from=b0;
+	int to=lastB0;
+	if(lastB0<b0) {
+		from=lastB0;
+		to=b0;
+	}
+	if(lastB0<0) {
+		from=0;
+		to=48;
+	}
+	lastB0=b0;
+	to=to+16;
+	if(from<0) from=0;
+	if(to>48) to=48;
+	for(int i=from;i<to;i++) {
+		int k=i-b0;
+		int j=6+i*6;
+		if(k>=0 && k<16) {
+			list[j].val=barR[k];
+			list[j+1].val=barG[k];
+			list[j+2].val=barB[k];
+		} else {
+			list[j].val=0;
+			list[j+1].val=0;
+			list[j+2].val=0;
+		}
+	}
+}
+
+// ------------------------------------------------------------------ screen
+void cell(int x,int y,int g,int c) {
+	nat a=(nat)y*80+(nat)x;
+	poke(0x1200+a,(byte)g);
+	poke(0x1E80+a,(byte)c);
+}
+
+text labels[9]={"N E S   G A L O P","a NES-style tune for the Micro-8","BASS",
+	"LEAD","CHORDS","DRUMS",
+	"Code, Arrangement","Benoit Saint-Moulin","ESC to quit"};
+text wbuf={80};
+void write(int x,int y,int k,int c) {
+	memSet(&wbuf,81,0);
+	concat(wbuf,labels[k]);
+	for(int i=0;i<80-x;i++) {
+		byte g=peek(&wbuf+(nat)i);
+		if(g==0) return;
+		cell(x+i,y,g,c);                  // a byte widens to int by itself: (int) on a byte is refused
+	}
+}
+
+int starX[8];
+int starY[8];
+
+void initStars() {
+	for(int s=0;s<8;s++) {
+		starX[s]=(s*23+7)%80;
+		starY[s]=22+(s*5)%6;
+	}
+}
+
+// text only, on a black background: the raster bar is the background colour itself
+void blackScreen() {
+	poke(0x2F00,0x10);
+	poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
+	poke(backR,0);
+	poke(backG,0);
+	poke(backB,0);
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x01);
+}
+
+void drawStatic() {
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x01);
+	write(31,6,0,0x0B);
+	write(24,9,1,0x02);
+	write(22,14,2,0x09);
+	write(22,16,3,0x09);
+	write(22,18,4,0x09);
+	write(22,20,5,0x09);
+	write(31,29,6,0x07);
+	write(30,30,7,0x07);
+	write(34,32,8,0x07);
+	initStars();
+	for(int ch=0;ch<4;ch++) {
+		for(int i=0;i<15;i++) cell(32+i,14+ch*2,0x7F,0x06);
+	}
+}
+
+// meter zones: green 0-8, yellow 9-12, red 13-14 (dark grey when off); a level change repaints [a,b) with
+// memSet, one call per zone
+byte zoneFrom[3]={0,9,13};
+byte zoneTo[3]={9,13,15};
+byte zoneCol[3]={0x09,0x0B,0x0D};
+
+void paintMeter(nat base,int a,int b,bool on) {
+	for(int z=0;z<3;z++) {
+		int f=zoneFrom[z];
+		int e=zoneTo[z];
+		if(f<a) f=a;
+		if(e>b) e=b;
+		if(f<e) {
+			byte c=0x06;
+			if(on) c=zoneCol[z];
+			memSet(base+(nat)f,(nat)(e-f),c);
+		}
+	}
+}
+
+byte rainbow[28]={0x0D,0x0C,0x0B,0x09,0x07,0x04,0x03,0x0D,0x0D,0x0C,0x0B,0x09,0x07,0x04,0x03,0x0D,
+	0x0D,0x0C,0x0B,0x09,0x07,0x04,0x03,0x0D,0x0D,0x0C,0x0B,0x09};
+
+// parallax stars (cracktro): three slow speeds (one step every 2 to 6 frames), the nearer ones brighter
+void stars(int t) {
+	for(int s=0;s<8;s++) {
+		int sp=1+s%3;
+		if(t%(8-2*sp)==0) {
+			nat a=(nat)(starY[s]*80+starX[s]);
+			poke(0x1200+a,' ');
+			int x=starX[s]-1;
+			if(x<0) x=79;
+			starX[s]=x;
+			a=(nat)(starY[s]*80+x);
+			byte ch='.';
+			byte c=0x03;
+			if(sp==2) {
+				ch=':';
+				c=0x07;
+			}
+			if(sp==3) {
+				ch='*';
+				c=0x0D;
+			}
+			poke(0x1200+a,ch);
+			poke(0x1E80+a,c);
+		}
+	}
+}
+
+void drawFrame(int t) {
+	// title colour wave, every 4 frames; the credit line takes it shifted, the name stays static
+	if(t%4==0) {
+		memCpy(&rainbow+(nat)((t/4)%8),0x1E80+6*80+31,17);
+		memCpy(&rainbow+(nat)((t/4+3)%8),0x1E80+29*80+31,17);
+	}
+	// meters: only the cells between the shown level and the new one change colour
+	for(int ch=0;ch<4;ch++) {
+		int lvl=vu[ch];
+		int old=shownVu[ch];
+		if(lvl!=old) {
+			int a=old;
+			int b=lvl;
+			if(lvl<old) {
+				a=lvl;
+				b=old;
+			}
+			nat base=0x1E80+(nat)(14+ch*2)*80+32;
+			paintMeter(base,a,b,lvl>old);
+			shownVu[ch]=lvl;
+		}
+		if(t%2==0 && vu[ch]>0) vu[ch]--;
+	}
+	if(t%2==1) stars(t/2);
+}
+
+void restoreScreen() {
+	rstrInt(false);
+	poke(backR,5);
+	poke(backG,5);
+	poke(backB,5);
+	poke(0x2F00,0x11);
+	poke(0x2F0B,peek(0x2F0B)|0x80);
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x02);
+	curPos(0,0);
+}
+
+// ------------------------------------------------------------------ main
+blackScreen();
+memSet(0x1E80+19*80,80,0x02);
+curPos(32,19);
+print("Loading the song");
+byte err=0;
+for(int p=0;p<NPARTS&&err==0;p++) err=loadPart(p);
+int key=getKeyDwn();
+if(err!=0) {
+	curPos(14,19);
+	print("Cannot load ",fnm," (error ",err,") - ESC to quit   ");
+	while(key!=12) key=getKeyDwn();
+	restoreScreen();
+} else {
+	usePart(0);
+	setupSound();
+	drawStatic();
+	rstrInt(true);
+	rstrCmp(480,&list);
+	int t=0;
+	bool barDue=false;
+	byte lastFc=peek(0x2F0C);
+	while(key!=0) key=getKeyDwn();      // the key that started the program (ENTER, ESC) must not be taken for a quit
+	startPlay();
+	while(key!=12) {
+		tickPlay();
+		byte fc=peek(0x2F0C);
+		if(fc!=lastFc) {
+			// a new frame (line 480): the text now, the bar 8 ms later, when the beam is below it (line 210) and
+			// long before it comes back to the top
+			lastFc=fc;
+			frameAt=(int)_mSec;
+			drawFrame(t);
+			barDue=true;
+			t++;
+			if(t>=7680) t=0;              // an int would turn negative after 9 minutes (7680 = 64 * 120: the sines keep their phase)
+		}
+		if(barDue&&(int)_mSec-frameAt>=8) {
+			barDue=false;
+			moveBar(t);
+		}
+		key=getKeyDwn();
+	}
+	stopAll();
+	restoreScreen();
+}
+print("Bye.");
