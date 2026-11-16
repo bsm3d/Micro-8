@@ -1,4 +1,5 @@
-// STARS 3D - a star field that comes from the depth and rolls, for the Micro-8 (code by Benoit Saint-Moulin)
+// STARS 3D - a star field that comes from the depth and rolls, for the Micro-8
+// Code & Music: Benoit (BSM) Saint-Moulin
 // 96 stars fly towards the viewer from the horizon: each one is an angle and a distance from the axis, and a
 // depth z. On screen its distance from the centre is distance * 255 / z: at the horizon (z = 255) the stars
 // fill the screen, then each one slides outwards, faster and faster. The whole field rolls around the axis, one way then the other: the roll is only an

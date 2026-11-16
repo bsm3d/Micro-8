@@ -1,4 +1,5 @@
-// DOTS TUNNEL - a winding dot tunnel for the Micro-8 (code by Benoit Saint-Moulin)
+// DOTS TUNNEL - a winding dot tunnel for the Micro-8
+// Code & Music: Benoit (BSM) Saint-Moulin
 // Grown from DemosScenes/Codes/Dots Tunnel (BSM3D-dot-tunnel.html), where the tunnel is a straight shaft seen
 // from above. Here it is a real tunnel: 18 circles of 32 points from the horizon to the edge of the screen
 // (radius = K / depth), the far end swings left, right, up and down so the tunnel bends ahead like a road,

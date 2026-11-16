@@ -1,10 +1,12 @@
-// NESGALOP - the whole tune and its own screen for the Micro-8 (code and arrangement by Benoit Saint-Moulin)
+// NESGALOP - the whole tune and its own screen for the Micro-8. Code & Music: Benoit (BSM) Saint-Moulin
 // The whole song, converted note for note from the B-Tracker project by micro8_studio/dev/make_nesgalop.py:
 // this program plays the tracker files ("NESGALOP.M8S"), the same ones
 // TRACKER.SRC and PLAYER.SRC open, with PLAYER.SRC's own playback code. Copy them next to this program, or
 // leave them in /BSMCODE/TRACKER. ESC quits.
 // The screen: a ride at night seen from the side. Three bands of tiles at three speeds (a raster list rewrites the
 // scroll register), the horse gallops on the bass, each lead note lights a star at the height of its pitch.
+// A hurdle comes at the end of each pattern and the horse jumps it on the next first beat; grass in front runs faster than
+// the road; a letter of the title hops on each chord; the last pattern brings the first light of the day on the mountains.
 //
 // What only this program does to the sound (the tracker files hold plain notes, any player plays them): the
 // chords are played as the source plays them, one voice running through their notes (an arpeggio at the
@@ -90,10 +92,13 @@ int spat(int i) {
 }
 
 // ------------------------------------------------------------------ the screen: a ride at night, from the side
-// One layer of tiles in three bands that scroll at three speeds: the raster display list below rewrites the
-// tiles' horizontal scroll register at lines 128, 224 and 320. Sprites for the horse (4), its dust, the moon,
-// the stars the melody lights and the title. scrNote() is called by the music at each note; it only leaves a
-// mark, the next frame acts on it.
+// One layer of tiles in four bands that scroll at four speeds: the raster display list below rewrites the
+// tiles' horizontal scroll register at lines 128, 224, 320 and 448 (mountains, hills, road, grass in front).
+// Sprites for the horse (4), its dust, the moon, the stars the melody lights, the hurdle, the shooting star
+// and the title. scrNote() is called by the music at each note; it only leaves a mark, the next frame acts
+// on it.
+// The 32 sprites: 0-7 title, 8-11 moon, 12-21 stars of the melody, 22 hurdle, 23 shooting star, 26-27 dust,
+// 28-31 horse.
 text resNames[3]={"NESGALOP.TLS","NESGALOP.SPR","NESGALOP.MAP"};
 byte tilePal[48]={
 	0,0,1,6,0,1,3,6,5,7,3,2,0,3,0,0,0,0,2,6,2,5,1,3,
@@ -104,15 +109,23 @@ byte sprPalA[48]={
 byte sprPalB[48]={
 	0,7,6,4,6,0,0,0,0,0,0,0,0,0,0,0,0,7,6,5,0,0,0,0,
 	0,0,0,0,0,0,0,0,0,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0};
-byte level[870];             // 15 rows of 58 tiles: 4 of sky, 3 of mountains, 3 of hills, 3 of road, 2 empty
+byte level[870];             // 15 rows of 58 tiles: 4 sky, 3 mountains, 3 hills, 3 road, 1 empty, 1 grass
 byte savedPal[144];
 type rasterInstr {byte code; nat word; byte val;};
 // a band: SET the scroll register, POS the next line, NEXT the next band, HALT
-rasterInstr split[16]={
+rasterInstr split[20]={
 	{1,0x2F01,0},{8,128,0},{9,&split[4],0},{0,0,0},
 	{1,0x2F01,0},{8,224,0},{9,&split[8],0},{0,0,0},
 	{1,0x2F01,0},{8,320,0},{9,&split[12],0},{0,0,0},
+	{1,0x2F01,0},{8,448,0},{9,&split[16],0},{0,0,0},
 	{1,0x2F01,0},{8,480,0},{9,&split[0],0},{0,0,0}};
+// the first light on the mountains, night to dawn: mass, crest, snow (r g b each)
+byte dawnCol[45]={
+	0,0,2,1,2,6,6,6,7,
+	1,0,2,3,2,6,7,6,7,
+	2,0,2,5,3,5,7,6,6,
+	2,1,2,6,4,4,7,6,5,
+	3,1,2,7,5,4,7,6,4};
 int titleX[8]={152,204,256,340,392,444,496,548};
 int evBass=0;
 int evLead=0;
@@ -126,8 +139,8 @@ int colF=0;
 int colH=0;
 int colG=0;
 int stride=0;                 // the moment of the gallop, 0 to 3
-int stX[12];                  // the stars of the melody: x on screen (-100: none), y
-int stY[12];
+int stX[10];                  // the stars of the melody: x on screen (-100: none), y
+int stY[10];
 int nextSt=0;
 int duX[2];
 int duAge[2];
@@ -135,6 +148,17 @@ int nextDu=0;
 int roadT=0;
 int crestT=0;
 int twinkT=0;
+int offN=0;                   // the grass in front
+int colN=0;
+int lastPos=-1;               // the position of the song the picture last saw
+int obX=-100;                 // the hurdle on the road (-100: none)
+int jumpT=0;                  // the jump: 1 to 28, 0 = on the ground
+int lastPose=-1;
+int shX=-100;                 // the shooting star
+int shY=0;
+int hopI=0;                   // the letter of the title that hops, and for how long
+int hopT=0;
+int dawn=0;                   // 0 night to 4 first light
 
 // a resource file: next to the program, else in /BSMCODE/SRC/2D
 byte loadRes(int k,nat addr,nat size,byte page) {
@@ -153,14 +177,14 @@ byte loadRes(int k,nat addr,nat size,byte page) {
 
 byte scrLoad() {
 	byte e=loadRes(2,&level,870,0xFF);
-	if(e==0) e=loadRes(0,0x3000,15104,0x00);
-	if(e==0) e=loadRes(1,0x3000,8192,0x20);
+	if(e==0) e=loadRes(0,0x3000,16128,0x00);
+	if(e==0) e=loadRes(1,0x3000,8704,0x20);
 	return e;
 }
 
 void label(int x,int y,int k,byte c) {
 	memSet(&fnm,41,0);
-	if(k==0) concat(fnm,"Code, Arrangement");
+	if(k==0) concat(fnm,"Code & Music");
 	if(k==1) concat(fnm,"Benoit Saint-Moulin");
 	if(k==2) concat(fnm,"ESC to quit");
 	nat a=(nat)(y*80+x);
@@ -172,13 +196,36 @@ void label(int x,int y,int k,byte c) {
 	}
 }
 
-// the horse: 4 sprites (28 to 31), the 4 pictures of the stride
-void setHorse() {
-	byte r=(byte)(8+stride*4);
+// the horse: 4 sprites (28 to 31), one of the 4 pictures of the stride
+void setHorse(int pose) {
+	byte r=(byte)(8+pose*4);
 	sprRef(28,r);
 	sprRef(29,(byte)(r+1));
 	sprRef(30,(byte)(r+2));
 	sprRef(31,(byte)(r+3));
+	lastPose=pose;
+}
+
+// the horse, `up` screen lines above the road
+void placeHorse(int up) {
+	sprPos(28,48+300,42+270-up);
+	sprPos(29,48+348,42+270-up);
+	sprPos(30,48+300,42+312-up);
+	sprPos(31,48+348,42+312-up);
+}
+
+// the colours of the mountains for the light of the moment
+void mountains() {
+	nat k=(nat)(dawn*9);
+	poke(0x1171,dawnCol[k]);
+	poke(0x1181,dawnCol[k+1]);
+	poke(0x1191,dawnCol[k+2]);
+	poke(0x1172,dawnCol[k+3]);
+	poke(0x1182,dawnCol[k+4]);
+	poke(0x1192,dawnCol[k+5]);
+	poke(0x1173,dawnCol[k+6]);
+	poke(0x1183,dawnCol[k+7]);
+	poke(0x1193,dawnCol[k+8]);
 }
 
 void scrStart() {
@@ -209,17 +256,16 @@ void scrStart() {
 	sprPos(9,48+698,42+84);
 	sprPos(10,48+650,42+126);
 	sprPos(11,48+698,42+126);
-	for(int i=0;i<12;i++) {
+	for(int i=0;i<10;i++) {
 		stX[i]=-100;
 		sprRef((byte)(12+i),28);
 	}
-	setHorse();
-	sprPos(28,48+300,42+270);
-	sprPos(29,48+348,42+270);
-	sprPos(30,48+300,42+312);
-	sprPos(31,48+348,42+312);
+	sprRef(22,32);                                  // the hurdle
+	sprRef(23,33);                                  // the shooting star
+	setHorse(0);
+	placeHorse(0);
 	sprUpdt();
-	label(31,35,0,0x0B);
+	label(34,35,0,0x0B);
 	label(30,36,1,0x02);
 	label(34,38,2,0x07);
 	poke(0x2F00,0x1C);                              // text, tiles and sprites over the black background
@@ -258,15 +304,73 @@ void scrFrame(int t) {
 		colG=(colG+1)%8;
 		areaCpy(&level,58,colG,10,26,3,0x2B00,32,0,10);
 	}
+	offN=offN+10;                                   // the grass in front: faster than the road
+	if(offN>=32) {
+		offN=offN-32;
+		colN=(colN+1)%8;
+		areaCpy(&level,58,colN,14,26,1,0x2B00,32,0,14);
+	}
 	split[4].val=(byte)offF;
 	split[8].val=(byte)offH;
 	split[12].val=(byte)offG;
-	// the horse: one moment of the gallop on each note of the bass, and a puff of dust behind it
-	if(evBass!=0) {
+	split[16].val=(byte)offN;
+	// a new position of the song (a bar). The last bar of a pattern sends a hurdle down the road: it is under
+	// the horse 82 frames later, on the first beat of the next pattern. A shooting star every other pattern.
+	// The last pattern of the song brings the first light on the mountains, bar after bar.
+	if(playPos!=lastPos) {
+		lastPos=playPos;
+		if(playPos%4==3) obX=340+6*82;
+		if(playPos%8==5) {
+			shX=760;
+			shY=14;
+		}
+		int d=0;
+		if(playPos>=slen()-4) d=playPos-(slen()-5);
+		if(d!=dawn) {
+			dawn=d;
+			if(crestT==0) mountains();
+		}
+	}
+	if(obX>-100) {
+		obX=obX-6;
+		if(obX<-40) {
+			obX=-100;
+			sprPos(22,0,0);
+		} else {
+			if(obX<800) sprPos(22,48+obX,42+326);
+			if(obX<=424&&obX>418) jumpT=1;          // 14 frames before it is under the horse
+		}
+	}
+	if(shX>-100) {
+		shX=shX-16;
+		shY=shY+6;
+		if(shX<-40||shY>118) {
+			shX=-100;
+			sprPos(23,0,0);
+		} else sprPos(23,48+shX,42+shY);
+	}
+	// the horse: one moment of the gallop on each note of the bass, and a puff of dust behind it; in a jump it
+	// leaves the ground on a parabola 34 lines high, legs forward then gathered, and lands in two puffs
+	if(jumpT>0) {
+		evBass=0;
+		int pose=1;
+		if(jumpT>7&&jumpT<22) pose=3;
+		if(pose!=lastPose) setHorse(pose);
+		placeHorse((jumpT*(28-jumpT)*34)/196);
+		jumpT=jumpT+1;
+		if(jumpT>28) {
+			jumpT=0;
+			placeHorse(0);
+			duX[0]=290;
+			duAge[0]=1;
+			duX[1]=330;
+			duAge[1]=1;
+		}
+	} else if(evBass!=0) {
 		evBass=0;
 		stride=stride+1;
 		if(stride>3) stride=0;
-		setHorse();
+		setHorse(stride);
 		duX[nextDu]=290;
 		duAge[nextDu]=1;
 		nextDu=1-nextDu;
@@ -296,9 +400,9 @@ void scrFrame(int t) {
 		stY[nextSt]=y;
 		sprRef((byte)(12+nextSt),28);
 		nextSt=nextSt+1;
-		if(nextSt>=12) nextSt=0;
+		if(nextSt>=10) nextSt=0;
 	}
-	for(int i=0;i<12;i++) {
+	for(int i=0;i<10;i++) {
 		int x=stX[i];
 		if(x>-100) {
 			x=x-4;
@@ -313,12 +417,21 @@ void scrFrame(int t) {
 		}
 	}
 	// the off-beat chords light the road, the snare whitens the crest of the mountains, the hat the fixed stars
-	if(evChord!=0) {
+	if(evChord!=0) {                                // and a letter of the title hops, each one in turn
 		evChord=0;
 		roadT=5;
 		poke(0x1177,7);
 		poke(0x1187,7);
 		poke(0x1197,3);
+		if(hopT>0) sprPos((byte)hopI,48+titleX[hopI],42+18);
+		hopI=hopI+1;
+		if(hopI>7) hopI=0;
+		hopT=4;
+		sprPos((byte)hopI,48+titleX[hopI],42+10);
+	}
+	if(hopT>0) {
+		hopT=hopT-1;
+		if(hopT==0) sprPos((byte)hopI,48+titleX[hopI],42+18);
 	}
 	if(roadT>0) {
 		roadT=roadT-1;
@@ -337,11 +450,7 @@ void scrFrame(int t) {
 	}
 	if(crestT>0) {
 		crestT=crestT-1;
-		if(crestT==0) {
-			poke(0x1172,1);
-			poke(0x1182,2);
-			poke(0x1192,6);
-		}
+		if(crestT==0) mountains();
 	}
 	if(evHat!=0) {
 		evHat=0;
