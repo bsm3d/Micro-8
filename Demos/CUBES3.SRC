@@ -1,24 +1,13 @@
-// CUBES - three nested wireframe cubes turning on three axes, for the Micro-8
-// Code & Music: Benoit (BSM) Saint-Moulin
-// Each cube turns around X, Y and Z at its own speeds. The edges at the back are drawn dimmer than the ones
-// in front, so the eye reads a solid shape. Black background, 60 frames a second.
-// How, integers only (16 bits):
-// - a turn is a 3 x 3 matrix built from a sine table (* 127). Its three columns are where the cube's own X,
-//   Y and Z axes point; multiplied by half the side of the cube, they are three small vectors A, B and C;
-// - the 8 corners of a cube are +-A +-B +-C: no multiplication at all. Only 4 are added up, the other 4 are
-//   their opposites (a cube is its own mirror through its centre);
-// - perspective: x * D / (z + D) with the eye far enough (D = 512, more than 8 times half the side) for the
-//   cubes to keep their shape; written x * 256 / ((z + 512) / 2) so that every product fits in 16 bits;
-// - the 12 edges are drawn from 4 corners only: take the corners with an even number of minus signs, each has
-//   3 edges, and those 4 x 3 edges are all the edges of the cube, each one once;
-// - the corner farthest from the viewer is behind the cube: its 3 edges are the hidden ones, drawn dim.
+// CUBES - three nested rotating cubes
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Demo 1.0 for Micro-8 OS 0.9
 
 nat cpuWindow=0x3000;
-byte bmpPageA=0x60;//double buffer
+byte bmpPageA=0x60;
 byte bmpPageB=0x8f;
 nat bmpDrawReg=0x2f16;
 nat bmpDisplayReg=0x2f05;
-nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
+nat bmpPal=0x11A0;
 
 // sin * 127 for 256 angles; cos(a) is sin(a + 64)
 int sinT[256]={
@@ -44,8 +33,8 @@ byte cubePal[48]={
 	0,7,3,7,3,7,3,0,0,0,0,0,0,0,0,0};
 
 memCpy(bmpPal,&savedPal,48);
-poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
-memSet(0x1200,3200,' ');            // no text over the cubes
+poke(0x2F0B,peek(0x2F0B)&0x7F);
+memSet(0x1200,3200,' ');
 memSet(cpuWindow,48000,0,bmpPageA);
 memSet(cpuWindow,48000,0,bmpPageB);
 memCpy(&cubePal,bmpPal,48);
@@ -55,13 +44,13 @@ void swap()
 {
 	if(swapState)
 	{
-		poke(bmpDisplayReg,bmpPageA);//display
-		poke(bmpDrawReg,bmpPageB);//draw
+		poke(bmpDisplayReg,bmpPageA);
+		poke(bmpDrawReg,bmpPageB);
 	}
 	else
 	{
-		poke(bmpDisplayReg,bmpPageB);//display
-		poke(bmpDrawReg,bmpPageA);//draw
+		poke(bmpDisplayReg,bmpPageB);
+		poke(bmpDrawReg,bmpPageA);
 	}
 	swapState=!swapState;
 }
@@ -71,9 +60,9 @@ swap();
 int vx[8];
 int vy[8];
 int vz[8];
-int px[8];          // on screen
+int px[8];
 int py[8];
-int far;            // the corner farthest from the viewer
+int far;
 byte bright;
 
 void edge(int a,int b)
@@ -168,8 +157,7 @@ while(_keyDwn!=12)
 	cube(21,a3,b3,c3,5);
 	vSync();
 	swap();
-	memSet(cpuWindow,48000,0,peek(bmpDrawReg));//clear for the next frame
-	// each cube has its own speeds; a byte goes round by itself (256 steps = a turn)
+	memSet(cpuWindow,48000,0,peek(bmpDrawReg));
 	a1=a1+1;
 	b1=b1+2;
 	c1=c1+1;
@@ -181,7 +169,6 @@ while(_keyDwn!=12)
 	c3=c3+2;
 }
 
-// leave the machine as it was
 poke(bmpDisplayReg,bmpPageA);
 poke(bmpDrawReg,bmpPageA);
 memSet(cpuWindow,48000,0,bmpPageA);

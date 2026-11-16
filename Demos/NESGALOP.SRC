@@ -1,30 +1,15 @@
-// NESGALOP - the whole tune and its own screen for the Micro-8. Code & Music: Benoit (BSM) Saint-Moulin
-// The whole song, converted note for note from the B-Tracker project by micro8_studio/dev/make_nesgalop.py:
-// this program plays the tracker files ("NESGALOP.M8S"), the same ones
-// TRACKER.SRC and PLAYER.SRC open, with PLAYER.SRC's own playback code. Copy them next to this program, or
-// leave them in /BSMCODE/TRACKER. ESC quits.
-// The screen: a ride at night seen from the side. Three bands of tiles at three speeds (a raster list rewrites the
-// scroll register), the horse gallops on the bass, each lead note lights a star at the height of its pitch.
-// A hurdle comes at the end of each pattern and the horse jumps it on the next first beat; grass in front runs faster than
-// the road; a letter of the title hops on each chord; the last pattern brings the first light of the day on the mountains.
-//
-// What only this program does to the sound (the tracker files hold plain notes, any player plays them): the
-// chords are played as the source plays them, one voice running through their notes (an arpeggio at the
-// source's rate), the bass starts with its octave click, the lead gets its vibrato after a delay (the chip's LFO).
-// The pitch of a sounding note is changed by writing the chip's frequency registers, without a new key on.
-//
-// Hardware notes (same as SIDRUSH and PLAYER): an FM envelope, a synth envelope or a DPCM sample restarts on a
-// key off then a key on; the music keeps its own millisecond clock (clkSet / _mSec), the picture follows the
-// frame counter (0x2F0C), so a slow frame never slows the tune down.
+// NES GALOP - a night ride to a NES style tune
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Demo 1.0 for Micro-8 OS 0.9
 
-// ------------------------------------------------------------------ the song files
+// ---- song files
 byte NPARTS=1;
 text files[1]={"NESGALOP.M8S"};
 byte pages[1]={0x90};       // where each file's 64 blocks are unpacked (24576 bytes)
-byte sng[384];              // 384 bytes a file: tempo, voices, synth, the song's blocks (see PLAYER.SRC)
-byte bank[540];              // the FM instruments saved in the first file, 54 parameters each
-int sbase=0;                 // the current file's place in sng[]
-byte ppage=0x90;             // and the page of its blocks
+byte sng[384];
+byte bank[540];
+int sbase=0;
+byte ppage=0x90;
 int lastIns[8];
 int tempo=120;
 int stepMs=125;
@@ -33,9 +18,9 @@ int part=0;
 int playBlk=0;
 int playRow=0;
 int playPos=0;
-// what this demo adds on a track: 1 octave click, 2 arpeggio (the voice that sounds), 3 its other notes, 4 vibrato
+// role of each track: 1 octave click, 2 arpeggio voice, 3 its other notes, 4 vibrato
 byte trkRole[8]={1,4,2,3,3,0,0,0};
-text fnm={40};                // the file being loaded (named in the error message)
+text fnm={40};
 
 int cg(int i) {
 	return sng[sbase+i];
@@ -51,7 +36,7 @@ void cs(int i,int v) {
 	sng[sbase+i]=(byte)v;
 }
 
-// a cell (block, step, track, field: 0 note, 1 instrument, 2 velocity)
+// a cell: field 0 note, 1 instrument, 2 velocity
 int pget(int b,int s,int t,int f) {
 	nat i=(nat)b;
 	i=i*16+(nat)s;
@@ -91,14 +76,9 @@ int spat(int i) {
 	return sng[sbase+128+i];
 }
 
-// ------------------------------------------------------------------ the screen: a ride at night, from the side
-// One layer of tiles in four bands that scroll at four speeds: the raster display list below rewrites the
-// tiles' horizontal scroll register at lines 128, 224, 320 and 448 (mountains, hills, road, grass in front).
-// Sprites for the horse (4), its dust, the moon, the stars the melody lights, the hurdle, the shooting star
-// and the title. scrNote() is called by the music at each note; it only leaves a mark, the next frame acts
-// on it.
-// The 32 sprites: 0-7 title, 8-11 moon, 12-21 stars of the melody, 22 hurdle, 23 shooting star, 26-27 dust,
-// 28-31 horse.
+// ---- screen
+// scrNote() runs at each note: it only leaves a mark, the next frame acts on it
+// sprites: 0-7 title, 8-11 moon, 12-21 melody stars, 22 hurdle, 23 shooting star, 26-27 dust, 28-31 horse
 text resNames[3]={"NESGALOP.TLS","NESGALOP.SPR","NESGALOP.MAP"};
 byte tilePal[48]={
 	0,0,1,6,0,1,3,6,5,7,3,2,0,3,0,0,0,0,2,6,2,5,1,3,
@@ -119,7 +99,7 @@ rasterInstr split[20]={
 	{1,0x2F01,0},{8,320,0},{9,&split[12],0},{0,0,0},
 	{1,0x2F01,0},{8,448,0},{9,&split[16],0},{0,0,0},
 	{1,0x2F01,0},{8,480,0},{9,&split[0],0},{0,0,0}};
-// the first light on the mountains, night to dawn: mass, crest, snow (r g b each)
+// mountain colours from night to dawn: mass, crest, snow (r g b each)
 byte dawnCol[45]={
 	0,0,2,1,2,6,6,6,7,
 	1,0,2,3,2,6,7,6,7,
@@ -138,7 +118,7 @@ int offG=0;
 int colF=0;
 int colH=0;
 int colG=0;
-int stride=0;                 // the moment of the gallop, 0 to 3
+int stride=0;
 int stX[10];                  // the stars of the melody: x on screen (-100: none), y
 int stY[10];
 int nextSt=0;
@@ -148,15 +128,15 @@ int nextDu=0;
 int roadT=0;
 int crestT=0;
 int twinkT=0;
-int offN=0;                   // the grass in front
+int offN=0;
 int colN=0;
-int lastPos=-1;               // the position of the song the picture last saw
+int lastPos=-1;
 int obX=-100;                 // the hurdle on the road (-100: none)
 int jumpT=0;                  // the jump: 1 to 28, 0 = on the ground
 int lastPose=-1;
-int shX=-100;                 // the shooting star
+int shX=-100;
 int shY=0;
-int hopI=0;                   // the letter of the title that hops, and for how long
+int hopI=0;
 int hopT=0;
 int dawn=0;                   // 0 night to 4 first light
 
@@ -196,7 +176,6 @@ void label(int x,int y,int k,byte c) {
 	}
 }
 
-// the horse: 4 sprites (28 to 31), one of the 4 pictures of the stride
 void setHorse(int pose) {
 	byte r=(byte)(8+pose*4);
 	sprRef(28,r);
@@ -206,7 +185,6 @@ void setHorse(int pose) {
 	lastPose=pose;
 }
 
-// the horse, `up` screen lines above the road
 void placeHorse(int up) {
 	sprPos(28,48+300,42+270-up);
 	sprPos(29,48+348,42+270-up);
@@ -214,7 +192,6 @@ void placeHorse(int up) {
 	sprPos(31,48+348,42+312-up);
 }
 
-// the colours of the mountains for the light of the moment
 void mountains() {
 	nat k=(nat)(dawn*9);
 	poke(0x1171,dawnCol[k]);
@@ -239,19 +216,19 @@ void scrStart() {
 	memSet(0x1E80,3200,0x02);
 	poke(0x2F01,0);
 	poke(0x2F02,0);
-	poke(0x2F0B,peek(0x2F0B)&0xFB);                 // tile buffer A on screen
+	poke(0x2F0B,peek(0x2F0B)&0xFB);
 	areaCpy(&level,58,0,0,26,15,0x2B00,32,0,0);
 	for(int s=0;s<32;s++) {
 		sprPos((byte)s,0,0);
 		sprPrio((byte)s,0);
 		sprPal((byte)s,0);
 	}
-	for(int i=0;i<8;i++) {                          // the title, palette B
+	for(int i=0;i<8;i++) {
 		sprRef((byte)i,(byte)i);
 		sprPal((byte)i,1);
 		sprPos((byte)i,48+titleX[i],42+18);
 	}
-	for(int i=0;i<4;i++) sprRef((byte)(8+i),(byte)(24+i));     // the moon
+	for(int i=0;i<4;i++) sprRef((byte)(8+i),(byte)(24+i));
 	sprPos(8,48+650,42+84);
 	sprPos(9,48+698,42+84);
 	sprPos(10,48+650,42+126);
@@ -260,15 +237,15 @@ void scrStart() {
 		stX[i]=-100;
 		sprRef((byte)(12+i),28);
 	}
-	sprRef(22,32);                                  // the hurdle
-	sprRef(23,33);                                  // the shooting star
+	sprRef(22,32);
+	sprRef(23,33);
 	setHorse(0);
 	placeHorse(0);
 	sprUpdt();
 	label(34,35,0,0x0B);
 	label(30,36,1,0x02);
 	label(34,38,2,0x07);
-	poke(0x2F00,0x1C);                              // text, tiles and sprites over the black background
+	poke(0x2F00,0x1C);
 	rstrInt(true);
 	rstrCmp(480,&split);
 }
@@ -285,7 +262,6 @@ void scrNote(int t,int n,int vel) {
 
 void scrFrame(int t) {
 	sprUpdt();
-	// the three bands: the mountains 1 pixel every 2 frames, the hills 2 a frame, the road 6
 	if(t%2==0) offF=offF+1;
 	offH=offH+2;
 	offG=offG+6;
@@ -304,7 +280,7 @@ void scrFrame(int t) {
 		colG=(colG+1)%8;
 		areaCpy(&level,58,colG,10,26,3,0x2B00,32,0,10);
 	}
-	offN=offN+10;                                   // the grass in front: faster than the road
+	offN=offN+10;
 	if(offN>=32) {
 		offN=offN-32;
 		colN=(colN+1)%8;
@@ -314,9 +290,6 @@ void scrFrame(int t) {
 	split[8].val=(byte)offH;
 	split[12].val=(byte)offG;
 	split[16].val=(byte)offN;
-	// a new position of the song (a bar). The last bar of a pattern sends a hurdle down the road: it is under
-	// the horse 82 frames later, on the first beat of the next pattern. A shooting star every other pattern.
-	// The last pattern of the song brings the first light on the mountains, bar after bar.
 	if(playPos!=lastPos) {
 		lastPos=playPos;
 		if(playPos%4==3) obX=340+6*82;
@@ -338,7 +311,7 @@ void scrFrame(int t) {
 			sprPos(22,0,0);
 		} else {
 			if(obX<800) sprPos(22,48+obX,42+326);
-			if(obX<=424&&obX>418) jumpT=1;          // 14 frames before it is under the horse
+			if(obX<=424&&obX>418) jumpT=1;
 		}
 	}
 	if(shX>-100) {
@@ -349,8 +322,6 @@ void scrFrame(int t) {
 			sprPos(23,0,0);
 		} else sprPos(23,48+shX,42+shY);
 	}
-	// the horse: one moment of the gallop on each note of the bass, and a puff of dust behind it; in a jump it
-	// leaves the ground on a parabola 34 lines high, legs forward then gathered, and lands in two puffs
 	if(jumpT>0) {
 		evBass=0;
 		int pose=1;
@@ -390,9 +361,8 @@ void scrFrame(int t) {
 			duAge[i]=a;
 		}
 	}
-	// the melody: each lead note lights a star at the height of its pitch, the stars drift to the left
 	if(evLead!=0) {
-		int y=56+(86-evLead)*6;                     // the sky above the mountains: lines 56 to 150
+		int y=56+(86-evLead)*6;
 		if(y<56) y=56;
 		if(y>150) y=150;
 		evLead=0;
@@ -410,14 +380,13 @@ void scrFrame(int t) {
 				x=-100;
 				sprPos((byte)(12+i),0,0);
 			} else {
-				if(x==450) sprRef((byte)(12+i),29);     // it dims as it goes
+				if(x==450) sprRef((byte)(12+i),29);
 				sprPos((byte)(12+i),48+x,42+stY[i]);
 			}
 			stX[i]=x;
 		}
 	}
-	// the off-beat chords light the road, the snare whitens the crest of the mountains, the hat the fixed stars
-	if(evChord!=0) {                                // and a letter of the title hops, each one in turn
+	if(evChord!=0) {
 		evChord=0;
 		roadT=5;
 		poke(0x1177,7);
@@ -484,7 +453,7 @@ void scrEnd() {
 	memCpy(&savedPal+96,0x2FA0,48);
 }
 
-// ------------------------------------------------------------------ loading (PLAYER.SRC's reader of NAME.M8S)
+// ---- loading
 byte cbits[16];
 byte bitv[8]={1,2,4,8,16,32,64,128};
 byte magic[4]={77,56,83,49};
@@ -553,7 +522,7 @@ bool findFile(int p) {
 	return _fError==0;
 }
 
-// file p into its 384 bytes of sng[] and its page of blocks; the FM instruments from the first file; 0 = fine
+// returns 0 when the file loaded
 byte loadPart(int p) {
 	sbase=p*384;
 	ppage=pages[p];
@@ -631,7 +600,7 @@ byte loadPart(int p) {
 	return ferr;
 }
 
-// ------------------------------------------------------------------ sound (PLAYER.SRC's playback)
+// ---- sound
 bool slotUsed(int i) {
 	for(int q=0;q<54;q++) {
 		if(bank[i*54+q]!=0) return true;
@@ -677,7 +646,7 @@ void setupSound() {
 	ymVoice(2,(byte)cg(10+2),(byte)cg(18+2),(byte)cg(26+2),30);
 }
 
-// ------------------------------------------------------------------ pitch changes without a key on
+// ---- pitch changes without a key on
 // the YM2612 block / F-number of MIDI notes 24 to 107 (what a note on of the machine writes at octave 5)
 byte fhi[84]={
 	5,5,5,5,6,6,7,7,7,12,12,12,13,13,13,13,14,14,15,15,15,20,20,20,
@@ -690,9 +659,9 @@ byte flo[84]={
 	8,84,165,251,86,183,29,137,252,59,123,191,8,84,165,251,86,183,29,137,252,59,123,191,
 	8,84,165,251,86,183,29,137,252,59,123,191};
 int macN[6];               // notes in the run of each FM voice (0: none)
-int macTone[24];           // 4 notes a voice
+int macTone[24];
 int macPos[6];
-int macAt[6];              // _mSec of its next change
+int macAt[6];
 int macPer[6];
 bool macLoop[6];
 int vibAt=-30000;          // _mSec at which the vibrato starts (-30000: not waiting)
@@ -765,16 +734,16 @@ void playNote(int t,int v,int vel,int ins) {
 			lastIns[t]=ic;
 		}
 		byte role=trkRole[t];
-		if(role==4) ymLFO(false,4);          // a new lead note starts straight
+		if(role==4) ymLFO(false,4);
 		ymNoteOff((byte)t);
 		ymNoteOn((byte)t,(byte)n,(byte)vc);
 		macN[t]=0;
-		if(role==1) {                               // the octave click: the note starts an octave up
+		if(role==1) {
 			macTone[t*4]=n+12;
 			macTone[t*4+1]=n;
 			setFreq(t,n+12);
 			macStart(t,2,17,false);
-		} else if(role==2&&arpCount>1) {            // the chord: its notes one after the other on this voice
+		} else if(role==2&&arpCount>1) {
 			for(int k=0;k<arpCount;k++) macTone[t*4+k]=arpTones[k];
 			macStart(t,arpCount,17,true);
 		} else if(role==4) vibAt=(int)_mSec+233;
@@ -823,7 +792,6 @@ void usePart(int p) {
 	stepMs=15000/tempo;
 }
 
-// next step; after the last position of a file, the next file (after the last one, the first again)
 void advance() {
 	playRow++;
 	if(playRow<16) return;
@@ -856,7 +824,7 @@ void tickPlay() {
 	if(carry>s) carry=0;
 	// _mSec counts whole milliseconds: each restart loses half of one on average, given back every other step
 	if(playRow%2==0) carry=carry+1;
-	for(int v=0;v<6;v++) macAt[v]=macAt[v]-(int)now;     // the clock restarted: what waits on it follows
+	for(int v=0;v<6;v++) macAt[v]=macAt[v]-(int)now;
 	if(vibAt>-30000) vibAt=vibAt-(int)now;
 	triggerRow(playBlk,playRow);
 	advance();
@@ -874,9 +842,9 @@ void restoreScreen() {
 	curPos(0,0);
 }
 
-// ------------------------------------------------------------------ main
-poke(0x2F00,0x10);                  // text alone on a black background while the files load
-poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
+// ---- main
+poke(0x2F00,0x10);
+poke(0x2F0B,peek(0x2F0B)&0x7F);
 poke(0x2F13,0);
 poke(0x2F14,0);
 poke(0x2F15,0);
@@ -905,7 +873,7 @@ if(err!=0) {
 		tickPlay();
 		macTick();
 		byte fc=peek(0x2F0C);
-		if(fc!=lastFc) {                // a new frame: the picture, once
+		if(fc!=lastFc) {
 			lastFc=fc;
 			scrFrame(t);
 			t++;
