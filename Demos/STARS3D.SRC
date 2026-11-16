@@ -1,18 +1,13 @@
-// STARS 3D - a star field that comes from the depth and rolls, for the Micro-8
-// Code & Music: Benoit (BSM) Saint-Moulin
-// 96 stars fly towards the viewer from the horizon: each one is an angle and a distance from the axis, and a
-// depth z. On screen its distance from the centre is distance * 255 / z: at the horizon (z = 255) the stars
-// fill the screen, then each one slides outwards, faster and faster. The whole field rolls around the axis, one way then the other: the roll is only an
-// offset added to every star's angle. Far stars are dim blue, near ones white and bigger, and the nearest
-// leave a short streak behind them (the line to where they were). Black background, 30 frames a second.
-// Integers only in the loop (16 bits): cos and sin * 127 come from tables, distance * 255 is kept per star.
+// STARS 3D - a 3D star field that rushes at you and rolls
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Demo 1.0 for Micro-8 OS 0.9
 
 nat cpuWindow=0x3000;
-byte bmpPageA=0x60;//double buffer
+byte bmpPageA=0x60;
 byte bmpPageB=0x8f;
 nat bmpDrawReg=0x2f16;
 nat bmpDisplayReg=0x2f05;
-nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
+nat bmpPal=0x11A0;
 
 int cosT[256]={
 	127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,117,116,115,113,
@@ -58,8 +53,8 @@ int dist[96];                     // distance from the axis * 255 (up to 32385)
 int depth[96];
 
 memCpy(bmpPal,&savedPal,48);
-poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
-memSet(0x1200,3200,' ');            // no text over the stars
+poke(0x2F0B,peek(0x2F0B)&0x7F);
+memSet(0x1200,3200,' ');
 memSet(cpuWindow,48000,0,bmpPageA);
 memSet(cpuWindow,48000,0,bmpPageB);
 memCpy(&starPal,bmpPal,48);
@@ -69,13 +64,13 @@ void swap()
 {
 	if(swapState)
 	{
-		poke(bmpDisplayReg,bmpPageA);//display
-		poke(bmpDrawReg,bmpPageB);//draw
+		poke(bmpDisplayReg,bmpPageA);
+		poke(bmpDrawReg,bmpPageB);
 	}
 	else
 	{
-		poke(bmpDisplayReg,bmpPageB);//display
-		poke(bmpDrawReg,bmpPageA);//draw
+		poke(bmpDisplayReg,bmpPageB);
+		poke(bmpDrawReg,bmpPageA);
 	}
 	swapState=!swapState;
 }
@@ -86,12 +81,12 @@ for(int i=0;i<N;i++)
 {
 	ang[i]=(byte)rnd(0,255);
 	dist[i]=rnd(10,127)*255;
-	depth[i]=rnd(40,255);           // spread over the depth at the start
+	depth[i]=rnd(40,255);
 }
 
 int roll;           // the roll of the field, in 1/16 of a table step (0 to 4095 = one turn)
-byte rollPhase;     // where the roll speed is on its own slow sine
-int SPEED=3;        // depth units a frame
+byte rollPhase;
+int SPEED=3;
 
 void frame()
 {
@@ -102,7 +97,6 @@ void frame()
 		int rs=dist[i]/z;
 		if(z<9 || rs>236)
 		{
-			// passed the viewer or left the screen: a new star at the horizon
 			z=255;
 			ang[i]=(byte)rnd(0,255);
 			dist[i]=rnd(10,127)*255;
@@ -135,10 +129,9 @@ while(_keyDwn!=12)
 	frame();
 	vSync();
 	swap();
-	memSet(cpuWindow,48000,0,peek(bmpDrawReg));//clear for the next frame
+	memSet(cpuWindow,48000,0,peek(bmpDrawReg));
 }
 
-// leave the machine as it was
 vCount(1);
 poke(bmpDisplayReg,bmpPageA);
 poke(bmpDrawReg,bmpPageA);

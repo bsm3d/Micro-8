@@ -1,19 +1,13 @@
-// DOTS TUNNEL - a winding dot tunnel for the Micro-8
-// Code & Music: Benoit (BSM) Saint-Moulin
-// Grown from DemosScenes/Codes/Dots Tunnel (BSM3D-dot-tunnel.html), where the tunnel is a straight shaft seen
-// from above. Here it is a real tunnel: 18 circles of 32 points from the horizon to the edge of the screen
-// (radius = K / depth), the far end swings left, right, up and down so the tunnel bends ahead like a road,
-// every circle is turned a little more than the one before so the 32 rays become spirals, the whole thing
-// turns slowly, and the colour travels around the hue circle. Black background, 30 frames a second.
-// How: a circle of 32 points is 8 points turned 4 times by a quarter turn, so 8 pairs of multiplications
-// draw 32 points; the turn of a circle is an index in a table of 64 angles (a quarter turn in 64 steps).
+// DOTS TUNNEL - a winding dot tunnel
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Demo 1.0 for Micro-8 OS 0.9
 
 nat cpuWindow=0x3000;
-byte bmpPageA=0x60;//double buffer
+byte bmpPageA=0x60;
 byte bmpPageB=0x8f;
 nat bmpDrawReg=0x2f16;
 nat bmpDisplayReg=0x2f05;
-nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
+nat bmpPal=0x11A0;
 
 // cos and sin * 127 of 64 angles from 0 to a quarter turn (127 * radius stays in an int: 16 bits)
 int cosT[64]={
@@ -34,7 +28,7 @@ byte hues[72]={
 
 byte savedPal[48];
 memCpy(bmpPal,&savedPal,48);
-memSet(0x1200,3200,' ');//no text over the tunnel
+memSet(0x1200,3200,' ');
 memSet(cpuWindow,48000,0,bmpPageA);
 memSet(cpuWindow,48000,0,bmpPageB);
 
@@ -61,19 +55,19 @@ void swap()
 {
 	if(swapState)
 	{
-		poke(bmpDisplayReg,bmpPageA);//display
-		poke(bmpDrawReg,bmpPageB);//draw
+		poke(bmpDisplayReg,bmpPageA);
+		poke(bmpDrawReg,bmpPageB);
 	}
 	else
 	{
-		poke(bmpDisplayReg,bmpPageB);//display
-		poke(bmpDrawReg,bmpPageA);//draw
+		poke(bmpDisplayReg,bmpPageB);
+		poke(bmpDrawReg,bmpPageA);
 	}
 	swapState=!swapState;
 }
 swap();
 
-int NC=18;//circles in the tunnel
+int NC=18;
 int CX=200;
 int CY=120;
 real ZSPEED=0.008;
@@ -189,9 +183,9 @@ void ringBig(int r,int k,byte c)
 	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
 }
 
-real bendX;     // the swing of the far end, left and right
-real bendY;     // up and down, a little faster
-real turn;      // the slow turn of the whole tunnel, in table steps
+real bendX;
+real bendY;
+real turn;
 int hue=20;
 int hueT;
 
@@ -202,7 +196,6 @@ void frame()
 		real z=circZ[i]-ZSPEED;
 		if(z<=0.0) z=z+1.0;
 		circZ[i]=z;
-		// the centre of the circle: on the axis when near, swinging when far
 		CX=200+(int)(z*75.0*sin(bendX+z*3.0));
 		CY=120+(int)(z*42.0*cos(bendY+z*2.2));
 		int r=(int)(26.0/(z+0.11));
@@ -233,10 +226,9 @@ while(_keyDwn!=12)
 	frame();
 	vSync();
 	swap();
-	memSet(cpuWindow,48000,0,peek(bmpDrawReg));//clear for the next frame
+	memSet(cpuWindow,48000,0,peek(bmpDrawReg));
 }
 
-// leave the machine as it was
 vCount(1);
 poke(bmpDisplayReg,bmpPageA);
 poke(bmpDrawReg,bmpPageA);

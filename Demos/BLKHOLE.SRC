@@ -1,30 +1,13 @@
-// BLACK HOLE - a black hole and its accretion disk, for the Micro-8
-// Code & Music: Benoit (BSM) Saint-Moulin
-// What you see around a black hole, built from its three signs:
-// - the shadow: a black disc where no light comes back, circled by the thin photon ring;
-// - the accretion disk, seen almost edge on. Its front half passes in front of the shadow as a flat ellipse.
-//   Its back half should be hidden, but gravity bends its light over the hole: it appears as an arch above
-//   the shadow. Here the back half of each orbit is simply drawn on a much taller ellipse, which joins the
-//   flat one at both ends. The matter turns on circular orbits, much faster near the hole than far from it
-//   (speed = k / radius ^ 1.5, Kepler), hot white inside, dark red outside, and the side that turns towards
-//   the viewer is brighter (Doppler beaming);
-// - the lens: the stars drifting behind are pushed away from the centre (a star seen at distance d appears
-//   at d + E * E / d), so they slide around the hole and never cross it.
-// Black background, 30 frames a second.
-// How: the body of the disk is 1100 dots drawn once. Over it, 48 streaks of matter and the stars are drawn
-// with the XOR mask of plot() and line() (the high 4 bits of the colour): drawing the same thing again takes
-// it away and leaves what was under it, so nothing is ever cleared or redrawn. The palette makes any pixel
-// with the streak bit bright, and any pixel with the star bit white. Integers only in the loop (16 bits).
-// Double buffer: the picture is drawn in two pages, the same disk in both; a frame is prepared in the hidden
-// page (what was drawn there two frames ago is taken away, the new streaks are drawn) and shown at the
-// vertical blanking, so no half-drawn frame is ever seen. Each page remembers its own streaks and stars.
+// BLACK HOLE - a black hole, its accretion disk and the lensed stars
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Demo 1.0 for Micro-8 OS 0.9
 
 nat cpuWindow=0x3000;
-byte bmpPageA=0x60;//double buffer
+byte bmpPageA=0x60;
 byte bmpPageB=0x8f;
 nat bmpDrawReg=0x2f16;
 nat bmpDisplayReg=0x2f05;
-nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
+nat bmpPal=0x11A0;
 
 int cosT[256]={
 	127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,117,116,115,113,
@@ -73,7 +56,7 @@ byte holePal[48]={
 
 int NP=48;
 int pAng[48];                     // where the streak is on its orbit: 0 to 4095 = a turn
-int pSpd[48];                     // its speed, per frame
+int pSpd[48];
 int pRx[48];                      // its orbit on screen: half width,
 int pRyF[48];                     // half height of the front half (flat),
 int pRyB[48];                     // half height of the back half (bent over the hole)
@@ -89,8 +72,8 @@ int sPX[28];                      // where each one is drawn in each page
 int sPY[28];
 
 memCpy(bmpPal,&savedPal,48);
-poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
-memSet(0x1200,3200,' ');            // no text over the picture
+poke(0x2F0B,peek(0x2F0B)&0x7F);
+memSet(0x1200,3200,' ');
 memSet(cpuWindow,48000,0,bmpPageA);
 memSet(cpuWindow,48000,0,bmpPageB);
 memCpy(&holePal,bmpPal,48);
@@ -122,7 +105,7 @@ void disk2(byte page)
 		int heat=3-u/36;
 		int cs=cosT[a];
 		int sn=sinT[a];
-		if(cs<-30 && heat>1) heat=heat-1;                   // the side going away is dimmer
+		if(cs<-30 && heat>1) heat=heat-1;
 		int y=120-(sn*flat(r))/128;
 		if(sn>0) y=120-(sn*bent(r))/128;
 		plot(200+(cs*r)/128,y,(byte)heat);
@@ -158,14 +141,14 @@ void swap()
 {
 	if(swapState)
 	{
-		poke(bmpDisplayReg,bmpPageA);//display
-		poke(bmpDrawReg,bmpPageB);//draw
+		poke(bmpDisplayReg,bmpPageA);
+		poke(bmpDrawReg,bmpPageB);
 		mine=1;
 	}
 	else
 	{
-		poke(bmpDisplayReg,bmpPageB);//display
-		poke(bmpDrawReg,bmpPageA);//draw
+		poke(bmpDisplayReg,bmpPageB);
+		poke(bmpDrawReg,bmpPageA);
 		mine=0;
 	}
 	swapState=!swapState;
@@ -179,8 +162,8 @@ void frame()
 	for(int i=0;i<NS;i++)
 	{
 		int j=o+i;
-		plot(sPX[j],sPY[j],0x80);                       // away, where this page had it
-		int x4=sX[i]+1;                                 // a quarter of a pixel a frame
+		plot(sPX[j],sPY[j],0x80);
+		int x4=sX[i]+1;
 		if(x4>1599)
 		{
 			x4=0;
@@ -191,7 +174,7 @@ void frame()
 		int dy=sY[i]-120;
 		int ax=abs(dx);
 		int ay=abs(dy);
-		int d=ax+ay/2;                                  // distance to the centre, near enough
+		int d=ax+ay/2;
 		if(ay>ax) d=ay+ax/2;
 		if(d<110)
 		{
@@ -201,14 +184,14 @@ void frame()
 		}
 		sPX[j]=200+dx;
 		sPY[j]=120+dy;
-		plot(200+dx,120+dy,0x80);                       // and back, at its new place
+		plot(200+dx,120+dy,0x80);
 	}
 	// the streaks of matter: from where the grain is to where it was a moment ago
 	o=mine*NP;
 	for(int i=0;i<NP;i++)
 	{
 		int j=o+i;
-		line(pX0[j],pY0[j],pX1[j],pY1[j],0x40);         // away, where this page had it
+		line(pX0[j],pY0[j],pX1[j],pY1[j],0x40);
 		int a=pAng[i]+pSpd[i];
 		if(a>=4096) a=a-4096;
 		pAng[i]=a;
@@ -227,7 +210,7 @@ void frame()
 		pY0[j]=y0;
 		pX1[j]=x1;
 		pY1[j]=y1;
-		line(x0,y0,x1,y1,0x40);                         // and back
+		line(x0,y0,x1,y1,0x40);
 	}
 }
 
@@ -239,7 +222,6 @@ while(_keyDwn!=12)
 	swap();
 }
 
-// leave the machine as it was
 vCount(1);
 poke(bmpDisplayReg,bmpPageA);
 poke(bmpDrawReg,bmpPageA);
