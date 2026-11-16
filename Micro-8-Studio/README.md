@@ -11,34 +11,37 @@ This repository distributes the **compiled** application.
 
 ## Download
 
-Binaries are distributed as [GitHub Releases](https://github.com/bsm3d/Micro-8/releases/tag/v1.1.0) of this
+Binaries are distributed as [GitHub Releases](https://github.com/bsm3d/Micro-8/releases/tag/v1.2.0) of this
 repository (this folder only holds documentation).
 
-**Micro-8 Studio 1.1.0 targets the Micro-8 console's OS 0.9.** If your console still runs OS 0.8, use
+**Micro-8 Studio 1.2.0 targets the Micro-8 console's OS 0.9.** If your console still runs OS 0.8, use
 [release v1.0.0](https://github.com/bsm3d/Micro-8/releases/tag/v1.0.0) instead; the two are not interchangeable
 (the Lofi compiler and emulator follow each OS version's own rules, and a program compiled for one OS version is
 not guaranteed to run on the other's hardware).
 
 | File | Use |
 |---|---|
-| [`Micro8Studio-1.1.0-Setup.exe`](https://github.com/bsm3d/Micro-8/releases/download/v1.1.0/Micro8Studio-1.1.0-Setup.exe) | Windows 64-bit installer (recommended). No admin rights required. |
-| [`Micro8Studio-1.1.0-win64-portable.zip`](https://github.com/bsm3d/Micro-8/releases/download/v1.1.0/Micro8Studio-1.1.0-win64-portable.zip) | Portable version: unzip and run, no installation. |
+| [`Micro8Studio-1.2.0-Setup.exe`](https://github.com/bsm3d/Micro-8/releases/download/v1.2.0/Micro8Studio-1.2.0-Setup.exe) | Windows 64-bit installer (recommended). No admin rights required. |
+| [`Micro8Studio-1.2.0-win64-portable.zip`](https://github.com/bsm3d/Micro-8/releases/download/v1.2.0/Micro8Studio-1.2.0-win64-portable.zip) | Portable version: unzip and run, no installation. |
 
 No Python installation or other dependency is needed: everything is included.
 
 ### SHA-256 checksums
 
 ```
-42ed97580159bb8dd908133ef1f2bb9baf5e36b41818fa1055e620410f4f2cf3  Micro8Studio-1.1.0-win64-portable.zip
-55a8cf98e3d8d47a43b73801f4408068fa22db4e64d90851fb8142cd98e7a053  Micro8Studio-1.1.0-Setup.exe
+127610eae1140ccc2bf6347b3ed98ec864dfb60af1192174a56a539ec3a31b36  Micro8Studio-1.2.0-win64-portable.zip
+4bd70d8d6668656d6f7acf0e43073010658d814cd6ebf830734846580eb0f786  Micro8Studio-1.2.0-Setup.exe
 ```
 
 ## Documentation
 
 - [`docs/Studio_README_en.md`](docs/Studio_README_en.md) / [`docs/Studio_README_fr.md`](docs/Studio_README_fr.md):
-  the Micro-8 Studio manual (editor, debugger, emulator, tools), in English and French.
+  the Micro-8 Studio manual, in English and French: getting started, a complete tutorial (the DUNGEON HUNT game),
+  then the reference for the editor, debugger, emulator and tools.
 - [`docs/Micro-8_User_Manual.md`](docs/Micro-8_User_Manual.md): the reference manual for the Micro-8 console
   (Lofi language, API, hardware).
+
+The tutorial's finished game is in [`DungeonHunt/`](../DungeonHunt).
 
 The [`Tracker/`](../Tracker) and [`SidRush/`](../SidRush) folders of this repository hold the corresponding
 Lofi sample programs.

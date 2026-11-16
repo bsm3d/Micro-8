@@ -1,0 +1,811 @@
+// DUNGEON HUNT: find the treasure, smash the ghost generators, eat to stay alive
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Tutorial project for Micro-8 Studio, OS 0.9
+
+// ---- M8LIB: pal - loadPal/savePal: a 48-byte .PAL (16 red, 16 green, 16 blue values 0-7) into or from a palette address
+bool loadPal(text f,nat pal) {
+	import(f,pal,48);
+	return _fError==0;
+}
+
+bool savePal(text f,nat pal) {
+	export(f,pal,48);
+	return _fError==0;
+}
+
+// ---- M8LIB: sprites - loadSprites/saveSprites: a .SPR sprite set (256 bytes a sprite) from sprite 'first', n sprites (0 = whole file)
+bool loadSprites(text f,int first) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveSprites(text f,int first,int n) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	nat sz=(nat)n*256;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: tiles - loadTiles/saveTiles: a .TLS tile set (128 bytes a 16x16 tile) from tile 'first', n tiles (0 = whole file)
+bool loadTiles(text f,int first) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveTiles(text f,int first,int n) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	nat sz=(nat)n*128;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: level - loadLevel/saveLevel: a .LVL map (one tile number a cell) into or from a byte array (&array, its size)
+bool loadLevel(text f,nat dst,nat size) {
+	import(f,dst,size);
+	return _fError==0;
+}
+
+bool saveLevel(text f,nat src,nat size) {
+	export(f,src,size);
+	return _fError==0;
+}
+
+// ---- M8LIB: screen - loadScreen/saveScreen: a .SCR text screen (3200 glyphs, 3200 colours, Fletcher-16 checksum) straight to the screen
+byte scrCheck[2];
+
+// Fletcher-16 of the 6400 bytes of the text screen (glyphs at 0x1200, colours at 0x1E80), as Screen Designer
+int scrFletcher() {
+	int s1=0;
+	int s2=0;
+	for(nat i=0;i<6400;i++) {
+		s1=(s1+peek(0x1200+i))%255;
+		s2=(s2+s1)%255;
+	}
+	return s2*256+s1;
+}
+
+bool saveScreen(text f) {
+	int ck=scrFletcher();
+	int hiPart=ck/256;
+	scrCheck[0]=(byte)(ck-hiPart*256);
+	scrCheck[1]=(byte)hiPart;
+	export(f,0x1200,6400);
+	if(_fError!=0) return false;
+	fOpen(1,f);
+	fWrite(1,&scrCheck,6400,2);
+	fClose(1);
+	return _fError==0;
+}
+
+// a file without the checksum (6400 bytes, older tools) still loads; a damaged one is refused (after it was shown)
+bool loadScreen(text f) {
+	fOpen(0,f);
+	if(_fError!=0) return false;
+	nat sz=fSize(0);
+	if(sz!=6400&&sz!=6402) {
+		fClose(0);
+		return false;
+	}
+	fRead(0,0x1200,0,6400);
+	if(sz==6402) fRead(0,&scrCheck,6400,2);
+	fClose(0);
+	if(sz==6400) return true;
+	int ck=scrFletcher();
+	int want=scrCheck[1];
+	want=want*256+scrCheck[0];
+	return ck==want;
+}
+
+// ---- M8LIB: song - songLoad/songStart/songTick/songStop: play a tracker project (NAME.M8S) - call songTick() in your loop
+// the song's patterns live in the external SRAM page 0x90 (0x24000-0x2A000): keep that area free
+byte sng[384];
+byte sngBank[540];
+int sngLastIns[8];
+int sngStepMs=125;
+nat sngCarry=0;
+int sngBlk=0;
+int sngRow=0;
+int sngPos=0;
+bool sngPlaying=false;
+
+int sngGet(int i) {
+	return sng[i];
+}
+
+int sngClamp(int v,int lo,int hi) {
+	if(v<lo) return lo;
+	if(v>hi) return hi;
+	return v;
+}
+
+void sngSet(int i,int v) {
+	sng[i]=(byte)v;
+}
+
+int sngLen() {
+	return sngClamp(sngGet(5),0,128);
+}
+
+bool sngCont(int b) {
+	if(b<=0||b>63) return false;
+	int v=sng[84+b/8];
+	byte s=(byte)(b%8);
+	return ((v>>s)&1)!=0;
+}
+
+int sngCell(int b,int s,int t,int f) {
+	nat i=(nat)b;
+	i=i*16+(nat)s;
+	i=i*8+(nat)t;
+	i=i*3+(nat)f;
+	return peek(0x3000+i,0x90);
+}
+
+// every value that reaches the sound chips is kept in its range, whatever the file holds
+void sngFix() {
+	sngSet(5,sngClamp(sngGet(5),0,128));
+	sngSet(6,sngClamp(sngGet(6),0,1));
+	sngSet(7,sngClamp(sngGet(7),0,1));
+	for(int t=0;t<8;t++) {
+		sngSet(10+t,sngClamp(sngGet(10+t),0,9));
+		sngSet(18+t,sngClamp(sngGet(18+t),0,7));
+		sngSet(26+t,sngClamp(sngGet(26+t),0,3));
+		sngSet(34+t,sngClamp(sngGet(34+t),0,127));
+		sngSet(42+t,sngClamp(sngGet(42+t),0,1));
+	}
+	for(int i=51;i<59;i++) sngSet(i,sngClamp(sngGet(i),0,15));
+	sngSet(50,sngClamp(sngGet(50),0,3));
+	sngSet(69,sngClamp(sngGet(69),0,3));
+	sngSet(59,sngClamp(sngGet(59),0,1));
+	sngSet(60,sngClamp(sngGet(60),0,3));
+	sngSet(61,sngClamp(sngGet(61),0,3));
+	sngSet(64,sngClamp(sngGet(64),0,3));
+	sngSet(65,sngClamp(sngGet(65),0,15));
+	sngSet(66,sngClamp(sngGet(66),0,15));
+	for(int i=0;i<128;i++) sngSet(128+i,sngClamp(sngGet(128+i),0,63));
+}
+
+void sngVoice(int t) {
+	if(t<6) {
+		ymVoice((byte)t,(byte)sngGet(10+t),(byte)sngGet(18+t),(byte)sngGet(26+t),(byte)sngGet(34+t));
+		sngLastIns[t]=sngGet(10+t);
+	} else if(t==6) {
+		int p=sngGet(40)/8;
+		synVoice(0,(byte)sngGet(50),(byte)sngGet(24),(byte)sngGet(32),(byte)p);
+	} else {
+		int p=sngGet(41)/8;
+		synVoice(1,(byte)sngGet(69),(byte)sngGet(25),(byte)sngGet(33),(byte)p);
+	}
+}
+
+void sngSound() {
+	ymInit(0);
+	synInit(0);
+	for(int t=0;t<8;t++) sngLastIns[t]=-1;
+	synEnv(0,(byte)sngGet(51),(byte)sngGet(52),(byte)sngGet(53),(byte)sngGet(54));
+	synEnv(1,(byte)sngGet(55),(byte)sngGet(56),(byte)sngGet(57),(byte)sngGet(58));
+	synLFO(0,(byte)sngGet(64),(byte)sngGet(65),(byte)sngGet(66));
+	synFilter(sngGet(59)!=0,(byte)sngGet(60),(byte)sngGet(61));
+	poke(0x111D,(byte)sngGet(62));
+	poke(0x111E,(byte)sngGet(63));
+}
+
+void sngNoteOff(int t) {
+	if(t<6) ymNoteOff((byte)t);
+	else {
+		int sv=t-6;
+		synNoteOff((byte)sv);
+	}
+}
+
+void songStop() {
+	sngPlaying=false;
+	for(int t=0;t<8;t++) sngNoteOff(t);
+}
+
+void sngNote(int t,int v,int vel,int ins) {
+	int vc=sngClamp(vel,0,127);
+	int ic=sngClamp(ins,0,9);
+	int n=sngClamp(v-1+sngGet(8)-64,0,127);
+	int mode=sngGet(7);
+	if(t<6) {
+		int oc=sngGet(18+t);
+		if(mode==1) oc=sngClamp(n/12,0,7);
+		if(ic!=sngLastIns[t]||mode==1) {
+			ymVoice((byte)t,(byte)ic,(byte)oc,(byte)sngGet(26+t),(byte)sngGet(34+t));
+			sngLastIns[t]=ic;
+		}
+		if(mode==1) n=n%12;
+		ymNoteOn((byte)t,(byte)n,(byte)vc);
+	} else {
+		int sv=t-6;
+		// the FPGA restarts an envelope / a DPCM sample on a rising trigger: off first
+		synNoteOff((byte)sv);
+		int wave=sngGet(50);
+		if(sv==1) wave=sngGet(69);
+		if(wave==3) synNoteOn((byte)sv,(byte)sngClamp(v-1,0,19),(byte)vc);
+		else if(mode==1) {
+			int p=sngGet(34+t)/8;
+			int nn12=n%12;
+			synVoice((byte)sv,(byte)wave,(byte)sngClamp(n/12,0,7),(byte)sngGet(26+t),(byte)p);
+			synNoteOn((byte)sv,(byte)nn12,(byte)vc);
+		} else synNoteOn((byte)sv,(byte)n,(byte)vc);
+	}
+}
+
+// NAME.M8S as the trackers save it, compressed the C64 way (format: micro8_tracker/README.md)
+byte sngBits[16];
+byte sngBitv[8]={1,2,4,8,16,32,64,128};
+byte sngMagic[4]={77,56,83,49};
+byte sngIo[128];
+int sngIoPos;
+int sngIoLen;
+nat sngFpos;
+nat sngRsize;
+byte sngErr;
+int sngNT;
+int sngNI;
+int sngNV;
+
+nat sngCellAddr(int b,int t,int k) {
+	return 0x3000+(nat)b*384+(nat)k*24+(nat)t*3;
+}
+
+// one cell (note, instrument, velocity) into sngNT, sngNI, sngNV
+void sngRd(int b,int t,int k) {
+	nat a=sngCellAddr(b,t,k);
+	sngNT=peek(a,0x90);
+	sngNI=peek(a+1,0x90);
+	sngNV=peek(a+2,0x90);
+}
+
+void sngWr(int b,int t,int k) {
+	nat a=sngCellAddr(b,t,k);
+	poke(a,(byte)sngNT,0x90);
+	poke(a+1,(byte)sngNI,0x90);
+	poke(a+2,(byte)sngNV,0x90);
+}
+
+bool sngHas(int m,int i) {
+	return (m/sngBitv[i])%2==1;
+}
+
+int sngGet1() {
+	if(sngErr!=0) return 0;
+	if(sngIoPos>=sngIoLen) {
+		if(sngFpos>=sngRsize) {
+			sngErr=253;
+			return 0;
+		}
+		nat n=sngRsize-sngFpos;
+		if(n>128) n=128;
+		fRead(0,&sngIo,sngFpos,n);
+		sngErr=_fError;
+		sngFpos=sngFpos+n;
+		sngIoLen=(int)n;
+		sngIoPos=0;
+	}
+	int v=sngIo[sngIoPos];
+	sngIoPos++;
+	return v;
+}
+
+// file name buffer: a global, not a local text (the machine compiler never frees a local
+// text's room on its stack)
+text fnm={16};
+
+// charge NOM.M8S dans sng[], les patterns et sngBank[] ; 0 si tout va bien (applyBank() apres initSound())
+bool songLoad(text name) {
+	memSet(&fnm,17,0);
+	concat(fnm,name);
+	concat(fnm,".M8S");
+	import(fnm,&sngIo,4);
+	if(_fError!=0) return false;
+	for(int i=0;i<4;i++) {
+		if(sngIo[i]!=sngMagic[i]) return false;
+	}
+	fOpen(0,fnm);
+	sngRsize=fSize(0);
+	sngFpos=4;
+	sngIoPos=0;
+	sngIoLen=0;
+	sngErr=0;
+	memSet(&sng,256,0);
+	memSet(&sng+256,128,64);
+	memSet(0x3000,24576,0,0x90);
+	memSet(&sngBank,540,0);
+	for(int i=0;i<16;i++) sngBits[i]=(byte)sngGet1();
+	for(int i=0;i<128;i++) {
+		if(sngHas(sngBits[i/8],i%8)) sng[i]=(byte)sngGet1();
+	}
+	int len=sngClamp(sng[5],0,128);
+	for(int i=0;i<len;i++) sng[128+i]=(byte)sngGet1();
+	if(sngGet1()==1) {
+		for(int i=0;i<len;i++) sng[256+i]=(byte)sngGet1();
+	}
+	int m0=sngGet1();
+	int m1=sngGet1();
+	for(int i=0;i<10;i++) {
+		if((i<8&&sngHas(m0,i))||(i>=8&&sngHas(m1,i-8))) {
+			for(int p=0;p<54;p++) sngBank[i*54+p]=(byte)sngGet1();
+		}
+	}
+	for(int kb=0;kb<64&&sngErr==0;kb++) {
+		int b=sngGet1();
+		if(b==255) break;
+		if(b>63) sngErr=254;
+		int tm=sngGet1();
+		for(int t=0;t<8&&sngErr==0;t++) {
+			if(sngHas(tm,t)) {
+				int h=sngGet1();
+				if(h==254) {
+					int j=sngGet1();
+					j=j+sngGet1()*256;
+					int d=sngGet1()-128;
+					if(j>=b*8+t) sngErr=252;
+					for(int k=0;k<16&&sngErr==0;k++) {
+						sngRd(j/8,j%8,k);
+						if(sngNT!=0&&sngNT!=255) sngNT=sngNT+d;
+						if(sngNT<0||sngNT>255) sngErr=251;
+						sngWr(b,t,k);
+					}
+				} else if(h<=16) {
+					sngNI=0;
+					sngNV=0;
+					for(int k=0;k<h;k++) {
+						int e=sngGet1();
+						sngNT=sngGet1();
+						if((e/16)%2==1) sngNI=sngGet1();
+						if((e/32)%2==1) sngNV=sngGet1();
+						sngWr(b,t,e%16);
+					}
+				} else sngErr=250;
+			}
+		}
+	}
+	fClose(0);
+	if(sngErr!=0||sngGet(0)!='M'||sngGet(1)!='8'||sngGet(2)!='T') return false;
+	bool bankOk=true;
+	sngFix();
+	sngSound();
+	if(bankOk) {
+		for(int i=0;i<10;i++) {
+			int sum=0;
+			for(int p=0;p<54;p++) sum=sum+sngBank[i*54+p];
+			if(sum>0) {
+				for(int p=0;p<54;p++) ymSetParam((byte)i,(byte)p,sngBank[i*54+p]);
+			}
+		}
+	}
+	for(int t=0;t<8;t++) sngVoice(t);
+	return true;
+}
+
+void songStart() {
+	sngPos=0;
+	sngBlk=sng[128];
+	sngRow=0;
+	int tempo=sngClamp(sngGet(4),40,255);
+	sngStepMs=15000/tempo;
+	sngCarry=(nat)sngStepMs;
+	clkSet();
+	sngPlaying=true;
+}
+
+void sngRowEvents() {
+	int tr=sng[256+sngPos];
+	tr=tr-64;
+	for(int t=0;t<8;t++) {
+		int v=sngCell(sngBlk,sngRow,t,0);
+		if(sngGet(42+t)!=0) v=0;
+		if(v==255) sngNoteOff(t);
+		else if(v!=0) {
+			if(t<6) v=sngClamp(v+tr,1,120);
+			sngNote(t,v,sngCell(sngBlk,sngRow,t,2),sngCell(sngBlk,sngRow,t,1));
+		}
+	}
+}
+
+void sngAdvance() {
+	sngRow++;
+	if(sngRow<16) return;
+	sngRow=0;
+	if(sngLen()<=1) {
+		if(sngCont(sngBlk+1)) sngBlk++;
+		else {
+			sngBlk=sng[128];
+			if(sngGet(6)==0) sngPlaying=false;
+		}
+		return;
+	}
+	sngPos++;
+	if(sngPos>=sngLen()) {
+		sngPos=0;
+		if(sngGet(6)==0) sngPlaying=false;
+	}
+	sngBlk=sng[128+sngPos];
+}
+
+// call often (every frame is fine): plays the rows that are due by the millisecond clock
+void songTick() {
+	if(!sngPlaying) return;
+	nat now=_mSec;
+	nat s=(nat)sngStepMs;
+	if(now+sngCarry<s) return;
+	sngCarry=now+sngCarry-s;
+	if(sngCarry>s) sngCarry=0;
+	clkSet();
+	sngRowEvents();
+	sngAdvance();
+	if(!sngPlaying) songStop();
+}
+
+byte level[379];                 // HUNT.LVL: 4 header bytes, then 25x15 tile numbers
+byte lay[379];                   // HUNT.LAY: the same shape, one bit a layer: 0 solid, 1 treasure, 2 generator, 3 food
+int hx;                          // the warrior's sprite position, in 800x480 pixels
+int hy;
+int fdx;                         // where he faces, and where an axe flies: -1, 0 or 1 on each axis
+int fdy;
+bool faceLeft;
+byte frame;
+byte state;                      // 0 title, 1 playing, 2 won, 3 dead
+int health;                      // drains by 1 a second, 99 at most
+nat lastSec;
+int treasure;                    // chests opened so far
+int score;
+int tx[8];                       // the 8 chests: sprites 15 to 22
+int ty[8];
+bool ton[8];
+int foodX[2];                    // the 2 apples: sprites 23 and 24
+int foodY[2];
+bool foodOn[2];
+int fire;                        // frames before the next axe can be thrown
+int ax[4];                       // the 4 axes in flight: sprites 1 to 4
+int ay[4];
+int adx[4];
+int ady[4];
+bool aon[4];
+int gx[8];                       // the 8 ghosts: sprites 5 to 12
+int gy[8];
+bool gon[8];
+int genX[2];                     // the 2 generators: sprites 13 and 14
+int genY[2];
+int genHp[2];                    // 3 axes destroy one
+int genWait[2];                  // frames before the next ghost
+
+int sign(int v) {
+	if(v>0) return 1;
+	if(v<0) return -1;
+	return 0;
+}
+
+// is the point (sx,sy) of the screen inside a solid cell?
+bool solidAt(int sx,int sy) {
+	if(sx<0||sy<0||sx>=800||sy>=480) return true;
+	int cell=(sy/32)*25+(sx/32);
+	return (lay[4+cell]&1)!=0;
+}
+
+// would a box of 24x24 (at 12,10 inside the sprite) touch a solid cell if the sprite was at px,py?
+bool blocked(int px,int py) {
+	int x0=px-48+12;
+	int y0=py-42+10;
+	return solidAt(x0,y0)||solidAt(x0+23,y0)||solidAt(x0,y0+23)||solidAt(x0+23,y0+23);
+}
+
+// the layers say where things lie: layer 1 the chests, layer 2 the generators, layer 3 the apples
+void placeItems() {
+	int t=0;
+	int g=0;
+	int f=0;
+	for(int i=0;i<375;i++) {
+		int x=40+(i%25)*32;                            // the sprite position that centres a sprite on the cell
+		int y=36+(i/25)*32;
+		if((lay[4+i]&2)!=0&&t<8) {
+			tx[t]=x;
+			ty[t]=y;
+			ton[t]=true;
+			sprPos((byte)(15+t),x,y);
+			t++;
+		}
+		if((lay[4+i]&4)!=0&&g<2) {
+			genX[g]=x;
+			genY[g]=y;
+			genHp[g]=3;
+			genWait[g]=60;
+			sprPos((byte)(13+g),x,y);
+			g++;
+		}
+		if((lay[4+i]&8)!=0&&f<2) {
+			foodX[f]=x;
+			foodY[f]=y;
+			foodOn[f]=true;
+			sprPos((byte)(23+f),x,y);
+			f++;
+		}
+	}
+}
+
+void showStatus() {
+	memSet(0x1200,80,' ');
+	curPos(2,0);
+	print("HEALTH ",health,"   TREASURE ",treasure,"/8   SCORE ",score,"   ");
+	memSet(0x1E80,80,0x12);                        // print paints black on nothing: white on black
+}
+
+// a short sound on FM voice 6, the one the song leaves alone
+void sfx(byte note) {
+	ymVoice(5,1,5,3,110);
+	ymNoteOn(5,note,127);
+}
+
+// the title picture drawn in the Screen designer
+void title() {
+	poke(0x2F00,0b00010000);                       // the text layer alone
+	loadScreen("HUNT.SCR");
+	state=0;
+}
+
+// a black band with a message on the middle row
+void banner(text msg) {
+	nat a=0x1200+18*80+20;
+	memSet(a,40,' ');
+	curPos(24,18);
+	print(msg);
+	memSet(a+0x0C80,40,0x1B);                      // the colours sit 0xC80 after the glyphs: yellow on black
+}
+
+void checkDeath() {
+	if(health<=0) {
+		health=0;
+		state=3;
+		sfx(33);
+		banner("YOU DIED  ENTER: PLAY AGAIN");
+	}
+	showStatus();
+}
+
+void startGame() {
+	memSet(0x1200,3200,' ');                       // an empty text screen, white letters, no background
+	memSet(0x1E80,3200,0x02);
+	poke(0x2F00,0b00011100);                       // text, tiles and sprites on, bitmap off
+	for(int i=0;i<32;i++) sprPos((byte)i,0,0);     // hidden
+	hx=72;                                         // cell (1,1)
+	hy=68;
+	sprPos(0,hx,hy);                               // a hidden sprite sits at (0,0), where all of them touch
+	fdx=1;
+	fdy=0;
+	fire=0;
+	health=99;
+	treasure=0;
+	score=0;
+	for(int i=0;i<4;i++) aon[i]=false;
+	for(int i=0;i<8;i++) gon[i]=false;
+	state=1;
+	lastSec=_time;
+	placeItems();
+	showStatus();
+	sprUpdt();                                     // the sprites the tests below look at are the ones on screen
+}
+
+void setup() {
+	loadPal("HUNT.PAL",0x1170);                    // tiles palette
+	loadPal("HUNT.PLA",0x11D0);                    // sprites palette A
+	loadTiles("HUNT.TLS",0);
+	loadSprites("HUNT.SPR",0);
+	loadLevel("HUNT.LVL",&level,379);
+	loadLevel("HUNT.LAY",&lay,379);
+	areaCpy(&level+4,25,0,0,25,15,0x2B00,32,0,0);  // the map into the tile buffer the screen shows
+	for(int i=0;i<32;i++) {
+		sprPal((byte)i,0);
+		sprPrio((byte)i,0);
+	}
+}
+
+void moveHero() {
+	byte pad=_padLft;
+	int dx=0;
+	int dy=0;
+	if((pad&0b01000000)!=0) dx=-3;
+	if((pad&0b10000000)!=0) dx=3;
+	if((pad&0b00010000)!=0) dy=-3;
+	if((pad&0b00100000)!=0) dy=3;
+	if(dx!=0&&!blocked(hx+dx,hy)) hx+=dx;
+	if(dy!=0&&!blocked(hx,hy+dy)) hy+=dy;
+	if(dx!=0||dy!=0) {
+		fdx=sign(dx);                              // the axe flies where the warrior last walked
+		fdy=sign(dy);
+		sprRef(0,(byte)((frame>>2)&1));            // walk: the two warrior frames
+	}
+	if(dx<0) faceLeft=true;
+	if(dx>0) faceLeft=false;
+	sprFlip(0,faceLeft,false);
+	sprPos(0,hx,hy);
+}
+
+// button A (the Z key) throws an axe, one every 12 frames, 4 in the air at most
+void throwAxe() {
+	if(fire>0) {
+		fire--;
+		return;
+	}
+	if((_padLft&0b00000001)==0) return;
+	for(int i=0;i<4;i++) {
+		if(!aon[i]) {
+			aon[i]=true;
+			ax[i]=hx;
+			ay[i]=hy;
+			adx[i]=fdx*7;
+			ady[i]=fdy*7;
+			fire=12;
+			sfx(72);
+			return;
+		}
+	}
+}
+
+void killAxe(int i) {
+	aon[i]=false;
+	sprPos((byte)(1+i),0,0);
+}
+
+// axes fly straight, kill a ghost, wear a generator down, and break on a wall (the hits are tested first: a generator
+// can stand right against a wall)
+void moveAxes() {
+	for(int i=0;i<4;i++) {
+		if(aon[i]) {
+			ax[i]+=adx[i];
+			ay[i]+=ady[i];
+			sprRef((byte)(1+i),(byte)(2+((frame>>1)&1)));
+			sprPos((byte)(1+i),ax[i],ay[i]);
+			for(int g=0;g<8;g++) {
+				if(aon[i]&&gon[g]&&isSprSpr((byte)(1+i),(byte)(5+g))) {
+					gon[g]=false;
+					sprPos((byte)(5+g),0,0);
+					killAxe(i);
+					score+=10;
+					sfx(60);
+					showStatus();
+				}
+			}
+			for(int g=0;g<2;g++) {
+				if(aon[i]&&genHp[g]>0&&isSprSpr((byte)(1+i),(byte)(13+g))) {
+					genHp[g]--;
+					killAxe(i);
+					if(genHp[g]==0) {
+						sprPos((byte)(13+g),0,0);
+						score+=100;
+						sfx(48);
+						showStatus();
+					}
+				}
+			}
+			if(aon[i]&&solidAt(ax[i]-48+24,ay[i]-42+21)) killAxe(i);
+		}
+	}
+}
+
+// a generator that still stands sends a ghost every 100 frames, if there is room for one
+void spawn() {
+	for(int g=0;g<2;g++) {
+		if(genHp[g]>0) {
+			genWait[g]--;
+			if(genWait[g]<=0) {
+				genWait[g]=100;
+				for(int i=0;i<8;i++) {
+					if(!gon[i]) {
+						gon[i]=true;
+						gx[i]=genX[g];
+						gy[i]=genY[g];
+						break;
+					}
+				}
+			}
+		}
+	}
+}
+
+// a ghost walks to the warrior, slides along the walls, and costs him 10 health when it touches him
+void moveGhosts() {
+	for(int i=0;i<8;i++) {
+		if(gon[i]) {
+			int dx=0;
+			int dy=0;
+			if(hx-gx[i]>2) dx=2;
+			if(hx-gx[i]<-2) dx=-2;
+			if(hy-gy[i]>2) dy=2;
+			if(hy-gy[i]<-2) dy=-2;
+			if(dx!=0&&!blocked(gx[i]+dx,gy[i])) gx[i]+=dx;
+			if(dy!=0&&!blocked(gx[i],gy[i]+dy)) gy[i]+=dy;
+			sprRef((byte)(5+i),(byte)(4+((frame>>3)&1)));
+			sprPos((byte)(5+i),gx[i],gy[i]);
+			if(isSprSpr(0,(byte)(5+i))) {
+				gon[i]=false;
+				sprPos((byte)(5+i),0,0);
+				health-=10;
+				sfx(40);
+				checkDeath();
+			}
+		}
+	}
+}
+
+// the warrior against every chest and apple still there
+void pickItems() {
+	for(int i=0;i<8;i++) {
+		if(ton[i]&&isSprSpr(0,(byte)(15+i))) {
+			ton[i]=false;
+			sprPos((byte)(15+i),0,0);                  // gone
+			treasure++;
+			score+=50;
+			sfx(88);
+			showStatus();
+			if(treasure==8) {
+				state=2;
+				sfx(96);
+				banner("YOU WIN!  ENTER: PLAY AGAIN");
+			}
+		}
+	}
+	for(int i=0;i<2;i++) {
+		if(foodOn[i]&&isSprSpr(0,(byte)(23+i))) {
+			foodOn[i]=false;
+			sprPos((byte)(23+i),0,0);
+			health+=30;
+			sfx(80);
+			if(health>99) health=99;
+			showStatus();
+		}
+	}
+}
+
+// the dungeon drains one point of health a second
+void hunger() {
+	if(_time!=lastSec) {
+		lastSec=_time;
+		health--;
+		checkDeath();
+	}
+}
+
+void glint() {
+	for(int i=0;i<8;i++) sprRef((byte)(15+i),(byte)(8+((frame>>4)&1)));
+	for(int i=0;i<2;i++) {
+		sprRef((byte)(13+i),(byte)(6+((frame>>3)&1)));
+		sprRef((byte)(23+i),10);
+	}
+}
+
+setup();
+if(songLoad("HUNT")) songStart();                // the music of HUNT.M8S, played by M8LIB's player
+title();
+while(_keyDwn!=12) {                             // until ESC
+	songTick();
+	if(state==1) {
+		moveHero();
+		throwAxe();
+		moveAxes();
+		spawn();
+		moveGhosts();
+		if(state==1) pickItems();
+		if(state==1) hunger();
+	} else if((_padLft&0b00000100)!=0) {         // Start (Enter): the title or an end screen leads to a new game
+		startGame();
+	}
+	if(state!=0) glint();
+	vSync();
+	sprUpdt();
+	frame++;
+}
+songStop();                                      // leave the machine as it was found
+ymNoteOff(5);
+poke(0x2F00,0b00010001);
+memSet(0x1200,3200,' ');
+memSet(0x1E80,3200,0x12);
+curPos(0,0);
