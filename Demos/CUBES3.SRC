@@ -1,25 +1,54 @@
-
-//Three nested rotating wireframe cubes
-//By Benoit (BSM) Saint-Moulin, built on the CUBEOPTI.SRC technique by Fabrice Lete
-//Black background: colour 0 of the bitmap palette is set to black for the show and given back at the end
+// CUBES - three nested wireframe cubes turning on three axes, for the Micro-8 (code by Benoit Saint-Moulin)
+// Each cube turns around X, Y and Z at its own speeds. The edges at the back are drawn dimmer than the ones
+// in front, so the eye reads a solid shape. Black background, 60 frames a second.
+// How, integers only (16 bits):
+// - a turn is a 3 x 3 matrix built from a sine table (* 127). Its three columns are where the cube's own X,
+//   Y and Z axes point; multiplied by half the side of the cube, they are three small vectors A, B and C;
+// - the 8 corners of a cube are +-A +-B +-C: no multiplication at all. Only 4 are added up, the other 4 are
+//   their opposites (a cube is its own mirror through its centre);
+// - perspective: x * D / (z + D) with the eye far enough (D = 512, more than 8 times half the side) for the
+//   cubes to keep their shape; written x * 256 / ((z + 512) / 2) so that every product fits in 16 bits;
+// - the 12 edges are drawn from 4 corners only: take the corners with an even number of minus signs, each has
+//   3 edges, and those 4 x 3 edges are all the edges of the cube, each one once;
+// - the corner farthest from the viewer is behind the cube: its 3 edges are the hidden ones, drawn dim.
 
 nat cpuWindow=0x3000;
 byte bmpPageA=0x60;//double buffer
 byte bmpPageB=0x8f;
-
 nat bmpDrawReg=0x2f16;
 nat bmpDisplayReg=0x2f05;
-
 nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
-byte savedR=peek(bmpPal);
-byte savedG=peek(bmpPal+16);
-byte savedB=peek(bmpPal+32);
-poke(bmpPal,0);
-poke(bmpPal+16,0);
-poke(bmpPal+32,0);
-memSet(0x1200,3200,' ');//no text over the cubes
-memSet(cpuWindow,48000,0,bmpPageA);//clear bitmap buffers
+
+// sin * 127 for 256 angles; cos(a) is sin(a + 64)
+int sinT[256]={
+	0,3,6,9,12,16,19,22,25,28,31,34,37,40,43,46,49,51,54,57,
+	60,63,65,68,71,73,76,78,81,83,85,88,90,92,94,96,98,100,102,104,
+	106,107,109,111,112,113,115,116,117,118,120,121,122,122,123,124,125,125,126,126,
+	126,127,127,127,127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,
+	117,116,115,113,112,111,109,107,106,104,102,100,98,96,94,92,90,88,85,83,
+	81,78,76,73,71,68,65,63,60,57,54,51,49,46,43,40,37,34,31,28,
+	25,22,19,16,12,9,6,3,0,-3,-6,-9,-12,-16,-19,-22,-25,-28,-31,-34,
+	-37,-40,-43,-46,-49,-51,-54,-57,-60,-63,-65,-68,-71,-73,-76,-78,-81,-83,-85,-88,
+	-90,-92,-94,-96,-98,-100,-102,-104,-106,-107,-109,-111,-112,-113,-115,-116,-117,-118,-120,-121,
+	-122,-122,-123,-124,-125,-125,-126,-126,-126,-127,-127,-127,-127,-127,-127,-127,-126,-126,-126,-125,
+	-125,-124,-123,-122,-122,-121,-120,-118,-117,-116,-115,-113,-112,-111,-109,-107,-106,-104,-102,-100,
+	-98,-96,-94,-92,-90,-88,-85,-83,-81,-78,-76,-73,-71,-68,-65,-63,-60,-57,-54,-51,
+	-49,-46,-43,-40,-37,-34,-31,-28,-25,-22,-19,-16,-12,-9,-6,-3};
+
+byte savedPal[48];
+// 0 = black; outer cube 1 bright blue, 2 dim; middle 3 bright cyan, 4 dim; inner 5 white, 6 grey
+byte cubePal[48]={
+	0,2,0,0,0,7,3,0,0,0,0,0,0,0,0,0,
+	0,4,1,7,2,7,3,0,0,0,0,0,0,0,0,0,
+	0,7,3,7,3,7,3,0,0,0,0,0,0,0,0,0};
+
+memCpy(bmpPal,&savedPal,48);
+poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
+memSet(0x1200,3200,' ');            // no text over the cubes
+memSet(cpuWindow,48000,0,bmpPageA);
 memSet(cpuWindow,48000,0,bmpPageB);
+memCpy(&cubePal,bmpPal,48);
+
 bool swapState;
 void swap()
 {
@@ -37,85 +66,123 @@ void swap()
 }
 swap();
 
-real TWOPI = 3.1416 * 2;
-real STEP = TWOPI/100;
+// a corner is numbered by its signs: bit 0 = +A, bit 1 = +B, bit 2 = +C
+int vx[8];
+int vy[8];
+int vz[8];
+int px[8];          // on screen
+int py[8];
+int far;            // the corner farthest from the viewer
+byte bright;
 
-int vt1[16];//transformed vertices, outer cube
-int vt2[16];//middle cube
-int vt3[16];//inner cube
-int vp1[16];//previous vertices (to clear)
-int vp2[16];
-int vp3[16];
-
-byte e[24]={0,1,1,3,3,2,2,0,4,5,5,7,7,6,6,4,0,4,1,5,3,7,2,6};
-
-real rot1;
-real rot2;
-real rot3;
-
-void renderCube(byte col, int v[])
+void edge(int a,int b)
 {
-	for(int i;i<#e;i+=2)
-	{
-		byte a=e[i]<<1;
-		byte b=e[i+1]<<1;
-		line(v[a],v[a+1],v[b],v[b+1],col);
-	}
+	byte c=bright;
+	if(a==far || b==far) c=bright+1;
+	line(px[a],py[a],px[b],py[b],c);
 }
 
-void project(real rot, real scale, int v[])
+// a cube of half side `half`, turned by the angles ax, ay, az (table steps), in the colours col and col + 1
+void cube(int half,byte ax,byte ay,byte az,byte col)
 {
-	real s=sin(rot);
-	real c=cos(rot);
-	for(int i;i<8;i++)
+	// cos(a) = sin(a + a quarter turn); a byte goes round by itself when it is stored
+	byte qx=ax+64;
+	byte qy=ay+64;
+	byte qz=az+64;
+	int sa=sinT[ax];
+	int ca=sinT[qx];
+	int sb=sinT[ay];
+	int cb=sinT[qy];
+	int sc=sinT[az];
+	int cc=sinT[qz];
+	int sasb=(sa*sb)/127;
+	int casb=(ca*sb)/127;
+	// A, B, C: the columns of the matrix Rz * Ry * Rx, times half the side
+	int ax0=(((cb*cc)/127)*half)/127;
+	int ay0=(((cb*sc)/127)*half)/127;
+	int az0=(0-sb*half)/127;
+	int bx0=(((sasb*cc-ca*sc)/127)*half)/127;
+	int by0=(((sasb*sc+ca*cc)/127)*half)/127;
+	int bz0=(((sa*cb)/127)*half)/127;
+	int cx0=(((casb*cc+sa*sc)/127)*half)/127;
+	int cy0=(((casb*sc-sa*cc)/127)*half)/127;
+	int cz0=(((ca*cb)/127)*half)/127;
+	// 4 corners by addition, the 4 opposite ones by a change of sign
+	vx[7]=ax0+bx0+cx0;
+	vy[7]=ay0+by0+cy0;
+	vz[7]=az0+bz0+cz0;
+	vx[6]=bx0+cx0-ax0;
+	vy[6]=by0+cy0-ay0;
+	vz[6]=bz0+cz0-az0;
+	vx[5]=ax0+cx0-bx0;
+	vy[5]=ay0+cy0-by0;
+	vz[5]=az0+cz0-bz0;
+	vx[4]=cx0-ax0-bx0;
+	vy[4]=cy0-ay0-by0;
+	vz[4]=cz0-az0-bz0;
+	far=7;
+	for(int i=0;i<4;i++)
 	{
-		real x=(i&1<<1-1)*scale;
-		real y=(i&2-1)*scale;
-		real z=(i&4>>1-1)*scale;
-		real tx=c*x-s*z;
-		real ty=s*-s*x+c*y+c*-s*z;
-		real tz=s*c*x+s*y+c*c*z;
-		tz+=s*6+14;
-		int i2=i<<1;
-		v[i2]=200+(int)(tx*400/tz/1.666);
-		v[i2+1]=120+(int)(ty*240/tz);
+		int j=7-i;
+		vx[i]=0-vx[j];
+		vy[i]=0-vy[j];
+		vz[i]=0-vz[j];
 	}
+	for(int i=0;i<8;i++)
+	{
+		int w=(vz[i]+512)>>1;
+		px[i]=200+(vx[i]*256)/w;
+		py[i]=120-(vy[i]*256)/w;
+		if(vz[i]>vz[far]) far=i;
+	}
+	bright=col;
+	edge(0,1);
+	edge(0,2);
+	edge(0,4);
+	edge(3,2);
+	edge(3,1);
+	edge(3,7);
+	edge(5,4);
+	edge(5,7);
+	edge(5,1);
+	edge(6,7);
+	edge(6,4);
+	edge(6,2);
 }
+
+byte a1;
+byte b1;
+byte c1;
+byte a2;
+byte b2;
+byte c2;
+byte a3;
+byte b3;
+byte c3;
 
 while(_keyDwn!=12)
 {
-	project(rot1,1.0,vt1);
-	project(rot2,0.7,vt2);
-	project(rot3,0.4,vt3);
-	renderCube(4,vt1);//outer: blue
-	renderCube(7,vt2);//middle: cyan
-	renderCube(2,vt3);//inner: white
-
+	cube(62,a1,b1,c1,1);
+	cube(40,a2,b2,c2,3);
+	cube(21,a3,b3,c3,5);
 	vSync();
 	swap();
-
-	renderCube(0,vp1);//clear previous
-	renderCube(0,vp2);
-	renderCube(0,vp3);
-	memCpy(&vt1,&vp1,32);//store for next clear
-	memCpy(&vt2,&vp2,32);
-	memCpy(&vt3,&vp3,32);
-
-	rot1+=STEP;
-	rot2-=STEP*1.3;
-	rot3+=STEP*0.6;
-	if(rot1>=TWOPI) rot1=0.0;
-	if(rot1<0.0) rot1=rot1+TWOPI;
-	if(rot2>=TWOPI) rot2=0.0;
-	if(rot2<0.0) rot2=rot2+TWOPI;
-	if(rot3>=TWOPI) rot3=0.0;
-	if(rot3<0.0) rot3=rot3+TWOPI;
+	memSet(cpuWindow,48000,0,peek(bmpDrawReg));//clear for the next frame
+	// each cube has its own speeds; a byte goes round by itself (256 steps = a turn)
+	a1=a1+1;
+	b1=b1+2;
+	c1=c1+1;
+	a2=a2+254;
+	b2=b2+1;
+	c2=c2+3;
+	a3=a3+3;
+	b3=b3+253;
+	c3=c3+2;
 }
 
-//leave the machine as it was
+// leave the machine as it was
 poke(bmpDisplayReg,bmpPageA);
 poke(bmpDrawReg,bmpPageA);
 memSet(cpuWindow,48000,0,bmpPageA);
-poke(bmpPal,savedR);
-poke(bmpPal+16,savedG);
-poke(bmpPal+32,savedB);
+memCpy(&savedPal,bmpPal,48);
+poke(0x2F0B,peek(0x2F0B)|0x80);

@@ -1,8 +1,11 @@
-// DOTS TUNNEL - a moving dot tunnel for the Micro-8 (code by Benoit Saint-Moulin)
-// Direct port of DemosScenes/Codes/Dots Tunnel (BSM3D-dot-tunnel.html): 16 circles of 32 points on the same
-// 32 rays, radius = MIN + (MAX - MIN) / (z + 1 + move), the circles fly towards the viewer and wrap, each one
-// breathes a little (wobble), the points get brighter and bigger as they come closer. Black background.
-// 30 frames a second: every speed of the 60 Hz original is doubled.
+// DOTS TUNNEL - a winding dot tunnel for the Micro-8 (code by Benoit Saint-Moulin)
+// Grown from DemosScenes/Codes/Dots Tunnel (BSM3D-dot-tunnel.html), where the tunnel is a straight shaft seen
+// from above. Here it is a real tunnel: 18 circles of 32 points from the horizon to the edge of the screen
+// (radius = K / depth), the far end swings left, right, up and down so the tunnel bends ahead like a road,
+// every circle is turned a little more than the one before so the 32 rays become spirals, the whole thing
+// turns slowly, and the colour travels around the hue circle. Black background, 30 frames a second.
+// How: a circle of 32 points is 8 points turned 4 times by a quarter turn, so 8 pairs of multiplications
+// draw 32 points; the turn of a circle is an index in a table of 64 angles (a quarter turn in 64 steps).
 
 nat cpuWindow=0x3000;
 byte bmpPageA=0x60;//double buffer
@@ -11,17 +14,46 @@ nat bmpDrawReg=0x2f16;
 nat bmpDisplayReg=0x2f05;
 nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
 
-// the palette: 0 = black background, 1 (far) to 7 (near) = the pink ramp of the original (r, r/2, r*0.8)
+// cos and sin * 127 of 64 angles from 0 to a quarter turn (127 * radius stays in an int: 16 bits)
+int cosT[64]={
+	127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,
+	117,116,115,113,112,111,109,107,106,104,102,100,98,96,94,92,
+	90,88,85,83,81,78,76,73,71,68,65,63,60,57,54,51,
+	49,46,43,40,37,34,31,28,25,22,19,16,12,9,6,3};
+int sinT[64]={
+	0,3,6,9,12,16,19,22,25,28,31,34,37,40,43,46,
+	49,51,54,57,60,63,65,68,71,73,76,78,81,83,85,88,
+	90,92,94,96,98,100,102,104,106,107,109,111,112,113,115,116,
+	117,118,120,121,122,122,123,124,125,125,126,126,126,127,127,127};
+// 24 hues: r g b of the nearest, brightest points
+byte hues[72]={
+	7,2,2,7,3,2,7,4,2,7,6,2,7,7,2,6,7,2,4,7,2,3,7,2,
+	2,7,2,2,7,3,2,7,4,2,7,6,2,7,7,2,6,7,2,4,7,2,3,7,
+	2,2,7,3,2,7,4,2,7,6,2,7,7,2,7,7,2,6,7,2,4,7,2,3};
+
 byte savedPal[48];
-byte tunnelPal[48]={
-	0,1,2,3,4,5,6,7,7,7,7,7,7,7,7,7,
-	0,0,1,1,2,2,3,4,4,4,4,4,4,4,4,4,
-	0,1,2,2,3,4,5,6,6,6,6,6,6,6,6,6};
 memCpy(bmpPal,&savedPal,48);
-memCpy(&tunnelPal,bmpPal,48);
 memSet(0x1200,3200,' ');//no text over the tunnel
 memSet(cpuWindow,48000,0,bmpPageA);
 memSet(cpuWindow,48000,0,bmpPageB);
+
+// colour 0 = black background, 1 (far) to 7 (near) = a ramp of one hue: the far points stay visible
+int lvl[8]={0,2,3,4,5,5,6,7};
+void setHue(int h)
+{
+	nat p=(nat)(h*3);
+	poke(bmpPal,0);
+	poke(bmpPal+16,0);
+	poke(bmpPal+32,0);
+	for(int i=1;i<8;i++)
+	{
+		nat n=(nat)i;
+		poke(bmpPal+n,(byte)((hues[p]*lvl[i]+3)/7));
+		poke(bmpPal+16+n,(byte)((hues[p+1]*lvl[i]+3)/7));
+		poke(bmpPal+32+n,(byte)((hues[p+2]*lvl[i]+3)/7));
+	}
+}
+setHue(20);
 
 bool swapState;
 void swap()
@@ -40,135 +72,158 @@ void swap()
 }
 swap();
 
-byte NC=16;//circles in the tunnel
+int NC=18;//circles in the tunnel
 int CX=200;
 int CY=120;
-real MAXR=108.0;//0.45 of the screen height, as in the original
-real MINR=3.0;
-real ZSPEED=0.006;
-real MOTION=0.02;
-
-// 32 points a circle = 8 times the same 5 angles (0, 11.25, 22.5, 33.75 and 45 degrees): cos and sin * 256
-int ca1=251;
-int sa1=50;
-int ca2=237;
-int sa2=98;
-int ca3=213;
-int sa3=142;
-int ca4=181;
-
-real circZ[16];
+real ZSPEED=0.008;
+real circZ[18];
 for(int i;i<NC;i++) circZ[i]=(real)(i+1)/(real)NC;
 
-real moveTime;
-
-void ring(int r,byte c)
+void ring(int r,int k,byte c)
 {
-	int a=(ca1*r)>>8;
-	int b=(sa1*r)>>8;
-	plot(CX+r,CY,c);
-	plot(CX-r,CY,c);
-	plot(CX,CY+r,c);
-	plot(CX,CY-r,c);
+	int a;
+	int b;
+	a=(cosT[k]*r)>>7;
+	b=(sinT[k]*r)>>7;
 	plot(CX+a,CY+b,c);
-	plot(CX-a,CY+b,c);
-	plot(CX+a,CY-b,c);
-	plot(CX-a,CY-b,c);
-	plot(CX+b,CY+a,c);
 	plot(CX-b,CY+a,c);
+	plot(CX-a,CY-b,c);
 	plot(CX+b,CY-a,c);
-	plot(CX-b,CY-a,c);
-	a=(ca2*r)>>8;
-	b=(sa2*r)>>8;
+	a=(cosT[k+8]*r)>>7;
+	b=(sinT[k+8]*r)>>7;
 	plot(CX+a,CY+b,c);
-	plot(CX-a,CY+b,c);
-	plot(CX+a,CY-b,c);
-	plot(CX-a,CY-b,c);
-	plot(CX+b,CY+a,c);
 	plot(CX-b,CY+a,c);
+	plot(CX-a,CY-b,c);
 	plot(CX+b,CY-a,c);
-	plot(CX-b,CY-a,c);
-	a=(ca3*r)>>8;
-	b=(sa3*r)>>8;
+	a=(cosT[k+16]*r)>>7;
+	b=(sinT[k+16]*r)>>7;
 	plot(CX+a,CY+b,c);
-	plot(CX-a,CY+b,c);
-	plot(CX+a,CY-b,c);
-	plot(CX-a,CY-b,c);
-	plot(CX+b,CY+a,c);
 	plot(CX-b,CY+a,c);
+	plot(CX-a,CY-b,c);
 	plot(CX+b,CY-a,c);
-	plot(CX-b,CY-a,c);
-	a=(ca4*r)>>8;
-	plot(CX+a,CY+a,c);
-	plot(CX-a,CY+a,c);
-	plot(CX+a,CY-a,c);
-	plot(CX-a,CY-a,c);
+	a=(cosT[k+24]*r)>>7;
+	b=(sinT[k+24]*r)>>7;
+	plot(CX+a,CY+b,c);
+	plot(CX-b,CY+a,c);
+	plot(CX-a,CY-b,c);
+	plot(CX+b,CY-a,c);
+	a=(cosT[k+32]*r)>>7;
+	b=(sinT[k+32]*r)>>7;
+	plot(CX+a,CY+b,c);
+	plot(CX-b,CY+a,c);
+	plot(CX-a,CY-b,c);
+	plot(CX+b,CY-a,c);
+	a=(cosT[k+40]*r)>>7;
+	b=(sinT[k+40]*r)>>7;
+	plot(CX+a,CY+b,c);
+	plot(CX-b,CY+a,c);
+	plot(CX-a,CY-b,c);
+	plot(CX+b,CY-a,c);
+	a=(cosT[k+48]*r)>>7;
+	b=(sinT[k+48]*r)>>7;
+	plot(CX+a,CY+b,c);
+	plot(CX-b,CY+a,c);
+	plot(CX-a,CY-b,c);
+	plot(CX+b,CY-a,c);
+	a=(cosT[k+56]*r)>>7;
+	b=(sinT[k+56]*r)>>7;
+	plot(CX+a,CY+b,c);
+	plot(CX-b,CY+a,c);
+	plot(CX-a,CY-b,c);
+	plot(CX+b,CY-a,c);
 }
 
 // the near points are 2 pixels wide and high
-void ringBig(int r,byte c)
+void ringBig(int r,int k,byte c)
 {
-	int a=(ca1*r)>>8;
-	int b=(sa1*r)>>8;
-	box(CX+r,CY,CX+r+1,CY+1,c);
-	box(CX-r,CY,CX-r+1,CY+1,c);
-	box(CX,CY+r,CX+1,CY+r+1,c);
-	box(CX,CY-r,CX+1,CY-r+1,c);
+	int a;
+	int b;
+	a=(cosT[k]*r)>>7;
+	b=(sinT[k]*r)>>7;
 	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
-	box(CX-a,CY+b,CX-a+1,CY+b+1,c);
-	box(CX+a,CY-b,CX+a+1,CY-b+1,c);
-	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
-	box(CX+b,CY+a,CX+b+1,CY+a+1,c);
 	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
 	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
-	box(CX-b,CY-a,CX-b+1,CY-a+1,c);
-	a=(ca2*r)>>8;
-	b=(sa2*r)>>8;
+	a=(cosT[k+8]*r)>>7;
+	b=(sinT[k+8]*r)>>7;
 	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
-	box(CX-a,CY+b,CX-a+1,CY+b+1,c);
-	box(CX+a,CY-b,CX+a+1,CY-b+1,c);
-	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
-	box(CX+b,CY+a,CX+b+1,CY+a+1,c);
 	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
 	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
-	box(CX-b,CY-a,CX-b+1,CY-a+1,c);
-	a=(ca3*r)>>8;
-	b=(sa3*r)>>8;
+	a=(cosT[k+16]*r)>>7;
+	b=(sinT[k+16]*r)>>7;
 	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
-	box(CX-a,CY+b,CX-a+1,CY+b+1,c);
-	box(CX+a,CY-b,CX+a+1,CY-b+1,c);
-	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
-	box(CX+b,CY+a,CX+b+1,CY+a+1,c);
 	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
 	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
-	box(CX-b,CY-a,CX-b+1,CY-a+1,c);
-	a=(ca4*r)>>8;
-	box(CX+a,CY+a,CX+a+1,CY+a+1,c);
-	box(CX-a,CY+a,CX-a+1,CY+a+1,c);
-	box(CX+a,CY-a,CX+a+1,CY-a+1,c);
-	box(CX-a,CY-a,CX-a+1,CY-a+1,c);
+	a=(cosT[k+24]*r)>>7;
+	b=(sinT[k+24]*r)>>7;
+	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
+	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
+	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
+	a=(cosT[k+32]*r)>>7;
+	b=(sinT[k+32]*r)>>7;
+	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
+	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
+	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
+	a=(cosT[k+40]*r)>>7;
+	b=(sinT[k+40]*r)>>7;
+	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
+	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
+	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
+	a=(cosT[k+48]*r)>>7;
+	b=(sinT[k+48]*r)>>7;
+	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
+	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
+	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
+	a=(cosT[k+56]*r)>>7;
+	b=(sinT[k+56]*r)>>7;
+	box(CX+a,CY+b,CX+a+1,CY+b+1,c);
+	box(CX-b,CY+a,CX-b+1,CY+a+1,c);
+	box(CX-a,CY-b,CX-a+1,CY-b+1,c);
+	box(CX+b,CY-a,CX+b+1,CY-a+1,c);
 }
+
+real bendX;     // the swing of the far end, left and right
+real bendY;     // up and down, a little faster
+real turn;      // the slow turn of the whole tunnel, in table steps
+int hue=20;
+int hueT;
 
 void frame()
 {
-	real moveOffset=sin(moveTime)*MOTION;
 	for(int i=0;i<NC;i++)
 	{
 		real z=circZ[i]-ZSPEED;
 		if(z<=0.0) z=z+1.0;
 		circZ[i]=z;
-		real radius=MINR+(MAXR-MINR)/(z+1.0+moveOffset);
-		radius=radius*(1.0+sin(moveTime*2.0+z*4.0)*MOTION);
-		int r=(int)radius;
-		real depth=z+moveOffset;
-		int ci=7-(int)(depth*7.0);
+		// the centre of the circle: on the axis when near, swinging when far
+		CX=200+(int)(z*75.0*sin(bendX+z*3.0));
+		CY=120+(int)(z*42.0*cos(bendY+z*2.2));
+		int r=(int)(26.0/(z+0.11));
+		int k=((int)(turn+z*40.0))%8;
+		int ci=7-(int)(z*7.0);
 		if(ci<1) ci=1;
-		if(ci>7) ci=7;
-		if(depth<0.34) ringBig(r,(byte)ci);
-		else ring(r,(byte)ci);
+		if(z<0.22) ringBig(r,k,(byte)ci);
+		else ring(r,k,(byte)ci);
 	}
-	moveTime=moveTime+0.032;
-	if(moveTime>=6.2832) moveTime=moveTime-6.2832;
+	bendX=bendX+0.035;
+	if(bendX>=6.2832) bendX=bendX-6.2832;
+	bendY=bendY+0.046;
+	if(bendY>=6.2832) bendY=bendY-6.2832;
+	turn=turn+0.15;
+	if(turn>=8.0) turn=turn-8.0;
+	hueT++;
+	if(hueT>=20)
+	{
+		hueT=0;
+		hue=(hue+1)%24;
+		setHue(hue);
+	}
 }
 
 vCount(2);

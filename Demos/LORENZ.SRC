@@ -1,0 +1,203 @@
+// LORENZ - the Lorenz attractor and the butterfly effect, for the Micro-8 (code by Benoit Saint-Moulin)
+// Two points follow the same three equations, computed live:
+//     dx = 10 (y - x)     dy = x (28 - z) - y     dz = x y - 8/3 z
+// They start a tenth apart. For a few seconds they fly together, then they part for good: the same law,
+// almost the same start, another story. That is the butterfly effect, and the shape both keep drawing
+// is the attractor. Each point leaves a trail of 150 positions, bright at the head and fading behind (gold for
+// one, blue for the other), and the view turns around the vertical axis so the two wings show their depth.
+// Black background, 30 frames a second.
+// How: the equations use the machine's reals (16 bit floats: two points closer than their precision can
+// land on the very same value and never part again, so the program pushes them apart if that happens);
+// each position is kept as 3 small integers, and
+// a frame only turns them (2 multiplications a point, cos and sin * 127 from a table) and joins them with
+// draw().
+
+nat cpuWindow=0x3000;
+byte bmpPageA=0x60;//double buffer
+byte bmpPageB=0x8f;
+nat bmpDrawReg=0x2f16;
+nat bmpDisplayReg=0x2f05;
+nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
+
+int cosT[256]={
+	127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,117,116,115,113,
+	112,111,109,107,106,104,102,100,98,96,94,92,90,88,85,83,81,78,76,73,
+	71,68,65,63,60,57,54,51,49,46,43,40,37,34,31,28,25,22,19,16,
+	12,9,6,3,0,-3,-6,-9,-12,-16,-19,-22,-25,-28,-31,-34,-37,-40,-43,-46,
+	-49,-51,-54,-57,-60,-63,-65,-68,-71,-73,-76,-78,-81,-83,-85,-88,-90,-92,-94,-96,
+	-98,-100,-102,-104,-106,-107,-109,-111,-112,-113,-115,-116,-117,-118,-120,-121,-122,-122,-123,-124,
+	-125,-125,-126,-126,-126,-127,-127,-127,-127,-127,-127,-127,-126,-126,-126,-125,-125,-124,-123,-122,
+	-122,-121,-120,-118,-117,-116,-115,-113,-112,-111,-109,-107,-106,-104,-102,-100,-98,-96,-94,-92,
+	-90,-88,-85,-83,-81,-78,-76,-73,-71,-68,-65,-63,-60,-57,-54,-51,-49,-46,-43,-40,
+	-37,-34,-31,-28,-25,-22,-19,-16,-12,-9,-6,-3,0,3,6,9,12,16,19,22,
+	25,28,31,34,37,40,43,46,49,51,54,57,60,63,65,68,71,73,76,78,
+	81,83,85,88,90,92,94,96,98,100,102,104,106,107,109,111,112,113,115,116,
+	117,118,120,121,122,122,123,124,125,125,126,126,126,127,127,127};
+int sinT[256]={
+	0,3,6,9,12,16,19,22,25,28,31,34,37,40,43,46,49,51,54,57,
+	60,63,65,68,71,73,76,78,81,83,85,88,90,92,94,96,98,100,102,104,
+	106,107,109,111,112,113,115,116,117,118,120,121,122,122,123,124,125,125,126,126,
+	126,127,127,127,127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,
+	117,116,115,113,112,111,109,107,106,104,102,100,98,96,94,92,90,88,85,83,
+	81,78,76,73,71,68,65,63,60,57,54,51,49,46,43,40,37,34,31,28,
+	25,22,19,16,12,9,6,3,0,-3,-6,-9,-12,-16,-19,-22,-25,-28,-31,-34,
+	-37,-40,-43,-46,-49,-51,-54,-57,-60,-63,-65,-68,-71,-73,-76,-78,-81,-83,-85,-88,
+	-90,-92,-94,-96,-98,-100,-102,-104,-106,-107,-109,-111,-112,-113,-115,-116,-117,-118,-120,-121,
+	-122,-122,-123,-124,-125,-125,-126,-126,-126,-127,-127,-127,-127,-127,-127,-127,-126,-126,-126,-125,
+	-125,-124,-123,-122,-122,-121,-120,-118,-117,-116,-115,-113,-112,-111,-109,-107,-106,-104,-102,-100,
+	-98,-96,-94,-92,-90,-88,-85,-83,-81,-78,-76,-73,-71,-68,-65,-63,-60,-57,-54,-51,
+	-49,-46,-43,-40,-37,-34,-31,-28,-25,-22,-19,-16,-12,-9,-6,-3};
+// colour of a trail position by age: 1 (the oldest) to 7 (the head)
+byte ageCol[150]={
+	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,
+	2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+	3,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,
+	5,5,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+	6,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7};
+
+byte savedPal[48];
+// 0 = black, 1 to 7 = gold trail (dark to bright), 8 to 14 = blue trail, 15 = white heads
+byte lorenzPal[48]={
+	0,1,2,3,4,5,6,7,0,0,0,1,2,4,6,7,
+	0,0,1,2,3,4,5,6,0,1,2,3,4,5,6,7,
+	0,0,0,0,0,1,1,2,2,3,4,5,6,7,7,7};
+
+int N=150;
+// the trails: x * 5, y * 4, z * 4.4 as integers, a ring of N positions for each point
+int ax[150];
+int ay[150];
+int az[150];
+int bx[150];
+int by[150];
+int bz[150];
+int head;                           // the newest position in the rings
+
+real x1=1.0;
+real y1=1.0;
+real z1=20.0;
+real x2=1.1;                        // the second point: a tenth away
+real y2=1.0;
+real z2=20.0;
+real DT=0.01;
+
+memCpy(bmpPal,&savedPal,48);
+poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
+memSet(0x1200,3200,' ');            // no text over the picture
+memSet(cpuWindow,48000,0,bmpPageA);
+memSet(cpuWindow,48000,0,bmpPageB);
+memCpy(&lorenzPal,bmpPal,48);
+
+bool swapState;
+void swap()
+{
+	if(swapState)
+	{
+		poke(bmpDisplayReg,bmpPageA);//display
+		poke(bmpDrawReg,bmpPageB);//draw
+	}
+	else
+	{
+		poke(bmpDisplayReg,bmpPageB);//display
+		poke(bmpDrawReg,bmpPageA);//draw
+	}
+	swapState=!swapState;
+}
+swap();
+
+// one step of the equations for both points, and their new positions in the rings
+void step()
+{
+	real dx=10.0*(y1-x1);
+	real dy=x1*(28.0-z1)-y1;
+	real dz=x1*y1-2.667*z1;
+	x1=x1+dx*DT;
+	y1=y1+dy*DT;
+	z1=z1+dz*DT;
+	dx=10.0*(y2-x2);
+	dy=x2*(28.0-z2)-y2;
+	dz=x2*y2-2.667*z2;
+	x2=x2+dx*DT;
+	y2=y2+dy*DT;
+	z2=z2+dz*DT;
+	if(x1==x2 && y1==y2 && z1==z2) x2=x2+0.25;      // fell on the same value: apart again
+	head++;
+	if(head>=N) head=0;
+	ax[head]=(int)(x1*5.0);
+	ay[head]=(int)(y1*4.0);
+	az[head]=(int)(z1*4.4);
+	bx[head]=(int)(x2*5.0);
+	by[head]=(int)(y2*4.0);
+	bz[head]=(int)(z2*4.4);
+}
+
+byte view;          // the angle of the view, a table step
+int c;              // its cos and sin * 127
+int s;
+
+void trails()
+{
+	// from the oldest position (just after the head) to the head, the ring in two runs
+	int age=0;
+	int i=head+1;
+	if(i>=N) i=0;
+	skip(200+(ax[i]*c-ay[i]*s)/128,230-az[i]);
+	for(int j=i;j<N;j++)
+	{
+		draw(200+(ax[j]*c-ay[j]*s)/128,230-az[j],ageCol[age]);
+		age++;
+	}
+	for(int j=0;j<i;j++)
+	{
+		draw(200+(ax[j]*c-ay[j]*s)/128,230-az[j],ageCol[age]);
+		age++;
+	}
+	int hx=200+(ax[head]*c-ay[head]*s)/128;
+	int hy=230-az[head];
+	box(hx-1,hy-1,hx+1,hy+1,15);
+	age=0;
+	skip(200+(bx[i]*c-by[i]*s)/128,230-bz[i]);
+	for(int j=i;j<N;j++)
+	{
+		draw(200+(bx[j]*c-by[j]*s)/128,230-bz[j],ageCol[age]+7);
+		age++;
+	}
+	for(int j=0;j<i;j++)
+	{
+		draw(200+(bx[j]*c-by[j]*s)/128,230-bz[j],ageCol[age]+7);
+		age++;
+	}
+	hx=200+(bx[head]*c-by[head]*s)/128;
+	hy=230-bz[head];
+	box(hx-1,hy-1,hx+1,hy+1,15);
+}
+
+// fill the trails before the first picture
+for(int k=0;k<N;k++) step();
+
+int t;
+vCount(2);
+while(_keyDwn!=12)
+{
+	step();
+	step();
+	c=cosT[view];
+	s=sinT[view];
+	trails();
+	vSync();
+	swap();
+	memSet(cpuWindow,48000,0,peek(bmpDrawReg));//clear for the next frame
+	t++;
+	if(t>=2)                        // the view turns one table step every 2 frames: a turn in 17 seconds
+	{
+		t=0;
+		view++;
+	}
+}
+
+// leave the machine as it was
+vCount(1);
+poke(bmpDisplayReg,bmpPageA);
+poke(bmpDrawReg,bmpPageA);
+memSet(cpuWindow,48000,0,bmpPageA);
+memCpy(&savedPal,bmpPal,48);
+poke(0x2F0B,peek(0x2F0B)|0x80);
