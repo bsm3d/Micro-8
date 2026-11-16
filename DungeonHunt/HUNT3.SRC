@@ -1,0 +1,392 @@
+// DUNGEON HUNT, step 3: axes, ghosts and their generators
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Tutorial project for Micro-8 Studio, OS 0.9
+
+// ---- M8LIB: pal - loadPal/savePal: a 48-byte .PAL (16 red, 16 green, 16 blue values 0-7) into or from a palette address
+bool loadPal(text f,nat pal) {
+	import(f,pal,48);
+	return _fError==0;
+}
+
+bool savePal(text f,nat pal) {
+	export(f,pal,48);
+	return _fError==0;
+}
+
+// ---- M8LIB: sprites - loadSprites/saveSprites: a .SPR sprite set (256 bytes a sprite) from sprite 'first', n sprites (0 = whole file)
+bool loadSprites(text f,int first) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveSprites(text f,int first,int n) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	nat sz=(nat)n*256;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: tiles - loadTiles/saveTiles: a .TLS tile set (128 bytes a 16x16 tile) from tile 'first', n tiles (0 = whole file)
+bool loadTiles(text f,int first) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveTiles(text f,int first,int n) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	nat sz=(nat)n*128;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: level - loadLevel/saveLevel: a .LVL map (one tile number a cell) into or from a byte array (&array, its size)
+bool loadLevel(text f,nat dst,nat size) {
+	import(f,dst,size);
+	return _fError==0;
+}
+
+bool saveLevel(text f,nat src,nat size) {
+	export(f,src,size);
+	return _fError==0;
+}
+
+byte level[379];                 // HUNT.LVL: 4 header bytes, then 25x15 tile numbers
+byte lay[379];                   // HUNT.LAY: the same shape, one bit a layer: 0 solid, 1 treasure, 2 generator, 3 food
+int hx;                          // the warrior's sprite position, in 800x480 pixels
+int hy;
+int fdx;                         // where he faces, and where an axe flies: -1, 0 or 1 on each axis
+int fdy;
+bool faceLeft;
+byte frame;
+byte state;                      // 1 playing, 2 won, 3 dead
+int health;                      // drains by 1 a second, 99 at most
+nat lastSec;
+int treasure;                    // chests opened so far
+int score;
+int tx[8];                       // the 8 chests: sprites 15 to 22
+int ty[8];
+bool ton[8];
+int foodX[2];                    // the 2 apples: sprites 23 and 24
+int foodY[2];
+bool foodOn[2];
+int fire;                        // frames before the next axe can be thrown
+int ax[4];                       // the 4 axes in flight: sprites 1 to 4
+int ay[4];
+int adx[4];
+int ady[4];
+bool aon[4];
+int gx[8];                       // the 8 ghosts: sprites 5 to 12
+int gy[8];
+bool gon[8];
+int genX[2];                     // the 2 generators: sprites 13 and 14
+int genY[2];
+int genHp[2];                    // 3 axes destroy one
+int genWait[2];                  // frames before the next ghost
+
+int sign(int v) {
+	if(v>0) return 1;
+	if(v<0) return -1;
+	return 0;
+}
+
+// is the point (sx,sy) of the screen inside a solid cell?
+bool solidAt(int sx,int sy) {
+	if(sx<0||sy<0||sx>=800||sy>=480) return true;
+	int cell=(sy/32)*25+(sx/32);
+	return (lay[4+cell]&1)!=0;
+}
+
+// would a box of 24x24 (at 12,10 inside the sprite) touch a solid cell if the sprite was at px,py?
+bool blocked(int px,int py) {
+	int x0=px-48+12;
+	int y0=py-42+10;
+	return solidAt(x0,y0)||solidAt(x0+23,y0)||solidAt(x0,y0+23)||solidAt(x0+23,y0+23);
+}
+
+// the layers say where things lie: layer 1 the chests, layer 2 the generators, layer 3 the apples
+void placeItems() {
+	int t=0;
+	int g=0;
+	int f=0;
+	for(int i=0;i<375;i++) {
+		int x=40+(i%25)*32;                            // the sprite position that centres a sprite on the cell
+		int y=36+(i/25)*32;
+		if((lay[4+i]&2)!=0&&t<8) {
+			tx[t]=x;
+			ty[t]=y;
+			ton[t]=true;
+			sprPos((byte)(15+t),x,y);
+			t++;
+		}
+		if((lay[4+i]&4)!=0&&g<2) {
+			genX[g]=x;
+			genY[g]=y;
+			genHp[g]=3;
+			genWait[g]=60;
+			sprPos((byte)(13+g),x,y);
+			g++;
+		}
+		if((lay[4+i]&8)!=0&&f<2) {
+			foodX[f]=x;
+			foodY[f]=y;
+			foodOn[f]=true;
+			sprPos((byte)(23+f),x,y);
+			f++;
+		}
+	}
+}
+
+void showStatus() {
+	memSet(0x1200,80,' ');
+	curPos(2,0);
+	print("HEALTH ",health,"   TREASURE ",treasure,"/8   SCORE ",score,"   ");
+	memSet(0x1E80,80,0x12);                        // print paints black on nothing: white on black
+}
+
+// a black band with a message on the middle row
+void banner(text msg) {
+	nat a=0x1200+18*80+20;
+	memSet(a,40,' ');
+	curPos(24,18);
+	print(msg);
+	memSet(a+0x0C80,40,0x1B);                      // the colours sit 0xC80 after the glyphs: yellow on black
+}
+
+void checkDeath() {
+	if(health<=0) {
+		health=0;
+		state=3;
+		banner("YOU DIED  ENTER: PLAY AGAIN");
+	}
+	showStatus();
+}
+
+void startGame() {
+	memSet(0x1200,3200,' ');                       // an empty text screen, white letters, no background
+	memSet(0x1E80,3200,0x02);
+	for(int i=0;i<32;i++) sprPos((byte)i,0,0);     // hidden
+	hx=72;                                         // cell (1,1)
+	hy=68;
+	sprPos(0,hx,hy);                               // a hidden sprite sits at (0,0), where all of them touch
+	fdx=1;
+	fdy=0;
+	fire=0;
+	health=99;
+	treasure=0;
+	score=0;
+	for(int i=0;i<4;i++) aon[i]=false;
+	for(int i=0;i<8;i++) gon[i]=false;
+	state=1;
+	lastSec=_time;
+	placeItems();
+	showStatus();
+	sprUpdt();                                     // the sprites the tests below look at are the ones on screen
+}
+
+void setup() {
+	poke(0x2F00,0b00011100);                       // text, tiles and sprites on, bitmap off
+	loadPal("HUNT.PAL",0x1170);                    // tiles palette
+	loadPal("HUNT.PLA",0x11D0);                    // sprites palette A
+	loadTiles("HUNT.TLS",0);
+	loadSprites("HUNT.SPR",0);
+	loadLevel("HUNT.LVL",&level,379);
+	loadLevel("HUNT.LAY",&lay,379);
+	areaCpy(&level+4,25,0,0,25,15,0x2B00,32,0,0);  // the map into the tile buffer the screen shows
+	for(int i=0;i<32;i++) {
+		sprPal((byte)i,0);
+		sprPrio((byte)i,0);
+	}
+}
+
+void moveHero() {
+	byte pad=_padLft;
+	int dx=0;
+	int dy=0;
+	if((pad&0b01000000)!=0) dx=-3;
+	if((pad&0b10000000)!=0) dx=3;
+	if((pad&0b00010000)!=0) dy=-3;
+	if((pad&0b00100000)!=0) dy=3;
+	if(dx!=0&&!blocked(hx+dx,hy)) hx+=dx;
+	if(dy!=0&&!blocked(hx,hy+dy)) hy+=dy;
+	if(dx!=0||dy!=0) {
+		fdx=sign(dx);                              // the axe flies where the warrior last walked
+		fdy=sign(dy);
+		sprRef(0,(byte)((frame>>2)&1));            // walk: the two warrior frames
+	}
+	if(dx<0) faceLeft=true;
+	if(dx>0) faceLeft=false;
+	sprFlip(0,faceLeft,false);
+	sprPos(0,hx,hy);
+}
+
+// button A (the Z key) throws an axe, one every 12 frames, 4 in the air at most
+void throwAxe() {
+	if(fire>0) {
+		fire--;
+		return;
+	}
+	if((_padLft&0b00000001)==0) return;
+	for(int i=0;i<4;i++) {
+		if(!aon[i]) {
+			aon[i]=true;
+			ax[i]=hx;
+			ay[i]=hy;
+			adx[i]=fdx*7;
+			ady[i]=fdy*7;
+			fire=12;
+			return;
+		}
+	}
+}
+
+void killAxe(int i) {
+	aon[i]=false;
+	sprPos((byte)(1+i),0,0);
+}
+
+// axes fly straight, kill a ghost, wear a generator down, and break on a wall (the hits are tested first: a generator
+// can stand right against a wall)
+void moveAxes() {
+	for(int i=0;i<4;i++) {
+		if(aon[i]) {
+			ax[i]+=adx[i];
+			ay[i]+=ady[i];
+			sprRef((byte)(1+i),(byte)(2+((frame>>1)&1)));
+			sprPos((byte)(1+i),ax[i],ay[i]);
+			for(int g=0;g<8;g++) {
+				if(aon[i]&&gon[g]&&isSprSpr((byte)(1+i),(byte)(5+g))) {
+					gon[g]=false;
+					sprPos((byte)(5+g),0,0);
+					killAxe(i);
+					score+=10;
+					showStatus();
+				}
+			}
+			for(int g=0;g<2;g++) {
+				if(aon[i]&&genHp[g]>0&&isSprSpr((byte)(1+i),(byte)(13+g))) {
+					genHp[g]--;
+					killAxe(i);
+					if(genHp[g]==0) {
+						sprPos((byte)(13+g),0,0);
+						score+=100;
+						showStatus();
+					}
+				}
+			}
+			if(aon[i]&&solidAt(ax[i]-48+24,ay[i]-42+21)) killAxe(i);
+		}
+	}
+}
+
+// a generator that still stands sends a ghost every 100 frames, if there is room for one
+void spawn() {
+	for(int g=0;g<2;g++) {
+		if(genHp[g]>0) {
+			genWait[g]--;
+			if(genWait[g]<=0) {
+				genWait[g]=100;
+				for(int i=0;i<8;i++) {
+					if(!gon[i]) {
+						gon[i]=true;
+						gx[i]=genX[g];
+						gy[i]=genY[g];
+						break;
+					}
+				}
+			}
+		}
+	}
+}
+
+// a ghost walks to the warrior, slides along the walls, and costs him 10 health when it touches him
+void moveGhosts() {
+	for(int i=0;i<8;i++) {
+		if(gon[i]) {
+			int dx=0;
+			int dy=0;
+			if(hx-gx[i]>2) dx=2;
+			if(hx-gx[i]<-2) dx=-2;
+			if(hy-gy[i]>2) dy=2;
+			if(hy-gy[i]<-2) dy=-2;
+			if(dx!=0&&!blocked(gx[i]+dx,gy[i])) gx[i]+=dx;
+			if(dy!=0&&!blocked(gx[i],gy[i]+dy)) gy[i]+=dy;
+			sprRef((byte)(5+i),(byte)(4+((frame>>3)&1)));
+			sprPos((byte)(5+i),gx[i],gy[i]);
+			if(isSprSpr(0,(byte)(5+i))) {
+				gon[i]=false;
+				sprPos((byte)(5+i),0,0);
+				health-=10;
+				checkDeath();
+			}
+		}
+	}
+}
+
+// the warrior against every chest and apple still there
+void pickItems() {
+	for(int i=0;i<8;i++) {
+		if(ton[i]&&isSprSpr(0,(byte)(15+i))) {
+			ton[i]=false;
+			sprPos((byte)(15+i),0,0);                  // gone
+			treasure++;
+			score+=50;
+			showStatus();
+			if(treasure==8) {
+				state=2;
+				banner("YOU WIN!  ENTER: PLAY AGAIN");
+			}
+		}
+	}
+	for(int i=0;i<2;i++) {
+		if(foodOn[i]&&isSprSpr(0,(byte)(23+i))) {
+			foodOn[i]=false;
+			sprPos((byte)(23+i),0,0);
+			health+=30;
+			if(health>99) health=99;
+			showStatus();
+		}
+	}
+}
+
+// the dungeon drains one point of health a second
+void hunger() {
+	if(_time!=lastSec) {
+		lastSec=_time;
+		health--;
+		checkDeath();
+	}
+}
+
+void glint() {
+	for(int i=0;i<8;i++) sprRef((byte)(15+i),(byte)(8+((frame>>4)&1)));
+	for(int i=0;i<2;i++) {
+		sprRef((byte)(13+i),(byte)(6+((frame>>3)&1)));
+		sprRef((byte)(23+i),10);
+	}
+}
+
+setup();
+startGame();
+while(_keyDwn!=12) {                             // until ESC
+	if(state==1) {
+		moveHero();
+		throwAxe();
+		moveAxes();
+		spawn();
+		moveGhosts();
+		if(state==1) pickItems();
+		if(state==1) hunger();
+	} else if((_padLft&0b00000100)!=0) {         // Start (Enter)
+		startGame();
+	}
+	glint();
+	vSync();
+	sprUpdt();
+	frame++;
+}

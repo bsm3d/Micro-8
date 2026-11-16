@@ -1,0 +1,24 @@
+{
+ "format": 1,
+ "name": "HUNT",
+ "main": "HUNT.SRC",
+ "files": [
+  "HUNT.LAY",
+  "HUNT.LVL",
+  "HUNT.M8S",
+  "HUNT.PAL",
+  "HUNT.PLA",
+  "HUNT.PLB",
+  "HUNT.SCR",
+  "HUNT.SPR",
+  "HUNT.TLS",
+  "HUNT1.SRC",
+  "HUNT2.SRC",
+  "HUNT3.SRC"
+ ],
+ "open": [
+  "HUNT.SRC"
+ ],
+ "current": "HUNT.SRC",
+ "x1": false
+}

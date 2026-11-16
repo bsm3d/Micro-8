@@ -1,0 +1,123 @@
+// DUNGEON HUNT, step 1: the dungeon and the warrior
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Tutorial project for Micro-8 Studio, OS 0.9
+
+// ---- M8LIB: pal - loadPal/savePal: a 48-byte .PAL (16 red, 16 green, 16 blue values 0-7) into or from a palette address
+bool loadPal(text f,nat pal) {
+	import(f,pal,48);
+	return _fError==0;
+}
+
+bool savePal(text f,nat pal) {
+	export(f,pal,48);
+	return _fError==0;
+}
+
+// ---- M8LIB: sprites - loadSprites/saveSprites: a .SPR sprite set (256 bytes a sprite) from sprite 'first', n sprites (0 = whole file)
+bool loadSprites(text f,int first) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveSprites(text f,int first,int n) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	nat sz=(nat)n*256;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: tiles - loadTiles/saveTiles: a .TLS tile set (128 bytes a 16x16 tile) from tile 'first', n tiles (0 = whole file)
+bool loadTiles(text f,int first) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveTiles(text f,int first,int n) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	nat sz=(nat)n*128;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: level - loadLevel/saveLevel: a .LVL map (one tile number a cell) into or from a byte array (&array, its size)
+bool loadLevel(text f,nat dst,nat size) {
+	import(f,dst,size);
+	return _fError==0;
+}
+
+bool saveLevel(text f,nat src,nat size) {
+	export(f,src,size);
+	return _fError==0;
+}
+
+byte level[379];                 // HUNT.LVL: 4 header bytes, then 25x15 tile numbers
+byte lay[379];                   // HUNT.LAY: the same shape, one bit a layer (bit 0: solid)
+int hx;                          // the hero's sprite position, in 800x480 pixels
+int hy;
+bool faceLeft;
+byte frame;
+
+// is the point (sx,sy) of the screen inside a solid cell?
+bool solidAt(int sx,int sy) {
+	if(sx<0||sy<0||sx>=800||sy>=480) return true;
+	int cell=(sy/32)*25+(sx/32);
+	return (lay[4+cell]&1)!=0;
+}
+
+// would the hero's box (24x24, at 12,10 inside the sprite) touch a solid cell if the sprite was at px,py?
+bool blocked(int px,int py) {
+	int x0=px-48+12;
+	int y0=py-42+10;
+	return solidAt(x0,y0)||solidAt(x0+23,y0)||solidAt(x0,y0+23)||solidAt(x0+23,y0+23);
+}
+
+void setup() {
+	memSet(0x1200,3200,' ');                       // an empty text screen, white letters, no background
+	memSet(0x1E80,3200,0x02);
+	poke(0x2F00,0b00011100);                       // text, tiles and sprites on, bitmap off
+	loadPal("HUNT.PAL",0x1170);                    // tiles palette
+	loadPal("HUNT.PLA",0x11D0);                    // sprites palette A
+	loadTiles("HUNT.TLS",0);
+	loadSprites("HUNT.SPR",0);
+	loadLevel("HUNT.LVL",&level,379);
+	loadLevel("HUNT.LAY",&lay,379);
+	areaCpy(&level+4,25,0,0,25,15,0x2B00,32,0,0);  // the map into the tile buffer the screen shows
+	for(int i=0;i<32;i++) {
+		sprPal((byte)i,0);
+		sprPrio((byte)i,0);
+		sprPos((byte)i,0,0);                       // hidden
+	}
+	hx=72;                                         // cell (1,1)
+	hy=68;
+}
+
+void moveHero() {
+	byte pad=_padLft;
+	int dx=0;
+	int dy=0;
+	if((pad&0b01000000)!=0) dx=-3;
+	if((pad&0b10000000)!=0) dx=3;
+	if((pad&0b00010000)!=0) dy=-3;
+	if((pad&0b00100000)!=0) dy=3;
+	if(dx!=0&&!blocked(hx+dx,hy)) hx+=dx;
+	if(dy!=0&&!blocked(hx,hy+dy)) hy+=dy;
+	if(dx<0) faceLeft=true;
+	if(dx>0) faceLeft=false;
+	if(dx!=0||dy!=0) sprRef(0,(byte)((frame>>2)&1));  // walk: the two hero frames
+	sprFlip(0,faceLeft,false);
+	sprPos(0,hx,hy);
+}
+
+setup();
+while(_keyDwn!=12) {                             // until ESC
+	moveHero();
+	vSync();
+	sprUpdt();
+	frame++;
+}
