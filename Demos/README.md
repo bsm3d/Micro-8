@@ -1,7 +1,6 @@
 # Micro-8 Demos
 
-Classic demoscene effects and a tune with its own screen for the **Micro-8**, written in **Lofi**. Code & Music:
-Benoit (BSM) Saint-Moulin.
+Classic demoscene effects for the **Micro-8**, written in **Lofi**. Code & Music: Benoit (BSM) Saint-Moulin.
 
 The copper bars, the sinus scroller and the flat star field are ports of my own reference effects (HTML5 and
 68K assembly versions, written for teaching): same algorithm, same constants. The dots tunnel grew from the same
@@ -20,25 +19,19 @@ The few comments that follow say only what the code cannot.
 | <img src="img/stars3d.png" alt="Stars 3D" width="260"> | `STARS3D.SRC` | **Stars 3D**: 96 stars come from the horizon and rush past the viewer (distance on screen = distance from the axis * 255 / depth), dim blue far away, white and bigger when near, the nearest with a streak behind them. The whole field rolls, one way then the other. |
 | <img src="img/lorenz.png" alt="Lorenz" width="260"> | `LORENZ.SRC` | **Lorenz attractor**: two points follow the three Lorenz equations, computed live, from starts a tenth apart. They fly together for a few seconds, then part for good (the butterfly effect). Each leaves a fading trail of 150 positions, gold and blue, and the view turns around the vertical axis. |
 | <img src="img/blkhole.png" alt="Black Hole" width="260"> | `BLKHOLE.SRC` | **Black Hole**: the shadow and its photon ring, the accretion disk seen almost edge on (flat in front of the shadow, its back half bent into an arch over it), matter turning faster near the hole (Kepler), the side coming towards the viewer brighter, and the stars behind pushed aside by the gravitational lens. The disk is 1100 dots drawn once; the moving streaks and stars are drawn over it with the XOR mask of `line()` and `plot()`, in two pages (double buffer). |
-| <img src="img/nesgalop.png" alt="NES Galop" width="260"> | `NESGALOP.SRC`, `NESGALOP.M8S`, `NESGALOP.TLS`, `NESGALOP.SPR`, `NESGALOP.MAP` | **NES Galop**: a NES-style tune (28 bars, tempo 176) on a night ride in four parallax bands (raster split): the horse gallops on the bass, jumps a hurdle at each pattern, the melody is written in stars, and dawn reaches the mountains at the end. |
-
-`NESGALOP.M8S` is an ordinary tracker project: it also opens in the tracker of Micro-8 Studio, in
-[`TRACKER2.SRC`](../Tracker) and in [`PLAYER.SRC`](../Tracker). It holds plain notes; the NES Galop program adds
-what a tracker file cannot carry (chords as a fast arpeggio on one voice, vibrato on the lead).
 
 ## Running them
 
 - **In Micro-8 Studio**: open a `.SRC` and press F5. ESC ends the demo.
 - **On the machine**: copy the folder to the SD card, then `compile NAME.SRC` and `run NAME.BIN`.
-- Keep the resource files next to the program: the `.SPR`, `.TLS` and `.MAP` files that carry its name, and
-  `NESGALOP.M8S` for `NESGALOP.SRC` (the tune is also looked for in `/BSMCODE/TRACKER`).
+- Keep the resource file next to the program: `SINUS.SPR` with `SINUS.SRC`.
 
 ## State
 
 - Written for **Micro-8 OS 0.9**. Sources use LF line ends and lines under 159 characters, as the machine's
   compiler needs.
 - Written and run in the emulator of Micro-8 Studio only. They have **not been compiled on the real machine
-  yet**, and the tunes have been checked note by note against their source projects, not by ear on the hardware.
+  yet**.
 - Frame times in the emulator's timing model: 3 ms (copper bars), 6 ms (scroller), 10 ms (stars, cubes), all at 60
   frames a second; 22 ms (tunnel), 24 ms (3D stars), 25 ms (Lorenz), 28 ms (black hole), shown at 30 frames a
   second.
