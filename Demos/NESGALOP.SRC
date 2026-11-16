@@ -1,8 +1,15 @@
-// NESGALOP - the whole tune and a cracktro for the Micro-8 (code and arrangement by Benoit Saint-Moulin)
+// NESGALOP - the whole tune and its own screen for the Micro-8 (code and arrangement by Benoit Saint-Moulin)
 // The whole song, converted note for note from the B-Tracker project by micro8_studio/dev/make_nesgalop.py:
 // this program plays the tracker files ("NESGALOP.M8S"), the same ones
 // TRACKER.SRC and PLAYER.SRC open, with PLAYER.SRC's own playback code. Copy them next to this program, or
-// leave them in /BSMCODE/TRACKER. Copper bar, level meters and parallax stars on top. ESC quits.
+// leave them in /BSMCODE/TRACKER. ESC quits.
+// The screen: a ride at night seen from the side. Three bands of tiles at three speeds (a raster list rewrites the
+// scroll register), the horse gallops on the bass, each lead note lights a star at the height of its pitch.
+//
+// What only this program does to the sound (the tracker files hold plain notes, any player plays them): the
+// chords are played as the source plays them, one voice running through their notes (an arpeggio at the
+// source's rate), the bass starts with its octave click, the lead gets its vibrato after a delay (the chip's LFO).
+// The pitch of a sounding note is changed by writing the chip's frequency registers, without a new key on.
 //
 // Hardware notes (same as SIDRUSH and PLAYER): an FM envelope, a synth envelope or a DPCM sample restarts on a
 // key off then a key on; the music keeps its own millisecond clock (clkSet / _mSec), the picture follows the
@@ -24,9 +31,9 @@ int part=0;
 int playBlk=0;
 int playRow=0;
 int playPos=0;
-int vu[4];
-int shownVu[4];
-byte vuTrack[8]={0,1,2,2,2,255,3,255};  // the meter each track lights (255: none)
+// what this demo adds on a track: 1 octave click, 2 arpeggio (the voice that sounds), 3 its other notes, 4 vibrato
+byte trkRole[8]={1,4,2,3,3,0,0,0};
+text fnm={40};                // the file being loaded (named in the error message)
 
 int cg(int i) {
 	return sng[sbase+i];
@@ -82,6 +89,292 @@ int spat(int i) {
 	return sng[sbase+128+i];
 }
 
+// ------------------------------------------------------------------ the screen: a ride at night, from the side
+// One layer of tiles in three bands that scroll at three speeds: the raster display list below rewrites the
+// tiles' horizontal scroll register at lines 128, 224 and 320. Sprites for the horse (4), its dust, the moon,
+// the stars the melody lights and the title. scrNote() is called by the music at each note; it only leaves a
+// mark, the next frame acts on it.
+text resNames[3]={"NESGALOP.TLS","NESGALOP.SPR","NESGALOP.MAP"};
+byte tilePal[48]={
+	0,0,1,6,0,1,3,6,5,7,3,2,0,3,0,0,0,0,2,6,2,5,1,3,
+	4,7,3,4,1,2,0,0,0,2,6,7,2,3,0,0,3,7,5,1,1,1,0,0};
+byte sprPalA[48]={
+	0,5,7,3,6,6,7,7,7,4,2,7,5,4,5,1,0,2,4,1,1,5,5,7,
+	7,4,2,7,5,4,6,1,0,0,1,0,1,3,4,7,2,4,2,6,4,3,7,1};
+byte sprPalB[48]={
+	0,7,6,4,6,0,0,0,0,0,0,0,0,0,0,0,0,7,6,5,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0};
+byte level[870];             // 15 rows of 58 tiles: 4 of sky, 3 of mountains, 3 of hills, 3 of road, 2 empty
+byte savedPal[144];
+type rasterInstr {byte code; nat word; byte val;};
+// a band: SET the scroll register, POS the next line, NEXT the next band, HALT
+rasterInstr split[16]={
+	{1,0x2F01,0},{8,128,0},{9,&split[4],0},{0,0,0},
+	{1,0x2F01,0},{8,224,0},{9,&split[8],0},{0,0,0},
+	{1,0x2F01,0},{8,320,0},{9,&split[12],0},{0,0,0},
+	{1,0x2F01,0},{8,480,0},{9,&split[0],0},{0,0,0}};
+int titleX[8]={152,204,256,340,392,444,496,548};
+int evBass=0;
+int evLead=0;
+int evChord=0;
+int evSnare=0;
+int evHat=0;
+int offF=0;                   // the scroll of each band, 0 to 31, and the column of the map at its left edge
+int offH=0;
+int offG=0;
+int colF=0;
+int colH=0;
+int colG=0;
+int stride=0;                 // the moment of the gallop, 0 to 3
+int stX[12];                  // the stars of the melody: x on screen (-100: none), y
+int stY[12];
+int nextSt=0;
+int duX[2];
+int duAge[2];
+int nextDu=0;
+int roadT=0;
+int crestT=0;
+int twinkT=0;
+
+// a resource file: next to the program, else in /BSMCODE/SRC/2D
+byte loadRes(int k,nat addr,nat size,byte page) {
+	memSet(&fnm,41,0);
+	concat(fnm,resNames[k]);
+	if(page==0xFF) import(fnm,addr,size);
+	else import(fnm,addr,size,page);
+	if(_fError==0) return 0;
+	memSet(&fnm,41,0);
+	concat(fnm,"/BSMCODE/SRC/2D/");
+	concat(fnm,resNames[k]);
+	if(page==0xFF) import(fnm,addr,size);
+	else import(fnm,addr,size,page);
+	return _fError;
+}
+
+byte scrLoad() {
+	byte e=loadRes(2,&level,870,0xFF);
+	if(e==0) e=loadRes(0,0x3000,15104,0x00);
+	if(e==0) e=loadRes(1,0x3000,8192,0x20);
+	return e;
+}
+
+void label(int x,int y,int k,byte c) {
+	memSet(&fnm,41,0);
+	if(k==0) concat(fnm,"Code, Arrangement");
+	if(k==1) concat(fnm,"Benoit Saint-Moulin");
+	if(k==2) concat(fnm,"ESC to quit");
+	nat a=(nat)(y*80+x);
+	for(int i=0;i<40;i++) {
+		byte g=peek(&fnm+(nat)i);
+		if(g==0) return;
+		poke(0x1200+a+(nat)i,g);
+		poke(0x1E80+a+(nat)i,c);
+	}
+}
+
+// the horse: 4 sprites (28 to 31), the 4 pictures of the stride
+void setHorse() {
+	byte r=(byte)(8+stride*4);
+	sprRef(28,r);
+	sprRef(29,(byte)(r+1));
+	sprRef(30,(byte)(r+2));
+	sprRef(31,(byte)(r+3));
+}
+
+void scrStart() {
+	memCpy(0x1170,&savedPal,48);
+	memCpy(0x11D0,&savedPal+48,48);
+	memCpy(0x2FA0,&savedPal+96,48);
+	memCpy(&tilePal,0x1170,48);
+	memCpy(&sprPalA,0x11D0,48);
+	memCpy(&sprPalB,0x2FA0,48);
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x02);
+	poke(0x2F01,0);
+	poke(0x2F02,0);
+	poke(0x2F0B,peek(0x2F0B)&0xFB);                 // tile buffer A on screen
+	areaCpy(&level,58,0,0,26,15,0x2B00,32,0,0);
+	for(int s=0;s<32;s++) {
+		sprPos((byte)s,0,0);
+		sprPrio((byte)s,0);
+		sprPal((byte)s,0);
+	}
+	for(int i=0;i<8;i++) {                          // the title, palette B
+		sprRef((byte)i,(byte)i);
+		sprPal((byte)i,1);
+		sprPos((byte)i,48+titleX[i],42+18);
+	}
+	for(int i=0;i<4;i++) sprRef((byte)(8+i),(byte)(24+i));     // the moon
+	sprPos(8,48+650,42+84);
+	sprPos(9,48+698,42+84);
+	sprPos(10,48+650,42+126);
+	sprPos(11,48+698,42+126);
+	for(int i=0;i<12;i++) {
+		stX[i]=-100;
+		sprRef((byte)(12+i),28);
+	}
+	setHorse();
+	sprPos(28,48+300,42+270);
+	sprPos(29,48+348,42+270);
+	sprPos(30,48+300,42+312);
+	sprPos(31,48+348,42+312);
+	sprUpdt();
+	label(31,35,0,0x0B);
+	label(30,36,1,0x02);
+	label(34,38,2,0x07);
+	poke(0x2F00,0x1C);                              // text, tiles and sprites over the black background
+	rstrInt(true);
+	rstrCmp(480,&split);
+}
+
+void scrNote(int t,int n,int vel) {
+	if(t==0) evBass=1;
+	else if(t==1) evLead=n;
+	else if(t==2) evChord=1;
+	else if(t==7) {
+		if(n<90) evHat=1;
+		else evSnare=1;
+	}
+}
+
+void scrFrame(int t) {
+	sprUpdt();
+	// the three bands: the mountains 1 pixel every 2 frames, the hills 2 a frame, the road 6
+	if(t%2==0) offF=offF+1;
+	offH=offH+2;
+	offG=offG+6;
+	if(offF>=32) {
+		offF=offF-32;
+		colF=(colF+1)%32;
+		areaCpy(&level,58,colF,4,26,3,0x2B00,32,0,4);
+	}
+	if(offH>=32) {
+		offH=offH-32;
+		colH=(colH+1)%16;
+		areaCpy(&level,58,colH,7,26,3,0x2B00,32,0,7);
+	}
+	if(offG>=32) {
+		offG=offG-32;
+		colG=(colG+1)%8;
+		areaCpy(&level,58,colG,10,26,3,0x2B00,32,0,10);
+	}
+	split[4].val=(byte)offF;
+	split[8].val=(byte)offH;
+	split[12].val=(byte)offG;
+	// the horse: one moment of the gallop on each note of the bass, and a puff of dust behind it
+	if(evBass!=0) {
+		evBass=0;
+		stride=stride+1;
+		if(stride>3) stride=0;
+		setHorse();
+		duX[nextDu]=290;
+		duAge[nextDu]=1;
+		nextDu=1-nextDu;
+	}
+	for(int i=0;i<2;i++) {
+		int a=duAge[i];
+		if(a>0) {
+			duX[i]=duX[i]-7;
+			if(a>10) {
+				a=0;
+				sprPos((byte)(26+i),0,0);
+			} else {
+				sprRef((byte)(26+i),(byte)(30+a/6));
+				sprPos((byte)(26+i),48+duX[i],42+318);
+				a=a+1;
+			}
+			duAge[i]=a;
+		}
+	}
+	// the melody: each lead note lights a star at the height of its pitch, the stars drift to the left
+	if(evLead!=0) {
+		int y=56+(86-evLead)*6;                     // the sky above the mountains: lines 56 to 150
+		if(y<56) y=56;
+		if(y>150) y=150;
+		evLead=0;
+		stX[nextSt]=590;
+		stY[nextSt]=y;
+		sprRef((byte)(12+nextSt),28);
+		nextSt=nextSt+1;
+		if(nextSt>=12) nextSt=0;
+	}
+	for(int i=0;i<12;i++) {
+		int x=stX[i];
+		if(x>-100) {
+			x=x-4;
+			if(x<-48) {
+				x=-100;
+				sprPos((byte)(12+i),0,0);
+			} else {
+				if(x==450) sprRef((byte)(12+i),29);     // it dims as it goes
+				sprPos((byte)(12+i),48+x,42+stY[i]);
+			}
+			stX[i]=x;
+		}
+	}
+	// the off-beat chords light the road, the snare whitens the crest of the mountains, the hat the fixed stars
+	if(evChord!=0) {
+		evChord=0;
+		roadT=5;
+		poke(0x1177,7);
+		poke(0x1187,7);
+		poke(0x1197,3);
+	}
+	if(roadT>0) {
+		roadT=roadT-1;
+		if(roadT==0) {
+			poke(0x1177,6);
+			poke(0x1187,3);
+			poke(0x1197,0);
+		}
+	}
+	if(evSnare!=0) {
+		evSnare=0;
+		crestT=4;
+		poke(0x1172,7);
+		poke(0x1182,7);
+		poke(0x1192,7);
+	}
+	if(crestT>0) {
+		crestT=crestT-1;
+		if(crestT==0) {
+			poke(0x1172,1);
+			poke(0x1182,2);
+			poke(0x1192,6);
+		}
+	}
+	if(evHat!=0) {
+		evHat=0;
+		twinkT=3;
+		poke(0x117A,7);
+		poke(0x118A,7);
+		poke(0x119A,7);
+	}
+	if(twinkT>0) {
+		twinkT=twinkT-1;
+		if(twinkT==0) {
+			poke(0x117A,3);
+			poke(0x118A,3);
+			poke(0x119A,5);
+		}
+	}
+}
+
+void scrEnd() {
+	rstrInt(false);
+	for(int s=0;s<32;s++) {
+		sprPos((byte)s,0,0);
+		sprPal((byte)s,0);
+	}
+	sprUpdt();
+	poke(0x2F01,0);
+	poke(0x2F02,0);
+	memSet(0x2B00,512,0);
+	memCpy(&savedPal,0x1170,48);
+	memCpy(&savedPal+48,0x11D0,48);
+	memCpy(&savedPal+96,0x2FA0,48);
+}
+
 // ------------------------------------------------------------------ loading (PLAYER.SRC's reader of NAME.M8S)
 byte cbits[16];
 byte bitv[8]={1,2,4,8,16,32,64,128};
@@ -95,7 +388,6 @@ byte ferr;
 int nt;
 int ni;
 int nv;
-text fnm={40};
 
 nat cellAddr(int b,int t,int k) {
 	return 0x3000+(nat)b*384+(nat)k*24+(nat)t*3;
@@ -272,11 +564,78 @@ void setupSound() {
 	poke(0x111E,(byte)cg(63));
 	applyVoice(6);
 	applyVoice(7);
+	// the chord's voice alone runs through the notes here: its own volume
+	ymVoice(2,(byte)cg(10+2),(byte)cg(18+2),(byte)cg(26+2),30);
+}
+
+// ------------------------------------------------------------------ pitch changes without a key on
+// the YM2612 block / F-number of MIDI notes 24 to 107 (what a note on of the machine writes at octave 5)
+byte fhi[84]={
+	5,5,5,5,6,6,7,7,7,12,12,12,13,13,13,13,14,14,15,15,15,20,20,20,
+	21,21,21,21,22,22,23,23,23,28,28,28,29,29,29,29,30,30,31,31,31,36,36,36,
+	37,37,37,37,38,38,39,39,39,44,44,44,45,45,45,45,46,46,47,47,47,52,52,52,
+	53,53,53,53,54,54,55,55,55,60,60,60};
+byte flo[84]={
+	8,84,165,251,86,183,29,137,252,59,123,191,8,84,165,251,86,183,29,137,252,59,123,191,
+	8,84,165,251,86,183,29,137,252,59,123,191,8,84,165,251,86,183,29,137,252,59,123,191,
+	8,84,165,251,86,183,29,137,252,59,123,191,8,84,165,251,86,183,29,137,252,59,123,191,
+	8,84,165,251,86,183,29,137,252,59,123,191};
+int macN[6];               // notes in the run of each FM voice (0: none)
+int macTone[24];           // 4 notes a voice
+int macPos[6];
+int macAt[6];              // _mSec of its next change
+int macPer[6];
+bool macLoop[6];
+int vibAt=-30000;          // _mSec at which the vibrato starts (-30000: not waiting)
+int arpTones[4];
+int arpCount=0;
+
+void setFreq(int v,int note) {
+	int i=ci(note-24,0,83);
+	byte bank=(byte)(v/3);
+	byte ch=(byte)(v%3);
+	ymSetReg(bank,0xA4+ch,fhi[i]);
+	ymSetReg(bank,0xA0+ch,flo[i]);
+}
+
+void macStart(int v,int n,int per,bool loop) {
+	macN[v]=n;
+	macPos[v]=0;
+	macPer[v]=per;
+	macLoop[v]=loop;
+	macAt[v]=(int)_mSec+per;
+}
+
+void macTick() {
+	int now=(int)_mSec;
+	for(int v=0;v<6;v++) {
+		if(macN[v]>0&&now>=macAt[v]) {
+			int p=macPos[v]+1;
+			if(p>=macN[v]) {
+				p=0;
+				if(!macLoop[v]) macN[v]=0;
+			}
+			if(macN[v]>0) {
+				macPos[v]=p;
+				setFreq(v,macTone[v*4+p]);
+				macAt[v]=macAt[v]+macPer[v];
+				if(macAt[v]<now) macAt[v]=now+macPer[v];
+			}
+		}
+	}
+	if(vibAt>-30000&&now>=vibAt) {
+		vibAt=-30000;
+		ymLFO(true,4);
+		ymSetReg(0,0x22,12);
+	}
 }
 
 void noteOff(int t) {
-	if(t<6) ymNoteOff((byte)t);
-	else {
+	if(t<6) {
+		ymNoteOff((byte)t);
+		macN[t]=0;
+		if(trkRole[t]==4) vibAt=-30000;
+	} else {
 		int sv=t-6;
 		synNoteOff((byte)sv);
 	}
@@ -296,8 +655,20 @@ void playNote(int t,int v,int vel,int ins) {
 			ymVoice((byte)t,(byte)ic,(byte)cg(18+t),(byte)cg(26+t),(byte)cg(34+t));
 			lastIns[t]=ic;
 		}
+		byte role=trkRole[t];
+		if(role==4) ymLFO(false,4);          // a new lead note starts straight
 		ymNoteOff((byte)t);
 		ymNoteOn((byte)t,(byte)n,(byte)vc);
+		macN[t]=0;
+		if(role==1) {                               // the octave click: the note starts an octave up
+			macTone[t*4]=n+12;
+			macTone[t*4+1]=n;
+			setFreq(t,n+12);
+			macStart(t,2,17,false);
+		} else if(role==2&&arpCount>1) {            // the chord: its notes one after the other on this voice
+			for(int k=0;k<arpCount;k++) macTone[t*4+k]=arpTones[k];
+			macStart(t,arpCount,17,true);
+		} else if(role==4) vibAt=(int)_mSec+233;
 	} else {
 		int sv=t-6;
 		synNoteOff((byte)sv);
@@ -312,14 +683,25 @@ void playNote(int t,int v,int vel,int ins) {
 void triggerRow(int b,int s) {
 	int tr=sng[sbase+256+playPos];
 	tr=tr-64;
+	arpCount=0;
+	for(int t=0;t<6;t++) {
+		if(trkRole[t]==2||trkRole[t]==3) {
+			int v=pget(b,s,t,0);
+			if(v!=0&&v!=255&&cg(42+t)==0&&arpCount<4) {
+				arpTones[arpCount]=ci(ci(v+tr,1,120)-1+cg(8)-64,0,127);
+				arpCount++;
+			}
+		}
+	}
 	for(int t=0;t<8;t++) {
 		int v=pget(b,s,t,0);
-		if(cg(42+t)!=0) v=0;
+		if(cg(42+t)!=0||trkRole[t]==3) v=0;
 		if(v==255) noteOff(t);
 		else if(v!=0) {
 			if(t<6) v=ci(v+tr,1,120);
-			playNote(t,v,pget(b,s,t,2),pget(b,s,t,1));
-			if(vuTrack[t]<4) vu[vuTrack[t]]=15;
+			int vel=pget(b,s,t,2);
+			playNote(t,v,vel,pget(b,s,t,1));
+			scrNote(t,v-1,vel);
 		}
 	}
 }
@@ -347,8 +729,6 @@ void advance() {
 	playBlk=spat(playPos);
 }
 
-int frameAt=0;             // _mSec when the frame began (below 0 after the music restarted the clock)
-
 void startPlay() {
 	usePart(0);
 	playPos=0;
@@ -362,509 +742,22 @@ void tickPlay() {
 	nat now=_mSec;
 	nat s=(nat)stepMs;
 	if(now+carry<s) return;
+	clkSet();                                           // at once: what runs before it is time the tune loses
 	carry=now+carry-s;
 	if(carry>s) carry=0;
-	frameAt=frameAt-(int)now;
-	clkSet();
+	// _mSec counts whole milliseconds: each restart loses half of one on average, given back every other step
+	if(playRow%2==0) carry=carry+1;
+	for(int v=0;v<6;v++) macAt[v]=macAt[v]-(int)now;     // the clock restarted: what waits on it follows
+	if(vibAt>-30000) vibAt=vibAt-(int)now;
 	triggerRow(playBlk,playRow);
 	advance();
 }
 
-// ------------------------------------------------------------------ raster bar (display list run by the raster IRQ)
-byte HALT=0;
-byte SET=1;
-byte POS=8;
-byte NEXT=9;
-nat backR=0x2F13;
-nat backG=0x2F14;
-nat backB=0x2F15;
-type rasterInstr {byte code; nat word; byte val;};
-rasterInstr list[300]={
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,8,0},
-	{NEXT,&list[6],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,12,0},
-	{NEXT,&list[12],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,16,0},
-	{NEXT,&list[18],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,20,0},
-	{NEXT,&list[24],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,24,0},
-	{NEXT,&list[30],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,28,0},
-	{NEXT,&list[36],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,32,0},
-	{NEXT,&list[42],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,36,0},
-	{NEXT,&list[48],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,40,0},
-	{NEXT,&list[54],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,44,0},
-	{NEXT,&list[60],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,48,0},
-	{NEXT,&list[66],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,52,0},
-	{NEXT,&list[72],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,56,0},
-	{NEXT,&list[78],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,60,0},
-	{NEXT,&list[84],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,64,0},
-	{NEXT,&list[90],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,68,0},
-	{NEXT,&list[96],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,72,0},
-	{NEXT,&list[102],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,76,0},
-	{NEXT,&list[108],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,80,0},
-	{NEXT,&list[114],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,84,0},
-	{NEXT,&list[120],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,88,0},
-	{NEXT,&list[126],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,92,0},
-	{NEXT,&list[132],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,96,0},
-	{NEXT,&list[138],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,100,0},
-	{NEXT,&list[144],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,104,0},
-	{NEXT,&list[150],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,108,0},
-	{NEXT,&list[156],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,112,0},
-	{NEXT,&list[162],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,116,0},
-	{NEXT,&list[168],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,120,0},
-	{NEXT,&list[174],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,124,0},
-	{NEXT,&list[180],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,128,0},
-	{NEXT,&list[186],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,132,0},
-	{NEXT,&list[192],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,136,0},
-	{NEXT,&list[198],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,140,0},
-	{NEXT,&list[204],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,144,0},
-	{NEXT,&list[210],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,148,0},
-	{NEXT,&list[216],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,152,0},
-	{NEXT,&list[222],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,156,0},
-	{NEXT,&list[228],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,160,0},
-	{NEXT,&list[234],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,164,0},
-	{NEXT,&list[240],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,168,0},
-	{NEXT,&list[246],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,172,0},
-	{NEXT,&list[252],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,176,0},
-	{NEXT,&list[258],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,180,0},
-	{NEXT,&list[264],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,184,0},
-	{NEXT,&list[270],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,188,0},
-	{NEXT,&list[276],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,192,0},
-	{NEXT,&list[282],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,196,0},
-	{NEXT,&list[288],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,200,0},
-	{NEXT,&list[294],0},
-	{HALT,0,0},
-	{SET,backR,0},
-	{SET,backG,0},
-	{SET,backB,0},
-	{POS,480,0},
-	{NEXT,&list[0],0},
-	{HALT,0,0}};
-
-// the bar's top follows a sine: the bands stay where they are, their colours are rewritten (copper style), so
-// nothing the raster IRQ has already latched can disagree with the new position. Black outside the bar.
-byte barR[16]={0,0,1,2,4,5,6,4,4,6,5,4,2,1,0,0};
-byte barG[16]={2,3,5,7,7,7,6,4,4,6,7,7,7,5,3,2};
-byte barB[16]={0,1,1,2,2,4,6,4,4,6,4,2,2,1,1,0};
-byte sine[64]={
-	70,76,82,87,93,98,103,108,112,116,120,123,125,127,129,130,130,130,129,127,125,123,120,116,
-	112,108,103,98,93,87,82,76,70,64,58,53,47,42,37,32,28,24,20,17,15,13,11,10,
-	10,10,11,13,15,17,20,24,28,32,37,42,47,53,58,64};
-int lastB0=-100;
-
-void moveBar(int t) {
-	int b0=(sine[(t/2)%64]-8)/4;
-	if(b0==lastB0) return;
-	int from=b0;
-	int to=lastB0;
-	if(lastB0<b0) {
-		from=lastB0;
-		to=b0;
-	}
-	if(lastB0<0) {
-		from=0;
-		to=48;
-	}
-	lastB0=b0;
-	to=to+16;
-	if(from<0) from=0;
-	if(to>48) to=48;
-	for(int i=from;i<to;i++) {
-		int k=i-b0;
-		int j=6+i*6;
-		if(k>=0 && k<16) {
-			list[j].val=barR[k];
-			list[j+1].val=barG[k];
-			list[j+2].val=barB[k];
-		} else {
-			list[j].val=0;
-			list[j+1].val=0;
-			list[j+2].val=0;
-		}
-	}
-}
-
-// ------------------------------------------------------------------ screen
-void cell(int x,int y,int g,int c) {
-	nat a=(nat)y*80+(nat)x;
-	poke(0x1200+a,(byte)g);
-	poke(0x1E80+a,(byte)c);
-}
-
-text labels[9]={"N E S   G A L O P","a NES-style tune for the Micro-8","BASS",
-	"LEAD","CHORDS","DRUMS",
-	"Code, Arrangement","Benoit Saint-Moulin","ESC to quit"};
-text wbuf={80};
-void write(int x,int y,int k,int c) {
-	memSet(&wbuf,81,0);
-	concat(wbuf,labels[k]);
-	for(int i=0;i<80-x;i++) {
-		byte g=peek(&wbuf+(nat)i);
-		if(g==0) return;
-		cell(x+i,y,g,c);                  // a byte widens to int by itself: (int) on a byte is refused
-	}
-}
-
-int starX[8];
-int starY[8];
-
-void initStars() {
-	for(int s=0;s<8;s++) {
-		starX[s]=(s*23+7)%80;
-		starY[s]=22+(s*5)%6;
-	}
-}
-
-// text only, on a black background: the raster bar is the background colour itself
-void blackScreen() {
-	poke(0x2F00,0x10);
-	poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
-	poke(backR,0);
-	poke(backG,0);
-	poke(backB,0);
-	memSet(0x1200,3200,' ');
-	memSet(0x1E80,3200,0x01);
-}
-
-void drawStatic() {
-	memSet(0x1200,3200,' ');
-	memSet(0x1E80,3200,0x01);
-	write(31,6,0,0x0B);
-	write(24,9,1,0x02);
-	write(22,14,2,0x09);
-	write(22,16,3,0x09);
-	write(22,18,4,0x09);
-	write(22,20,5,0x09);
-	write(31,29,6,0x07);
-	write(30,30,7,0x07);
-	write(34,32,8,0x07);
-	initStars();
-	for(int ch=0;ch<4;ch++) {
-		for(int i=0;i<15;i++) cell(32+i,14+ch*2,0x7F,0x06);
-	}
-}
-
-// meter zones: green 0-8, yellow 9-12, red 13-14 (dark grey when off); a level change repaints [a,b) with
-// memSet, one call per zone
-byte zoneFrom[3]={0,9,13};
-byte zoneTo[3]={9,13,15};
-byte zoneCol[3]={0x09,0x0B,0x0D};
-
-void paintMeter(nat base,int a,int b,bool on) {
-	for(int z=0;z<3;z++) {
-		int f=zoneFrom[z];
-		int e=zoneTo[z];
-		if(f<a) f=a;
-		if(e>b) e=b;
-		if(f<e) {
-			byte c=0x06;
-			if(on) c=zoneCol[z];
-			memSet(base+(nat)f,(nat)(e-f),c);
-		}
-	}
-}
-
-byte rainbow[28]={0x0D,0x0C,0x0B,0x09,0x07,0x04,0x03,0x0D,0x0D,0x0C,0x0B,0x09,0x07,0x04,0x03,0x0D,
-	0x0D,0x0C,0x0B,0x09,0x07,0x04,0x03,0x0D,0x0D,0x0C,0x0B,0x09};
-
-// parallax stars (cracktro): three slow speeds (one step every 2 to 6 frames), the nearer ones brighter
-void stars(int t) {
-	for(int s=0;s<8;s++) {
-		int sp=1+s%3;
-		if(t%(8-2*sp)==0) {
-			nat a=(nat)(starY[s]*80+starX[s]);
-			poke(0x1200+a,' ');
-			int x=starX[s]-1;
-			if(x<0) x=79;
-			starX[s]=x;
-			a=(nat)(starY[s]*80+x);
-			byte ch='.';
-			byte c=0x03;
-			if(sp==2) {
-				ch=':';
-				c=0x07;
-			}
-			if(sp==3) {
-				ch='*';
-				c=0x0D;
-			}
-			poke(0x1200+a,ch);
-			poke(0x1E80+a,c);
-		}
-	}
-}
-
-void drawFrame(int t) {
-	// title colour wave, every 4 frames; the credit line takes it shifted, the name stays static
-	if(t%4==0) {
-		memCpy(&rainbow+(nat)((t/4)%8),0x1E80+6*80+31,17);
-		memCpy(&rainbow+(nat)((t/4+3)%8),0x1E80+29*80+31,17);
-	}
-	// meters: only the cells between the shown level and the new one change colour
-	for(int ch=0;ch<4;ch++) {
-		int lvl=vu[ch];
-		int old=shownVu[ch];
-		if(lvl!=old) {
-			int a=old;
-			int b=lvl;
-			if(lvl<old) {
-				a=lvl;
-				b=old;
-			}
-			nat base=0x1E80+(nat)(14+ch*2)*80+32;
-			paintMeter(base,a,b,lvl>old);
-			shownVu[ch]=lvl;
-		}
-		if(t%2==0 && vu[ch]>0) vu[ch]--;
-	}
-	if(t%2==1) stars(t/2);
-}
-
 void restoreScreen() {
 	rstrInt(false);
-	poke(backR,5);
-	poke(backG,5);
-	poke(backB,5);
+	poke(0x2F13,5);
+	poke(0x2F14,5);
+	poke(0x2F15,5);
 	poke(0x2F00,0x11);
 	poke(0x2F0B,peek(0x2F0B)|0x80);
 	memSet(0x1200,3200,' ');
@@ -873,12 +766,18 @@ void restoreScreen() {
 }
 
 // ------------------------------------------------------------------ main
-blackScreen();
-memSet(0x1E80+19*80,80,0x02);
+poke(0x2F00,0x10);                  // text alone on a black background while the files load
+poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
+poke(0x2F13,0);
+poke(0x2F14,0);
+poke(0x2F15,0);
+memSet(0x1200,3200,' ');
+memSet(0x1E80,3200,0x02);
 curPos(32,19);
 print("Loading the song");
 byte err=0;
 for(int p=0;p<NPARTS&&err==0;p++) err=loadPart(p);
+if(err==0) err=scrLoad();
 int key=getKeyDwn();
 if(err!=0) {
 	curPos(14,19);
@@ -888,34 +787,25 @@ if(err!=0) {
 } else {
 	usePart(0);
 	setupSound();
-	drawStatic();
-	rstrInt(true);
-	rstrCmp(480,&list);
+	scrStart();
 	int t=0;
-	bool barDue=false;
 	byte lastFc=peek(0x2F0C);
 	while(key!=0) key=getKeyDwn();      // the key that started the program (ENTER, ESC) must not be taken for a quit
 	startPlay();
 	while(key!=12) {
 		tickPlay();
+		macTick();
 		byte fc=peek(0x2F0C);
-		if(fc!=lastFc) {
-			// a new frame (line 480): the text now, the bar 8 ms later, when the beam is below it (line 210) and
-			// long before it comes back to the top
+		if(fc!=lastFc) {                // a new frame: the picture, once
 			lastFc=fc;
-			frameAt=(int)_mSec;
-			drawFrame(t);
-			barDue=true;
+			scrFrame(t);
 			t++;
-			if(t>=7680) t=0;              // an int would turn negative after 9 minutes (7680 = 64 * 120: the sines keep their phase)
-		}
-		if(barDue&&(int)_mSec-frameAt>=8) {
-			barDue=false;
-			moveBar(t);
+			if(t>=7680) t=0;            // an int would turn negative after 9 minutes
 		}
 		key=getKeyDwn();
 	}
 	stopAll();
+	scrEnd();
 	restoreScreen();
 }
 print("Bye.");

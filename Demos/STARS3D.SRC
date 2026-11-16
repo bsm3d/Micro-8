@@ -1,0 +1,146 @@
+// STARS 3D - a star field that comes from the depth and rolls, for the Micro-8 (code by Benoit Saint-Moulin)
+// 96 stars fly towards the viewer from the horizon: each one is an angle and a distance from the axis, and a
+// depth z. On screen its distance from the centre is distance * 255 / z: at the horizon (z = 255) the stars
+// fill the screen, then each one slides outwards, faster and faster. The whole field rolls around the axis, one way then the other: the roll is only an
+// offset added to every star's angle. Far stars are dim blue, near ones white and bigger, and the nearest
+// leave a short streak behind them (the line to where they were). Black background, 30 frames a second.
+// Integers only in the loop (16 bits): cos and sin * 127 come from tables, distance * 255 is kept per star.
+
+nat cpuWindow=0x3000;
+byte bmpPageA=0x60;//double buffer
+byte bmpPageB=0x8f;
+nat bmpDrawReg=0x2f16;
+nat bmpDisplayReg=0x2f05;
+nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
+
+int cosT[256]={
+	127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,117,116,115,113,
+	112,111,109,107,106,104,102,100,98,96,94,92,90,88,85,83,81,78,76,73,
+	71,68,65,63,60,57,54,51,49,46,43,40,37,34,31,28,25,22,19,16,
+	12,9,6,3,0,-3,-6,-9,-12,-16,-19,-22,-25,-28,-31,-34,-37,-40,-43,-46,
+	-49,-51,-54,-57,-60,-63,-65,-68,-71,-73,-76,-78,-81,-83,-85,-88,-90,-92,-94,-96,
+	-98,-100,-102,-104,-106,-107,-109,-111,-112,-113,-115,-116,-117,-118,-120,-121,-122,-122,-123,-124,
+	-125,-125,-126,-126,-126,-127,-127,-127,-127,-127,-127,-127,-126,-126,-126,-125,-125,-124,-123,-122,
+	-122,-121,-120,-118,-117,-116,-115,-113,-112,-111,-109,-107,-106,-104,-102,-100,-98,-96,-94,-92,
+	-90,-88,-85,-83,-81,-78,-76,-73,-71,-68,-65,-63,-60,-57,-54,-51,-49,-46,-43,-40,
+	-37,-34,-31,-28,-25,-22,-19,-16,-12,-9,-6,-3,0,3,6,9,12,16,19,22,
+	25,28,31,34,37,40,43,46,49,51,54,57,60,63,65,68,71,73,76,78,
+	81,83,85,88,90,92,94,96,98,100,102,104,106,107,109,111,112,113,115,116,
+	117,118,120,121,122,122,123,124,125,125,126,126,126,127,127,127};
+int sinT[256]={
+	0,3,6,9,12,16,19,22,25,28,31,34,37,40,43,46,49,51,54,57,
+	60,63,65,68,71,73,76,78,81,83,85,88,90,92,94,96,98,100,102,104,
+	106,107,109,111,112,113,115,116,117,118,120,121,122,122,123,124,125,125,126,126,
+	126,127,127,127,127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,
+	117,116,115,113,112,111,109,107,106,104,102,100,98,96,94,92,90,88,85,83,
+	81,78,76,73,71,68,65,63,60,57,54,51,49,46,43,40,37,34,31,28,
+	25,22,19,16,12,9,6,3,0,-3,-6,-9,-12,-16,-19,-22,-25,-28,-31,-34,
+	-37,-40,-43,-46,-49,-51,-54,-57,-60,-63,-65,-68,-71,-73,-76,-78,-81,-83,-85,-88,
+	-90,-92,-94,-96,-98,-100,-102,-104,-106,-107,-109,-111,-112,-113,-115,-116,-117,-118,-120,-121,
+	-122,-122,-123,-124,-125,-125,-126,-126,-126,-127,-127,-127,-127,-127,-127,-127,-126,-126,-126,-125,
+	-125,-124,-123,-122,-122,-121,-120,-118,-117,-116,-115,-113,-112,-111,-109,-107,-106,-104,-102,-100,
+	-98,-96,-94,-92,-90,-88,-85,-83,-81,-78,-76,-73,-71,-68,-65,-63,-60,-57,-54,-51,
+	-49,-46,-43,-40,-37,-34,-31,-28,-25,-22,-19,-16,-12,-9,-6,-3};
+
+byte savedPal[48];
+// 0 = black, 1 (far, dim blue) to 5 (near, white)
+byte starPal[48]={
+	0,2,3,4,6,7,0,0,0,0,0,0,0,0,0,0,
+	0,2,3,4,6,7,0,0,0,0,0,0,0,0,0,0,
+	0,4,5,6,7,7,0,0,0,0,0,0,0,0,0,0};
+// colour of a star by depth: z / 32
+byte depthCol[8]={5,5,5,4,3,3,2,1};
+
+int N=96;
+byte ang[96];
+int dist[96];                     // distance from the axis * 255 (up to 32385)
+int depth[96];
+
+memCpy(bmpPal,&savedPal,48);
+poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
+memSet(0x1200,3200,' ');            // no text over the stars
+memSet(cpuWindow,48000,0,bmpPageA);
+memSet(cpuWindow,48000,0,bmpPageB);
+memCpy(&starPal,bmpPal,48);
+
+bool swapState;
+void swap()
+{
+	if(swapState)
+	{
+		poke(bmpDisplayReg,bmpPageA);//display
+		poke(bmpDrawReg,bmpPageB);//draw
+	}
+	else
+	{
+		poke(bmpDisplayReg,bmpPageB);//display
+		poke(bmpDrawReg,bmpPageA);//draw
+	}
+	swapState=!swapState;
+}
+swap();
+
+rndSeed(_mSec);
+for(int i=0;i<N;i++)
+{
+	ang[i]=(byte)rnd(0,255);
+	dist[i]=rnd(10,127)*255;
+	depth[i]=rnd(40,255);           // spread over the depth at the start
+}
+
+int roll;           // the roll of the field, in 1/16 of a table step (0 to 4095 = one turn)
+byte rollPhase;     // where the roll speed is on its own slow sine
+int SPEED=3;        // depth units a frame
+
+void frame()
+{
+	byte rot=(byte)(roll>>4);
+	for(int i=0;i<N;i++)
+	{
+		int z=depth[i]-SPEED;
+		int rs=dist[i]/z;
+		if(z<9 || rs>236)
+		{
+			// passed the viewer or left the screen: a new star at the horizon
+			z=255;
+			ang[i]=(byte)rnd(0,255);
+			dist[i]=rnd(10,127)*255;
+			rs=dist[i]/z;
+		}
+		depth[i]=z;
+		byte a=ang[i]+rot;
+		int x=200+(cosT[a]*rs)/128;
+		int y=120+(sinT[a]*rs)/128;
+		byte c=depthCol[z>>5];
+		if(z<96)
+		{
+			// near: 2 pixels, and a streak back to where the star was 8 depth units ago
+			rs=dist[i]/(z+8);
+			line(x,y,200+(cosT[a]*rs)/128,120+(sinT[a]*rs)/128,c-1);
+			box(x,y,x+1,y+1,c);
+		}
+		else plot(x,y,c);
+	}
+	// the roll speed follows a slow sine: up to 2.5 table steps a frame, one way then the other
+	rollPhase++;
+	roll=roll+(sinT[rollPhase]*40)/127;
+	if(roll<0) roll=roll+4096;
+	if(roll>=4096) roll=roll-4096;
+}
+
+vCount(2);
+while(_keyDwn!=12)
+{
+	frame();
+	vSync();
+	swap();
+	memSet(cpuWindow,48000,0,peek(bmpDrawReg));//clear for the next frame
+}
+
+// leave the machine as it was
+vCount(1);
+poke(bmpDisplayReg,bmpPageA);
+poke(bmpDrawReg,bmpPageA);
+memSet(cpuWindow,48000,0,bmpPageA);
+memCpy(&savedPal,bmpPal,48);
+poke(0x2F0B,peek(0x2F0B)|0x80);

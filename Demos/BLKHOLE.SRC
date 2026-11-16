@@ -1,0 +1,209 @@
+// BLACK HOLE - a black hole and its accretion disk, for the Micro-8 (code by Benoit Saint-Moulin)
+// What you see around a black hole, built from its three signs:
+// - the shadow: a black disc where no light comes back, circled by the thin photon ring;
+// - the accretion disk, seen almost edge on. Its front half passes in front of the shadow as a flat ellipse.
+//   Its back half should be hidden, but gravity bends its light over the hole: it appears as an arch above
+//   the shadow. Here the back half of each orbit is simply drawn on a much taller ellipse, which joins the
+//   flat one at both ends. The matter turns on circular orbits, much faster near the hole than far from it
+//   (speed = k / radius ^ 1.5, Kepler), hot white inside, dark red outside, and the side that turns towards
+//   the viewer is brighter (Doppler beaming);
+// - the lens: the stars drifting behind are pushed away from the centre (a star seen at distance d appears
+//   at d + E * E / d), so they slide around the hole and never cross it.
+// Black background, 30 frames a second.
+// How: the body of the disk is 1100 dots drawn once. Over it, 48 streaks of matter and the stars are drawn
+// with the XOR mask of plot() and line() (the high 4 bits of the colour): drawing the same thing again takes
+// it away and leaves what was under it, so nothing is ever cleared or redrawn. The palette makes any pixel
+// with the streak bit bright, and any pixel with the star bit white. Integers only in the loop (16 bits).
+
+nat bmpPal=0x11A0;//16 reds, 16 greens, 16 blues
+
+int cosT[256]={
+	127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,117,116,115,113,
+	112,111,109,107,106,104,102,100,98,96,94,92,90,88,85,83,81,78,76,73,
+	71,68,65,63,60,57,54,51,49,46,43,40,37,34,31,28,25,22,19,16,
+	12,9,6,3,0,-3,-6,-9,-12,-16,-19,-22,-25,-28,-31,-34,-37,-40,-43,-46,
+	-49,-51,-54,-57,-60,-63,-65,-68,-71,-73,-76,-78,-81,-83,-85,-88,-90,-92,-94,-96,
+	-98,-100,-102,-104,-106,-107,-109,-111,-112,-113,-115,-116,-117,-118,-120,-121,-122,-122,-123,-124,
+	-125,-125,-126,-126,-126,-127,-127,-127,-127,-127,-127,-127,-126,-126,-126,-125,-125,-124,-123,-122,
+	-122,-121,-120,-118,-117,-116,-115,-113,-112,-111,-109,-107,-106,-104,-102,-100,-98,-96,-94,-92,
+	-90,-88,-85,-83,-81,-78,-76,-73,-71,-68,-65,-63,-60,-57,-54,-51,-49,-46,-43,-40,
+	-37,-34,-31,-28,-25,-22,-19,-16,-12,-9,-6,-3,0,3,6,9,12,16,19,22,
+	25,28,31,34,37,40,43,46,49,51,54,57,60,63,65,68,71,73,76,78,
+	81,83,85,88,90,92,94,96,98,100,102,104,106,107,109,111,112,113,115,116,
+	117,118,120,121,122,122,123,124,125,125,126,126,126,127,127,127};
+int sinT[256]={
+	0,3,6,9,12,16,19,22,25,28,31,34,37,40,43,46,49,51,54,57,
+	60,63,65,68,71,73,76,78,81,83,85,88,90,92,94,96,98,100,102,104,
+	106,107,109,111,112,113,115,116,117,118,120,121,122,122,123,124,125,125,126,126,
+	126,127,127,127,127,127,127,127,126,126,126,125,125,124,123,122,122,121,120,118,
+	117,116,115,113,112,111,109,107,106,104,102,100,98,96,94,92,90,88,85,83,
+	81,78,76,73,71,68,65,63,60,57,54,51,49,46,43,40,37,34,31,28,
+	25,22,19,16,12,9,6,3,0,-3,-6,-9,-12,-16,-19,-22,-25,-28,-31,-34,
+	-37,-40,-43,-46,-49,-51,-54,-57,-60,-63,-65,-68,-71,-73,-76,-78,-81,-83,-85,-88,
+	-90,-92,-94,-96,-98,-100,-102,-104,-106,-107,-109,-111,-112,-113,-115,-116,-117,-118,-120,-121,
+	-122,-122,-123,-124,-125,-125,-126,-126,-126,-127,-127,-127,-127,-127,-127,-127,-126,-126,-126,-125,
+	-125,-124,-123,-122,-122,-121,-120,-118,-117,-116,-115,-113,-112,-111,-109,-107,-106,-104,-102,-100,
+	-98,-96,-94,-92,-90,-88,-85,-83,-81,-78,-76,-73,-71,-68,-65,-63,-60,-57,-54,-51,
+	-49,-46,-43,-40,-37,-34,-31,-28,-25,-22,-19,-16,-12,-9,-6,-3};
+// the lens: 128 * (1 + E * E / d * d) for a star at d pixels from the centre
+int lens[128]={
+	1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,928,810,716,640,578,527,484,447,
+	416,389,366,346,328,312,298,286,275,265,256,248,240,234,228,222,217,212,208,204,
+	200,197,193,190,188,185,182,180,178,176,174,172,171,169,168,166,165,163,162,161,
+	160,159,158,157,156,155,154,154,153,152,152,151,150,150,149,148,148,147,147,146,
+	146,146,145,145,144,144,144,143,143,143,142,142,142,141,141,141,140,140,140,140,
+	140,139,139,139,139,138,138,138,138,138,138,137,137,137,137,137,137,136,136,136,
+	136,136,136,136,135,135,135,135};
+
+byte savedPal[48];
+// bit 0-1: the disk under (0 black, 1 dark red, 2 orange, 3 pale yellow), bit 2: a streak, bit 3: a star
+byte holePal[48]={
+	0,3,6,7,6,7,7,7,5,5,7,7,7,7,7,7,
+	0,0,2,6,3,4,6,7,5,4,5,7,7,7,7,7,
+	0,0,0,2,0,1,2,5,7,5,5,6,7,7,7,7};
+
+int NP=48;
+int pAng[48];                     // where the streak is on its orbit: 0 to 4095 = a turn
+int pSpd[48];                     // its speed, per frame
+int pRx[48];                      // its orbit on screen: half width,
+int pRyF[48];                     // half height of the front half (flat),
+int pRyB[48];                     // half height of the back half (bent over the hole)
+int pX0[48];                      // the streak on screen now, to take it away
+int pY0[48];
+int pX1[48];
+int pY1[48];
+
+int NS=14;
+int sX[14];                       // the stars behind: x * 4, y
+int sY[14];
+int sPX[14];                      // where each one is drawn now
+int sPY[14];
+
+memCpy(bmpPal,&savedPal,48);
+poke(0x2F0B,peek(0x2F0B)&0x7F);     // no mouse pointer during the show
+memSet(0x1200,3200,' ');            // no text over the picture
+byte page=peek(0x2F05);
+poke(0x2F16,page);                  // draw on the picture shown
+memSet(0x3000,48000,0,page);
+memCpy(&holePal,bmpPal,48);
+
+// an orbit of half width r: half height of its front half and of its back half
+int flat(int r)
+{
+	return (r*17)/100;
+}
+int bent(int r)
+{
+	return 29+((r-34)*36)/100;
+}
+
+// ------------------------------------------------------------------ the picture that stays
+rndSeed(_mSec);
+circle(200,120,22,2);
+circle(200,120,23,3);
+for(int i=0;i<1100;i++)
+{
+	// more matter near the hole: the radius grows as the square of a random number
+	int u=rnd(0,107);
+	int r=34+(u*u)/100;
+	byte a=(byte)rnd(0,255);
+	int heat=3-u/36;
+	int cs=cosT[a];
+	int sn=sinT[a];
+	if(cs<-30 && heat>1) heat=heat-1;                   // the side going away is dimmer
+	int y=120-(sn*flat(r))/128;
+	if(sn>0) y=120-(sn*bent(r))/128;
+	plot(200+(cs*r)/128,y,(byte)heat);
+}
+for(int i=0;i<NP;i++)
+{
+	int u=rnd(0,107);
+	int r=34+(u*u)/100;
+	real rr=(real)r;
+	pAng[i]=rnd(0,4095);
+	pSpd[i]=(int)(8000.0/(rr*sqrt(rr)));                // Kepler: 40 a frame at the inner edge, 4 outside
+	pRx[i]=r;
+	pRyF[i]=flat(r);
+	pRyB[i]=bent(r);
+	pX0[i]=0;
+	pY0[i]=0;
+	pX1[i]=0;
+	pY1[i]=0;
+	line(0,0,0,0,0x40);
+}
+for(int i=0;i<NS;i++)
+{
+	sX[i]=rnd(0,1599);
+	sY[i]=rnd(4,235);
+	sPX[i]=0;
+	sPY[i]=1;
+	plot(0,1,0x80);
+}
+
+void frame()
+{
+	// the stars behind, pushed aside by the lens
+	for(int i=0;i<NS;i++)
+	{
+		plot(sPX[i],sPY[i],0x80);                       // away
+		int x4=sX[i]+1;                                 // a quarter of a pixel a frame
+		if(x4>1599)
+		{
+			x4=0;
+			sY[i]=rnd(4,235);
+		}
+		sX[i]=x4;
+		int dx=(x4>>2)-200;
+		int dy=sY[i]-120;
+		int ax=abs(dx);
+		int ay=abs(dy);
+		int d=ax+ay/2;                                  // distance to the centre, near enough
+		if(ay>ax) d=ay+ax/2;
+		if(d<110)
+		{
+			int k=lens[d];
+			dx=(dx*k)/128;
+			dy=(dy*k)/128;
+		}
+		sPX[i]=200+dx;
+		sPY[i]=120+dy;
+		plot(200+dx,120+dy,0x80);                       // and back, at its new place
+	}
+	// the streaks of matter: from where the grain is to where it was a moment ago
+	for(int i=0;i<NP;i++)
+	{
+		line(pX0[i],pY0[i],pX1[i],pY1[i],0x40);         // away
+		int a=pAng[i]+pSpd[i];
+		if(a>=4096) a=a-4096;
+		pAng[i]=a;
+		int b=a-pSpd[i]*4-24;
+		if(b<0) b=b+4096;
+		a=a>>4;
+		b=b>>4;
+		int rx=pRx[i];
+		int x0=200+(cosT[a]*rx)/128;
+		int x1=200+(cosT[b]*rx)/128;
+		int y0=120-(sinT[a]*pRyF[i])/128;
+		if(sinT[a]>0) y0=120-(sinT[a]*pRyB[i])/128;     // behind: bent over the hole
+		int y1=120-(sinT[b]*pRyF[i])/128;
+		if(sinT[b]>0) y1=120-(sinT[b]*pRyB[i])/128;
+		pX0[i]=x0;
+		pY0[i]=y0;
+		pX1[i]=x1;
+		pY1[i]=y1;
+		line(x0,y0,x1,y1,0x40);                         // and back
+	}
+}
+
+vCount(2);
+while(_keyDwn!=12)
+{
+	frame();
+	vSync();
+}
+
+// leave the machine as it was
+vCount(1);
+memSet(0x3000,48000,0,page);
+memCpy(&savedPal,bmpPal,48);
+poke(0x2F0B,peek(0x2F0B)|0x80);
