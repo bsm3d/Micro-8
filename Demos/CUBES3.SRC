@@ -1,4 +1,5 @@
-// CUBES - three nested wireframe cubes turning on three axes, for the Micro-8 (code by Benoit Saint-Moulin)
+// CUBES - three nested wireframe cubes turning on three axes, for the Micro-8
+// Code & Music: Benoit (BSM) Saint-Moulin
 // Each cube turns around X, Y and Z at its own speeds. The edges at the back are drawn dimmer than the ones
 // in front, so the eye reads a solid shape. Black background, 60 frames a second.
 // How, integers only (16 bits):

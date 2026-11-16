@@ -1,4 +1,5 @@
-// STARS FIELD - a parallax star field for the Micro-8 (code by Benoit Saint-Moulin)
+// STARS FIELD - a parallax star field for the Micro-8
+// Code & Music: Benoit (BSM) Saint-Moulin
 // Port of DemosScenes/Codes/Stars Field (BSM3D-starfield.html): 5 layers of one-pixel stars drift to the
 // right, each layer faster than the one before (0.1 + layer * 0.15 pixel a frame), each star with its own
 // grey (128 to 255 in the original, 4 levels here). A star that leaves on the right comes back on the left

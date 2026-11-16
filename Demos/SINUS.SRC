@@ -1,4 +1,5 @@
-// SINUS SCROLLER - the classic sine wave text scroller for the Micro-8 (code by Benoit Saint-Moulin)
+// SINUS SCROLLER - the classic sine wave text scroller for the Micro-8
+// Code & Music: Benoit (BSM) Saint-Moulin
 // Port of DemosScenes/Codes/Sinus Scroller (BSM3D-sinus-scroller.html): the message comes in from the right,
 // 2 pixels a frame, each letter rides the sine wave y = centre + sin(x * 0.02) * 40, the hue turns with time
 // and slides along the text, the letters are brighter at the bottom of the wave. Black background.

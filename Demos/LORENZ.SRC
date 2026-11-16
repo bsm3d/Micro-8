@@ -1,4 +1,5 @@
-// LORENZ - the Lorenz attractor and the butterfly effect, for the Micro-8 (code by Benoit Saint-Moulin)
+// LORENZ - the Lorenz attractor and the butterfly effect, for the Micro-8
+// Code & Music: Benoit (BSM) Saint-Moulin
 // Two points follow the same three equations, computed live:
 //     dx = 10 (y - x)     dy = x (28 - z) - y     dz = x y - 8/3 z
 // They start a tenth apart. For a few seconds they fly together, then they part for good: the same law,

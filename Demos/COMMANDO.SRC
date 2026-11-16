@@ -1,10 +1,13 @@
-// COMMANDO - the whole tune and its own screen for the Micro-8 (code and arrangement by Benoit Saint-Moulin)
+// COMMANDO - the whole tune and its own screen for the Micro-8. Code & Music: Benoit (BSM) Saint-Moulin
+// The music is inspired by Rob Hubbard's original Commando theme.
 // The whole song, converted note for note from the B-Tracker project by micro8_studio/dev/make_commando.py:
 // this program plays the tracker files ("COMMANDO.M8S","COMMAND2.M8S","COMMAND3.M8S"), the same ones
 // TRACKER.SRC and PLAYER.SRC open, with PLAYER.SRC's own playback code. Copy them next to this program, or
 // leave them in /BSMCODE/TRACKER. ESC quits.
 // The screen: a night raid seen from above (tiles, hardware scrolling, sprites). The soldier steps on the bass,
 // the lead steers him and fires, the snare bursts shells, the kick shakes the ground, each chord colours the title.
+// The enemy comes in waves, one a pattern of the song: soldiers run down at him and fall to his tracers, the kick
+// makes one fire back, the shell of the snare falls on the nearest, or on the jeep of every fourth wave.
 //
 // What only this program does to the sound (the tracker files hold plain notes, any player plays them): the
 // chords are played as the source plays them, one voice running through their notes (an arpeggio at the
@@ -90,9 +93,11 @@ int spat(int i) {
 }
 
 // ------------------------------------------------------------------ the screen: a night raid, seen from above
-// Tiles with hardware scrolling for the ground, sprites for the soldier, his tracers, the shell bursts and the
-// stencil title, text for the score line and the credits. scrNote() is called by the music at each note; it
-// only leaves a mark, the next frame acts on it.
+// Tiles with hardware scrolling for the ground, sprites for the soldier, his tracers, the shell bursts, the
+// enemy and the stencil title, text for the score line and the credits. scrNote() is called by the music at
+// each note; it only leaves a mark, the next frame acts on it.
+// The 32 sprites: 0-7 title, 8-9 enemy rounds, 10-15 tracers, 16 soldier, 17 muzzle flash, 18-22 enemy
+// soldiers, 23 jeep, 24-27 shell bursts (a higher number is drawn over a lower one).
 text resNames[3]={"COMMANDO.TLS","COMMANDO.SPR","COMMANDO.MAP"};
 byte tilePal[48]={
 	0,1,2,2,5,3,3,5,1,4,7,6,7,7,3,1,0,2,3,5,4,2,3,5,
@@ -132,9 +137,20 @@ int burX[4];
 int burY[4];
 int burAge[4];
 int nextBur=0;
-int score=0;
+int score=0;                  // tens of points
 int shownScore=-1;
 int shownBar=-1;
+int enX[5];                   // the enemy soldiers: place, and 0 none, 1 running, 2 and more: hit, for that long
+int enY[5];
+int enS[5];
+int rndX[2];                  // the enemy rounds in flight (y = 0: none)
+int rndY[2];
+int nextRnd=0;
+int jeepY=0;                  // the jeep: 0 none, 1 driving down the track, 2 burning
+int jeepS=0;
+int wave=0;
+int toCome=0;                 // enemies of the wave still to appear
+int comeT=0;
 
 // a resource file: next to the program, else in /BSMCODE/SRC/2D
 byte loadRes(int k,nat addr,nat size,byte page) {
@@ -154,7 +170,7 @@ byte loadRes(int k,nat addr,nat size,byte page) {
 byte scrLoad() {
 	byte e=loadRes(2,&level,2080,0xFF);
 	if(e==0) e=loadRes(0,0x3000,3840,0x00);
-	if(e==0) e=loadRes(1,0x3000,3328,0x20);
+	if(e==0) e=loadRes(1,0x3000,5120,0x20);
 	return e;
 }
 
@@ -162,9 +178,11 @@ void label(int x,int y,int k,byte c) {
 	memSet(&fnm,41,0);
 	if(k==0) concat(fnm,"1UP");
 	if(k==1) concat(fnm,"BAR    /256");
-	if(k==2) concat(fnm,"Code, Arrangement");
+	if(k==2) concat(fnm,"Code & Music");
+	if(k==5) concat(fnm,"WAVE");
 	if(k==3) concat(fnm,"Benoit Saint-Moulin");
 	if(k==4) concat(fnm,"ESC to quit");
+	if(k==6) concat(fnm,"Music inspired by Rob Hubbard's original");
 	nat a=(nat)(y*80+x);
 	for(int i=0;i<40;i++) {
 		byte g=peek(&fnm+(nat)i);
@@ -207,17 +225,21 @@ void scrStart() {
 		sprPos((byte)i,48+192+i*52,42+34);
 	}
 	for(int i=0;i<6;i++) sprRef((byte)(10+i),8);    // tracers
+	sprRef(8,17);                                   // enemy rounds
+	sprRef(9,17);
 	sprRef(16,6);                                   // the soldier
 	sprRef(17,9);                                   // the muzzle flash
 	sprUpdt();
 	label(2,1,0,0x0B);
 	poke(0x1200+80+11,'0');
 	label(64,1,1,0x0B);
+	label(36,1,5,0x0B);
 	memSet(0x1E80+86,6,0x02);
 	memSet(0x1E80+148,3,0x02);
-	label(31,35,2,0x0B);
+	label(34,35,2,0x0B);
 	label(30,36,3,0x02);
-	label(34,38,4,0x07);
+	label(20,37,6,0x0F);
+	label(34,39,4,0x07);
 	poke(0x2F00,0x1C);                              // text, tiles and sprites over the black background
 }
 
@@ -227,8 +249,13 @@ void scrNote(int t,int n,int vel) {
 	else if(t==2) evChord=n+1;
 	else if(t==6) evKick=1;
 	else if(t==7&&(n<80||vel>40)) evSnare=1;        // the snare and the open hat; the closed hat is left alone
-	score=score+1;
-	if(score>29999) score=0;
+}
+
+// enemy e is hit: he falls where he stands, 100 points
+void fell(int e) {
+	enS[e]=2;
+	sprRef((byte)(18+e),15);
+	score=score+10;
 }
 
 void scrFrame(int t) {
@@ -242,9 +269,30 @@ void scrFrame(int t) {
 		areaCpy(&level,26,0,mapRow,26,16,0x2B00,32,0,0);
 	}
 	poke(0x2F02,(byte)pixY);
-	if(evKick!=0) {
+	if(evKick!=0) {                                 // the kick: the ground shakes, and one of the enemy fires
 		evKick=0;
 		shake=4;
+		if(rndY[nextRnd]==0) {
+			for(int e=0;e<5;e++) {
+				if(enS[e]==1&&enY[e]<300) {
+					rndX[nextRnd]=enX[e];
+					rndY[nextRnd]=enY[e]+20;
+					nextRnd=1-nextRnd;
+					break;
+				}
+			}
+		}
+	}
+	for(int i=0;i<2;i++) {
+		int y=rndY[i];
+		if(y>0) {
+			y=y+11;
+			if(y>452) {
+				y=0;
+				sprPos((byte)(8+i),0,0);
+			} else sprPos((byte)(8+i),48+rndX[i],42+y);
+			rndY[i]=y;
+		}
 	}
 	if(shake>0) {                                   // the kick: the ground jumps sideways and comes back
 		shake=shake-1;
@@ -273,22 +321,100 @@ void scrFrame(int t) {
 		if(flashT==0) sprPos(17,0,0);
 		else sprPos(17,48+soldX+18,42+310);
 	}
+	// the tracers: up the screen; one that meets a running enemy brings him down
 	for(int i=0;i<6;i++) {
 		int y=bulY[i];
 		if(y>0) {
 			y=y-16;
-			if(y<96) {
-				y=0;
-				sprPos((byte)(10+i),0,0);
-			} else sprPos((byte)(10+i),48+bulX[i],42+y);
+			if(y<96) y=0;
+			else {
+				for(int e=0;e<5;e++) {
+					if(enS[e]==1) {
+						int dx=bulX[i]-enX[e];
+						int dy=y-enY[e];
+						if(dx>-26&&dx<20&&dy>-30&&dy<30) {
+							fell(e);
+							y=0;
+							break;
+						}
+					}
+				}
+			}
+			if(y==0) sprPos((byte)(10+i),0,0);
+			else sprPos((byte)(10+i),48+bulX[i],42+y);
 			bulY[i]=y;
 		}
 	}
-	// the snare: a shell bursts somewhere ahead
+	// the enemy: a new one of the wave every third of a second; they run down at the soldier
+	if(toCome>0) {
+		comeT=comeT-1;
+		if(comeT<=0) {
+			comeT=20;
+			for(int e=0;e<5;e++) {
+				if(enS[e]==0) {
+					enX[e]=rnd(30,710);
+					enY[e]=88;
+					enS[e]=1;
+					toCome=toCome-1;
+					break;
+				}
+			}
+		}
+	}
+	int aim=soldX+21;                               // where an enemy stands in the line of the rifle
+	for(int e=0;e<5;e++) {
+		int s=enS[e];
+		if(s!=0) {
+			int y=enY[e];
+			if(s==1) {
+				y=y+3;
+				if(enX[e]<aim-1) enX[e]=enX[e]+1;
+				else if(enX[e]>aim+1) enX[e]=enX[e]-1;
+				if(t%8==0) sprRef((byte)(18+e),(byte)(13+(t/8)%2));
+				if(y>414) s=0;                          // he got past
+			} else {
+				y=y+2;                                  // he lies on the ground and goes with it
+				s=s+1;
+				if(s==9) sprRef((byte)(18+e),16);
+				if(y>470) s=0;
+			}
+			if(s==0) sprPos((byte)(18+e),0,0);
+			else sprPos((byte)(18+e),48+enX[e],42+y);
+			enY[e]=y;
+			enS[e]=s;
+		}
+	}
+	if(jeepS!=0) {
+		if(jeepS==1) jeepY=jeepY+5;
+		else jeepY=jeepY+2;
+		if(jeepY>470) {
+			jeepS=0;
+			sprPos(23,0,0);
+		} else sprPos(23,48+392,42+jeepY);
+	}
+	// the snare: a shell. On the jeep if it is there, else on the enemy who came too close, else anywhere ahead
 	if(evSnare!=0) {
 		evSnare=0;
-		burX[nextBur]=rnd(40,720);
-		burY[nextBur]=rnd(100,270);
+		int bx=rnd(40,720);
+		int by=rnd(100,270);
+		if(jeepS==1&&jeepY>96) {
+			bx=392;
+			by=jeepY;
+			jeepS=2;
+			sprRef(23,19);
+			score=score+50;
+		} else {
+			for(int e=0;e<5;e++) {
+				if(enS[e]==1&&enY[e]>200) {
+					bx=enX[e];
+					by=enY[e];
+					fell(e);
+					break;
+				}
+			}
+		}
+		burX[nextBur]=bx;
+		burY[nextBur]=by;
 		burAge[nextBur]=1;
 		nextBur=nextBur+1;
 		if(nextBur>=4) nextBur=0;
@@ -317,15 +443,28 @@ void scrFrame(int t) {
 			poke(0x2FC1+s,chordCol[k+s*3+2]);
 		}
 	}
-	// the score (the notes played) and the bar the tune is at
+	// the score and the bar the tune is at; a new wave of the enemy with each pattern of the song (4 bars)
 	if(t%4==0&&score!=shownScore) {
+		if(score>29999) score=0;
 		shownScore=score;
-		digits(10,1,score,5);                       // ten points a note
+		digits(10,1,score,5);                       // the last 0 of the score is fixed on screen
 	}
 	int bar=partBar[part]+playPos+1;
 	if(bar!=shownBar) {
 		shownBar=bar;
 		digits(70,1,bar,3);
+		int w=(bar+3)/4;
+		if(w!=wave) {
+			wave=w;
+			toCome=2+w%3;
+			digits(42,1,w,2);
+			memSet(0x1E80+121,2,0x02);
+			if(w%4==0&&jeepS==0) {                      // every fourth wave, a jeep down the track
+				jeepS=1;
+				jeepY=84;
+				sprRef(23,18);
+			}
+		}
 	}
 }
 
