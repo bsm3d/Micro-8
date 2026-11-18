@@ -1,0 +1,572 @@
+// PHYSICS - a robot, bouncing balls and five worlds, made with the physics blocks of the Micro-8 library
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Demo 1.0 for Micro-8 OS 0.9
+
+// Arrows walk, Z jumps, X throws a ball, Tab changes the world, Enter starts again, Esc quits.
+
+// ---- M8LIB: pal - loadPal/savePal: a 48-byte .PAL (16 red, 16 green, 16 blue values 0-7) into or from a palette address
+bool loadPal(text f,nat pal) {
+	import(f,pal,48);
+	return _fError==0;
+}
+
+bool savePal(text f,nat pal) {
+	export(f,pal,48);
+	return _fError==0;
+}
+
+// ---- M8LIB: sprites - loadSprites/saveSprites: a .SPR sprite set (256 bytes a sprite) from sprite 'first', n sprites (0 = whole file)
+bool loadSprites(text f,int first) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveSprites(text f,int first,int n) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	nat sz=(nat)n*256;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: tiles - loadTiles/saveTiles: a .TLS tile set (128 bytes a 16x16 tile) from tile 'first', n tiles (0 = whole file)
+bool loadTiles(text f,int first) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveTiles(text f,int first,int n) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	nat sz=(nat)n*128;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: level - loadLevel/saveLevel: a .LVL map (one tile number a cell) into or from a byte array (&array, its size)
+bool loadLevel(text f,nat dst,nat size) {
+	import(f,dst,size);
+	return _fError==0;
+}
+
+bool saveLevel(text f,nat src,nat size) {
+	export(f,src,size);
+	return _fError==0;
+}
+
+// ---- M8LIB: pad - padRead/padDown/padHit/padUp: the pad with edges (A 1, B 2, Start 4, Select 8, Up 16, Down 32, Left 64, Right 128)
+byte padNow=0;
+byte padOld=0;
+
+void padRead() {
+	padOld=padNow;
+	padNow=_padLft;
+}
+
+// held now
+bool padDown(byte m) {
+	return (padNow&m)!=0;
+}
+
+// pressed this frame (was not held on the one before)
+bool padHit(byte m) {
+	return (padNow&m)!=0&&(padOld&m)==0;
+}
+
+// released this frame
+bool padUp(byte m) {
+	return (padNow&m)==0&&(padOld&m)!=0;
+}
+
+// ---- M8LIB: timer - tmSet/tmTick/tmDone/tmEvery: 8 countdown timers counted in frames - call tmTick() once a frame
+int tmLeft[8];
+
+// a timer number outside 0..7 does nothing (the machine does not check array indexes: it would write over other data)
+void tmSet(int i,int frames) {
+	if(i<0||i>7) return;
+	tmLeft[i]=frames;
+}
+
+void tmTick() {
+	for(int i=0;i<8;i++) {
+		if(tmLeft[i]>0) tmLeft[i]--;
+	}
+}
+
+// has timer i run out (a timer never set is out)
+bool tmDone(int i) {
+	if(i<0||i>7) return true;
+	return tmLeft[i]<=0;
+}
+
+// true once every 'frames' frames when called each frame (the first call is true): a spawner, a rate of fire
+bool tmEvery(int i,int frames) {
+	if(i<0||i>7) return false;
+	if(tmLeft[i]>0) return false;
+	tmLeft[i]=frames;
+	return true;
+}
+
+// ---- M8LIB: layer - layLoad/layPoint/layBox/layFind/layCount: collisions and placement from a .LAY file (8 layers) of a 25x15 map
+byte layData[379];
+
+// a .LAY of 25 x 15 cells; false when the file is missing or is another size
+bool layLoad(text f) {
+	memSet(&layData,379,0);
+	import(f,&layData,379);
+	if(_fError!=0) return false;
+	return layData[0]==25&&layData[1]==0&&layData[2]==15&&layData[3]==0;
+}
+
+// the layers of a cell, one bit each (layer 0 is 1, layer 7 is 128); outside the map every layer is set
+int layCell(int col,int row) {
+	if(col<0||row<0||col>=25||row>=15) return 255;
+	return layData[4+row*25+col];
+}
+
+// is a screen point (800 x 480 pixels) on a cell that has one of the layers of 'mask'? outside the screen counts as yes
+bool layPoint(int sx,int sy,int mask) {
+	if(sx<0||sy<0||sx>=800||sy>=480) return true;
+	return (layCell(sx/32,sy/32)&mask)!=0;
+}
+
+// would a box of w x h pixels, ox,oy inside a sprite placed at px,py (sprPos units), touch such a cell? w and h up to 32
+bool layBox(int px,int py,int ox,int oy,int w,int h,int mask) {
+	int x0=px-48+ox;
+	int y0=py-42+oy;
+	int x1=x0+w-1;
+	int y1=y0+h-1;
+	return layPoint(x0,y0,mask)||layPoint(x1,y0,mask)||layPoint(x0,y1,mask)||layPoint(x1,y1,mask);
+}
+
+// the cell number (row*25+col) of the n-th cell (from 0) that has one of the layers of 'mask', or -1
+int layFind(int mask,int n) {
+	int k=0;
+	for(int i=0;i<375;i++) {
+		if((layData[4+i]&mask)!=0) {
+			if(k==n) return i;
+			k++;
+		}
+	}
+	return -1;
+}
+
+int layCount(int mask) {
+	int k=0;
+	for(int i=0;i<375;i++) {
+		if((layData[4+i]&mask)!=0) k++;
+	}
+	return k;
+}
+
+// the sprite position (sprPos) that centres a 24 x 21 sprite on a cell number
+int layX(int cell) {
+	return 40+(cell%25)*32;
+}
+
+int layY(int cell) {
+	return 36+(cell/25)*32;
+}
+
+// ---- M8LIB: phys - physPlace/physStep/physJump/physTouch: gravity, jumps, walls and bounces on a .LAY layer (a platformer, a ball)
+// A body is a sprite 0..31: positions in 1/16 pixel (physX/16 is the sprPos position), speeds in 1/16 pixel a frame, walls are the
+// cells of the layers in 'mask'. Everything below is global: set it once or between frames (physGrav=0: a top-down game).
+int physX[32];
+int physY[32];
+int physVx[32];
+int physVy[32];
+bool physGnd[32];
+int physGrav=6;
+int physFall=160;
+int physDrag=0;
+int physBounce=0;
+int physOx=12;
+int physOy=10;
+int physW=24;
+int physH=24;
+
+// the box that hits walls, ox,oy inside the 24 x 21 sprite, w and h up to 32 (the default is the 24 x 24 box at 12,10 of DUNGEON HUNT)
+void physBox(int ox,int oy,int w,int h) {
+	physOx=ox;
+	physOy=oy;
+	physW=w;
+	physH=h;
+}
+
+// the body goes to x,y (sprPos units), at rest
+void physPlace(int i,int x,int y) {
+	if(i<0||i>31) return;
+	physX[i]=x*16;
+	physY[i]=y*16;
+	physVx[i]=0;
+	physVy[i]=0;
+	physGnd[i]=false;
+	sprPos((byte)i,x,y);
+}
+
+bool physBlocked(int x,int y,int mask) {
+	return layBox(x,y,physOx,physOy,physW,physH,mask);
+}
+
+// the speed after a hit: 0, or sent back with physBounce/16 of it when it was fast enough to bounce
+int physRebound(int v) {
+	if(physBounce<=0) return 0;
+	int n=abs(v)*physBounce/16;
+	if(n<24) return 0;
+	if(v>0) return -n;
+	return n;
+}
+
+// one frame: gravity, drag, then the move along x and along y one pixel at a time, stopped by the cells of 'mask' (it never goes through a wall,
+// whatever its speed, which is kept within 100 pixels a frame so that the 16-bit numbers never wrap); physGnd tells whether it stands on
+// something. The sprite shows the new place at the next sprUpdt.
+void physStep(int i,int mask) {
+	if(i<0||i>31) return;
+	int vx=physVx[i];
+	int vy=physVy[i]+physGrav;
+	if(vy>physFall) vy=physFall;
+	if(physDrag>0&&vx!=0) {
+		int d=abs(vx)*physDrag/16;
+		if(d<1) d=1;
+		if(vx>0) vx-=d;
+		else vx+=d;
+	}
+	if(vx>1600) vx=1600;
+	if(vx<-1600) vx=-1600;
+	if(vy>1600) vy=1600;
+	if(vy<-1600) vy=-1600;
+	int cx=physX[i]/16;
+	int cy=physY[i]/16;
+	int nx=physX[i]+vx;
+	if(nx<0) nx=0;
+	int tx=nx/16;
+	int sx=1;
+	if(tx<cx) sx=-1;
+	bool hit=false;
+	while(cx!=tx&&!hit) {
+		if(physBlocked(cx+sx,cy,mask)) hit=true;
+		else cx+=sx;
+	}
+	if(hit) {
+		physX[i]=cx*16;
+		vx=physRebound(vx);
+	} else physX[i]=nx;
+	int ny=physY[i]+vy;
+	if(ny<0) ny=0;
+	int ty=ny/16;
+	int sy=1;
+	if(ty<cy) sy=-1;
+	hit=false;
+	while(cy!=ty&&!hit) {
+		if(physBlocked(cx,cy+sy,mask)) hit=true;
+		else cy+=sy;
+	}
+	if(hit) {
+		physY[i]=cy*16;
+		vy=physRebound(vy);
+	} else physY[i]=ny;
+	physGnd[i]=vy>=0&&physBlocked(cx,cy+1,mask);
+	if(physGnd[i]) {
+		vy=physRebound(vy);                          // it may have arrived on the very pixel of the ground: that is a hit too
+		physY[i]=cy*16;
+		if(vy<0) physGnd[i]=false;
+	}
+	physVx[i]=vx;
+	physVy[i]=vy;
+	sprPos((byte)i,cx,cy);
+}
+
+// a jump of speed v when the body stands on something (88 is 38 pixels high at the default gravity); true when it jumped
+bool physJump(int i,int v) {
+	if(i<0||i>31) return false;
+	if(!physGnd[i]) return false;
+	physVy[i]=-v;
+	physGnd[i]=false;
+	return true;
+}
+
+// does the body overlap a cell of the layers in 'mask' (coins, spikes, a ladder)?
+bool physTouch(int i,int mask) {
+	if(i<0||i>31) return false;
+	return layBox(physX[i]/16,physY[i]/16,physOx,physOy,physW,physH,mask);
+}
+
+// ---- M8LIB: ent - entNew/entKill/entStep/entTouch/entClear/entCount: shots and enemies as a pool of sprites, each with a speed
+int entX[32];
+int entY[32];
+int entDx[32];
+int entDy[32];
+bool entOn[32];
+
+// every range below is kept inside the 32 sprites (the machine does not check array indexes)
+// a new thing in the first free sprite of first..first+n-1: image, position, speed; the sprite number, or -1 when the pool is full
+int entNew(int first,int n,int ref,int x,int y,int dx,int dy) {
+	int a=first;
+	int b=first+n;
+	if(a<0) a=0;
+	if(b>32) b=32;
+	for(int i=a;i<b;i++) {
+		if(!entOn[i]) {
+			entOn[i]=true;
+			entX[i]=x;
+			entY[i]=y;
+			entDx[i]=dx;
+			entDy[i]=dy;
+			sprRef((byte)i,(byte)ref);
+			sprPos((byte)i,x,y);
+			return i;
+		}
+	}
+	return -1;
+}
+
+// the sprite goes to 0,0, where a hidden sprite waits (its box then touches the other hidden ones: test live things only)
+void entKill(int i) {
+	if(i<0||i>31) return;
+	entOn[i]=false;
+	sprPos((byte)i,0,0);
+}
+
+void entClear(int first,int n) {
+	int a=first;
+	int b=first+n;
+	if(a<0) a=0;
+	if(b>32) b=32;
+	for(int i=a;i<b;i++) entKill(i);
+}
+
+// every live thing of the range moves by its speed (shown at the next sprUpdt)
+void entStep(int first,int n) {
+	int a=first;
+	int b=first+n;
+	if(a<0) a=0;
+	if(b>32) b=32;
+	for(int i=a;i<b;i++) {
+		if(entOn[i]) {
+			entX[i]+=entDx[i];
+			entY[i]+=entDy[i];
+			sprPos((byte)i,entX[i],entY[i]);
+		}
+	}
+}
+
+// the first live thing of the range that touches sprite a (isSprSpr: the picture of the last sprUpdt), or -1
+int entTouch(int a,int first,int n) {
+	if(a<0||a>31) return -1;
+	int lo=first;
+	int hi=first+n;
+	if(lo<0) lo=0;
+	if(hi>32) hi=32;
+	for(int i=lo;i<hi;i++) {
+		if(entOn[i]&&isSprSpr((byte)a,(byte)i)) return i;
+	}
+	return -1;
+}
+
+int entCount(int first,int n) {
+	int k=0;
+	int a=first;
+	int b=first+n;
+	if(a<0) a=0;
+	if(b>32) b=32;
+	for(int i=a;i<b;i++) {
+		if(entOn[i]) k++;
+	}
+	return k;
+}
+
+// ---- M8LIB: hud - hudFill/hudPrint: text with its colour (print paints black on nothing): colour = background*16+letters
+// cells outside the 80 x 40 text screen are left alone
+void hudFill(int col,int row,int n,byte color) {
+	if(col<0||col>79||row<0||row>39||n<1) return;
+	int w=n;
+	if(col+w>80) w=80-col;
+	nat a=(nat)row*80+(nat)col;
+	memSet(0x1200+a,(nat)w,' ');
+	memSet(0x1E80+a,(nat)w,color);
+}
+
+void hudPrint(int col,int row,byte color,text msg) {
+	if(col<0||col>79||row<0||row>39) return;
+	curPos((byte)col,(byte)row);
+	print(msg);
+	int n=_curX;
+	n=n-col;
+	if(n>0) memSet(0x1E80+(nat)row*80+(nat)col,(nat)n,color);
+}
+
+// ---- M8LIB: sfx - sfxPlay/sfxTick: a short sound on FM voice 5, which a song of fewer than 6 tracks leaves alone
+byte sfxVoice=5;
+int sfxLeft=0;
+
+void sfxPlay(int note,int frames) {
+	ymVoice(sfxVoice,1,5,3,110);
+	ymNoteOn(sfxVoice,(byte)note,127);
+	sfxLeft=frames;
+}
+
+void sfxTick() {
+	if(sfxLeft>0) {
+		sfxLeft--;
+		if(sfxLeft==0) ymNoteOff(sfxVoice);
+	}
+}
+
+byte level[379];                 // PHYSICS.LVL: 4 header bytes, then 25x15 tile numbers (layer 0 of PHYSICS.LAY is what is solid)
+int world;                       // 0 earth, 1 moon, 2 heavy, 3 jelly, 4 ice
+int throws;                      // balls thrown so far (modulo 480): the sixteen sprites take turns
+bool faceLeft;
+byte frame;
+
+// the worlds only differ by four numbers of the physics block, and the robot and the balls feel all of them
+void setWorld() {
+	if(world==0) {
+		physGrav=6;
+		physBounce=10;
+		physDrag=2;
+	} else if(world==1) {
+		physGrav=2;
+		physBounce=14;
+		physDrag=1;
+	} else if(world==2) {
+		physGrav=14;
+		physBounce=4;
+		physDrag=6;
+	} else if(world==3) {
+		physGrav=6;
+		physBounce=15;
+		physDrag=1;
+	} else {
+		physGrav=6;
+		physBounce=0;
+		physDrag=0;
+	}
+}
+
+void showHud() {
+	hudFill(0,0,80,0x12);
+	curPos(2,0);
+	if(world==0) print("EARTH");
+	else if(world==1) print("MOON");
+	else if(world==2) print("HEAVY");
+	else if(world==3) print("JELLY");
+	else print("ICE");
+	curPos(12,0);
+	print("GRAVITY ",physGrav,"   BOUNCE ",physBounce,"/16   DRAG ",physDrag,"/16   BALLS ",entCount(1,16),"   ");
+	memSet(0x1E80,80,0x12);                        // print paints black on nothing: white on black
+}
+
+void startAgain() {
+	entClear(1,16);
+	throws=0;
+	physPlace(0,424,404);
+	faceLeft=false;
+	showHud();
+}
+
+void setup() {
+	loadPal("PHYSICS.PAL",0x1170);                 // tiles palette
+	loadPal("PHYSICS.PLA",0x11D0);                 // sprites palette A
+	loadTiles("PHYSICS.TLS",0);
+	loadSprites("PHYSICS.SPR",0);
+	loadLevel("PHYSICS.LVL",&level,379);
+	layLoad("PHYSICS.LAY");                        // layer 0: the blocks
+	areaCpy(&level+4,25,0,0,25,15,0x2B00,32,0,0);  // the map into the tile buffer the screen shows
+	poke(0x2F00,0b00011100);                       // text, tiles and sprites on, bitmap off
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x02);                      // white letters on nothing: the room shows through; the text rows below are black bands
+	for(int i=0;i<32;i++) {
+		sprPos((byte)i,0,0);
+		sprPal((byte)i,0);
+		sprPrio((byte)i,0);
+	}
+	hudPrint(2,38,0x12,"ARROWS WALK   Z JUMP   X BALL   TAB NEXT WORLD   ENTER AGAIN   ESC QUIT");
+	setWorld();
+	startAgain();
+}
+
+// the robot: arrows push it (the drag of the world slows it), Z jumps from the ground
+void moveRobot() {
+	int vx=physVx[0];
+	if(padDown(0b01000000)) {
+		vx-=6;
+		faceLeft=true;
+	}
+	if(padDown(0b10000000)) {
+		vx+=6;
+		faceLeft=false;
+	}
+	if(vx>40) vx=40;                             // 2.5 pixels a frame at most
+	if(vx<-40) vx=-40;
+	physVx[0]=vx;
+	if(padHit(0b00000001)) physJump(0,88);
+	int keep=physBounce;                         // the bounce is one number for every body: the robot lands, it does not bounce
+	physBounce=0;
+	physStep(0,1);
+	physBounce=keep;
+	byte ref=0;
+	if(physGnd[0]&&(physVx[0]>8||physVx[0]<-8)) ref=(byte)((frame>>2)&1);
+	sprRef(0,ref);
+	sprFlip(0,faceLeft,false);
+}
+
+// X throws a ball ahead of the robot; with sixteen out, the oldest one goes
+void throwBall() {
+	int i=entNew(1,16,2+throws%3,0,0,0,0);
+	if(i<0) {
+		entKill(1+throws%16);
+		i=entNew(1,16,2+throws%3,0,0,0,0);
+	}
+	throws++;
+	if(throws>=480) throws=0;
+	physPlace(i,physX[0]/16,physY[0]/16-10);
+	int vx=64+(i%5)*24;                          // every ball goes its own way, so that they spread
+	if(faceLeft) vx=-vx;
+	physVx[i]=vx+physVx[0]/2;
+	physVy[i]=-50-(i%4)*25;
+	showHud();
+}
+
+// every ball falls and bounces by the rules of the world; a hard enough bounce is heard, higher for a harder hit
+void moveBalls() {
+	for(int i=1;i<17;i++) {
+		if(entOn[i]) {
+			int v=physVy[i];
+			physStep(i,1);
+			if(v>30&&physVy[i]<0) {
+				int n=48+v/10;
+				if(n>84) n=84;
+				sfxPlay(n,3);
+			}
+		}
+	}
+}
+
+setup();
+physBox(12,10,24,24);                            // the box that hits walls: the 12 x 12 pixels of the middle of a sprite
+while(_keyDwn!=12) {                             // until ESC
+	padRead();
+	sfxTick();
+	if(padHit(0b00001000)) {                     // Select (Tab): the next world
+		world++;
+		if(world>4) world=0;
+		setWorld();
+		showHud();
+	}
+	if(padHit(0b00000100)) startAgain();         // Start (Enter)
+	if(padHit(0b00000010)) throwBall();          // B (X)
+	moveRobot();
+	moveBalls();
+	vSync();
+	sprUpdt();
+	frame++;
+}
+ymNoteOff(5);                                    // leave the machine as it was found
+poke(0x2F00,0b00010001);
+memSet(0x1200,3200,' ');
+memSet(0x1E80,3200,0x12);
+curPos(0,0);

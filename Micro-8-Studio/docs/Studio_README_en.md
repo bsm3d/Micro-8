@@ -11,6 +11,8 @@ screens). This manual has three parts:
 The Micro-8 itself (its hardware, its commands, the whole Lofi API) is described in the *Micro-8 User's Manual*, which Studio
 opens with `F1`. This manual is about Studio and links to that one for the machine.
 
+To learn more about the Micro-8, follow its development, or buy one, go to the website of its designer, Franck Sauer: **[www.micro-8.com](https://www.micro-8.com)**.
+
 ## Contents
 
 - [1. Overview](#1-overview)
@@ -42,6 +44,7 @@ opens with `F1`. This manual is about Studio and links to that one for the machi
   - [9.8. Micro-8 Library](#98-micro-8-library)
   - [9.9. Projects](#99-projects)
   - [9.10. Transfer with the Machine (MIDI)](#910-transfer-with-the-machine-midi)
+  - [9.11. Entity table](#911-entity-table)
 - [10. Small Windows](#10-small-windows)
 - [11. Known Limitations](#11-known-limitations)
 - [Appendix A. Keyboard shortcuts](#appendix-a-keyboard-shortcuts)
@@ -981,6 +984,11 @@ Studio runs the program on an emulator of the machine, so you can stop it and lo
    and 2 KB of data**: a quarter of the budget, with the library, the player and the sound effects. The estimate comes from a model fitted on the card's own compiled programs (within 5%).
 7. **Speed.** By default the emulator runs as fast as the PC. `Run > Hardware Speed (X1)` runs at the real machine's speed: every VM operation costs a fixed time, so a program does
    as much work per frame as on the console. If the game slows down in X1, a frame has too much to do (here: up to eight ghosts chasing, four axes tested against ten targets); that is the thing to check before sending a game to a real machine.
+8. **Overlays.** `View > Overlays` (and `F7`, which shows or hides them all) draws over the screen what the program cannot show about itself, running or paused: the **sprite boxes**, red while they touch another sprite,
+   the sprites **parked at 0,0**, the **tile grid**, the **collision layers** of `HUNT.LAY`, and under the pointer the pixel, the tile, the sprite and its layers. In a fight, the box of a generator turns red when an axe reaches it:
+   that is the test `isSprSpr` makes (section 7.2).
+
+![DUNGEON HUNT with the overlays on: sprite boxes, parked sprites, layers and the readout under the pointer](img/t_overlays.png)
 
 ### 5.9. Step 9: check, export, and run on the machine
 
@@ -1092,6 +1100,22 @@ Limitation: this is a cost model, not a cycle-exact emulation of the ATmega128 a
 
 Tools menu: array-index checking (disabled like the real machine / warn in Output / stop), sound, the synth's
 note convention, PNG screenshot, exporting the session's sound as WAV.
+
+### 7.2. Overlays
+
+**View > Overlays** draws debugging marks over the emulated screen. They are read from the machine's registers and memory each time the screen is drawn, so they show a running program and a paused one alike:
+stop at a breakpoint, then look. `F7` hides all of them and brings back the ones you had chosen. The choice is remembered.
+
+| Overlay | What it shows |
+|---|---|
+| Sprite boxes | The collision box of every sprite that is on the screen (the four bytes at the end of its image, set in the sprite editor), with the sprite's number, inside the dotted outline of its 24 x 21 image. The box is green, and red while it touches another sprite: that is exactly what `isSprSpr` answers. |
+| Sprites parked at 0,0 | The sprites left at X=0, Y=0, which is how a sprite is hidden, listed in a strip at the bottom. They all sit on top of each other, so a collision test between two of them is true until one of them is placed (appendix C). |
+| Tile grid | The 16 x 16 tiles (32 x 32 screen pixels, 25 x 15) with their column and row numbers, following the scroll registers. |
+| Collision layers | The layers of a `.LAY` file over the cells, with the colour each layer has in the tile map editor (yellow, blue, green, red, purple, teal, orange, white). Studio takes the `.LAY` next to the program that runs, the one named like it first; **Layers file** picks another, and each **Layer** entry turns one layer on or off. A cell in several layers is striped. |
+| Readout under the pointer | A bar at the bottom of the screen: the pixel, the same point in sprite units (X + 48, Y + 42, what `sprPos` takes), the tile cell and its number in the tile buffer, the text cell (80 x 40), the sprites whose box is under the pointer, and the layers of the cell. |
+
+A `.LAY` file is data of your own program: Studio cannot know where the program keeps its copy, so the layers are drawn from the first tile cell and follow the scroll registers only. A program that moves a map bigger than the screen
+with its own offset shows its layers out of place.
 
 ## 8. Image Converter
 
@@ -1272,7 +1296,66 @@ A block already in the program is not copied again, and a single undo removes th
 | `song` | `songLoad` / `songStart` / `songTick` / `songStop` | tracker project `.M8S`, played by the PLAYER core |
 
 All return `true` on success (`_fError` is 0). A damaged `.SCR` is refused. The end of `M8LIB.SRC` (`//@main`) is a self-test to run as is (F5): it writes and reads back every
-kind of file and plays `NEWSONG.M8S` when there is one.
+kind of file, tries the game blocks below that need neither a pad nor a sound, and plays `NEWSONG.M8S` when there is one.
+
+**Game blocks.** The same menu has blocks for what almost every game writes again. Lofi has no structs, so their data sits in global arrays, and every name starts with the
+block's prefix (`pad`, `tm`, `st`, `lay`, `ent`, `hud`, `sfx`) so that it cannot clash with yours.
+
+| Block | Functions | What it does |
+|---|---|---|
+| `pad` | `padRead` / `padDown` / `padHit` / `padUp` | the pad with edges: call `padRead()` once a frame, then test a mask (A 1, B 2, Start 4, Select 8, Up 16, Down 32, Left 64, Right 128); `padHit` is true only on the frame a button goes down |
+| `timer` | `tmSet` / `tmTick` / `tmDone` / `tmEvery` | 8 countdown timers in frames; `tmEvery(i,12)` is true once every 12 frames, for a rate of fire or a spawner |
+| `state` | `stGo` / `stTick` / `stIs` | the state of the game (title, play, game over) in `st`, and the frames it has lasted in `stAge` |
+| `layer` | `layLoad` / `layCell` / `layPoint` / `layBox` / `layFind` / `layCount` / `layX` / `layY` | collisions and placement from the `.LAY` of a 25 x 15 map (`layCell(col,row)` gives the layer bits of a cell). `layBox(px,py,12,10,24,24,1)` asks whether a 24 x 24 box inside a sprite placed at `px,py` touches layer 0 (outside the screen counts as a wall); `layFind(2,0)` is the first cell of layer 1, and `layX`, `layY` give the sprite position that centres a sprite on a cell |
+| `phys` | `physPlace` / `physStep` / `physJump` / `physTouch` / `physBox` / `physBlocked` / `physRebound` | gravity, jumps, walls and bounces for sprites on a layer of the `.LAY` (it brings `layer`). A body is a sprite from 0 to 31, its position and speed are in 1/16 pixel (`physX[i]/16` is the `sprPos` position). `physStep(i,mask)` applies gravity and drag, then moves the body one pixel at a time and stops it at the cells of the layers in `mask`: it never goes through a wall, whatever its speed, and `physGnd[i]` tells whether it stands on something. `physJump(i,88)` jumps 38 pixels high, from the ground only; `physTouch(i,mask)` tells whether the body overlaps a layer (coins, spikes); `physBox` sets the box that hits walls. `physGrav`, `physFall`, `physDrag` and `physBounce` (0 to 16) are plain globals: `physGrav=0` gives a top-down game that slides along the walls. `physBlocked` and `physRebound` are its helpers. No slopes, no moving platforms: a body meets whole cells. `Examples/OS/BSMCODE/GRAVITY/GRAVITY.SRC` is a game made with it: a robot that walks, jumps and flies through seven rooms, each with its own gravity (earth, moon, heavy, ice, springs, a storm that changes the world, space with none), takes the energy cells, avoids drones made with the entity table of section 9.11 and reaches the exit (its tutorial is on the website) |
+| `ent` | `entNew` / `entKill` / `entStep` / `entTouch` / `entClear` / `entCount` | shots and enemies as a pool of sprites, each with a speed: `entNew(1,4,2,x,y,7,0)` takes the first free sprite from 1 to 4, `entStep` moves them all, `entTouch(0,5,8)` is the first live one among sprites 5 to 12 that touches sprite 0 |
+| `hud` | `hudFill` / `hudPrint` | text with its colour, since `print` paints black on nothing: colour = background * 16 + letters |
+| `sfx` | `sfxPlay` / `sfxTick` | a short sound on FM voice 5, cut after the number of frames you give |
+
+A warrior that walks and throws axes, with `pad`, `timer` and `ent` ticked:
+
+```c
+int hx=100;
+int hy=200;
+sprPos(0,hx,hy);
+while(_keyDwn!=12) {                             // until ESC
+	padRead();
+	tmTick();
+	if(padDown(0b10000000)) hx+=3;               // right
+	if(padDown(0b01000000)) hx-=3;               // left
+	if(padHit(0b00000001)&&tmDone(0)) {          // A: a shot in sprites 1 to 4, one every 10 frames at most
+		entNew(1,4,2,hx,hy,7,0);
+		tmSet(0,10);
+	}
+	entStep(1,4);
+	for(int i=1;i<5;i++) {
+		if(entOn[i]&&entX[i]>850) entKill(i);    // gone off the right side
+	}
+	sprPos(0,hx,hy);
+	vSync();
+	sprUpdt();
+}
+```
+
+A platformer is the same loop with `pad` and `phys` ticked, and layer 0 of `LEVEL.LAY` as the ground and the walls:
+
+```c
+layLoad("LEVEL.LAY");
+physPlace(0,100,100);
+while(_keyDwn!=12) {                             // until ESC
+	padRead();
+	physVx[0]=0;
+	if(padDown(0b10000000)) physVx[0]=40;        // right: 2.5 pixels a frame
+	if(padDown(0b01000000)) physVx[0]=-40;       // left
+	if(padHit(0b00000001)) physJump(0,88);       // A: 38 pixels high, only from the ground
+	physStep(0,1);                               // gravity and walls: layer 0
+	vSync();
+	sprUpdt();
+}
+```
+
+The collision tests see the picture of the last `sprUpdt()`. A killed thing goes to 0,0, where hidden sprites all touch each other, which is why `entTouch` looks at live things only
+(`View > Overlays` shows it, section 7.2).
 
 ### 9.9. Projects
 
@@ -1315,6 +1398,94 @@ file replaces the target only once complete: an interruption never damages it.
 
 The MIDI keyboard chosen in Tools > MIDI Input also plays into the running program, as on the machine.
 
+### 9.11. Entity table
+
+A game moves the same few kinds of things, enemies, shots, items, and each kind asks for the same code: a pool of sprites, a way to move, hits, an animation.
+**Tools > New Entity table** (or a `NAME.ENT` file) lists the kinds in a table, one row each, and Studio writes that code for you, on top of the `ent`, `layer` and `phys` blocks of the library (section 9.8).
+
+| Column | What it sets |
+|---|---|
+| Name | the name of the kind, a lower case letter then letters or digits: it starts its functions (`ghost`: `ghostSpawn`, `ghostUpdate`...) |
+| First sprite, Sprites | the range of sprites it owns, so also the most that can exist at once: sprites 5 to 12 are 5 and 8. Two kinds never share a sprite |
+| Image, Frames, Every | the image number in the `.SPR`, how many images it cycles through from there, and the frames between two of them |
+| Kind | how it moves, see below |
+| Speed | pixels a frame |
+| Walls | the layers of the `.LAY` that stop it, as a sum: 1 is layer 0, 2 layer 1, 4 layer 2, 8 layer 3 and so on up to 128 for layer 7 |
+| Hits | the hits it takes to kill one |
+| Box x,y,w,h | the box that hits walls, inside the sprite (width and height up to 32); the box the sprite editor sets is the one `isSprSpr` uses for touches, this one is for walls |
+| Place on layer | puts one on each cell of that layer when the game starts, as many as it has sprites (chests, generators); none: the program spawns them |
+| Face | turns the sprite to the left when it moves to the left |
+
+The kinds: **static** stays where it is (items, generators) and animates; **walker** walks in the direction it was given and turns round at walls; **chaser** walks to `entTargetX`, `entTargetY` and slides along walls, like the ghosts of the tutorial;
+**shot** flies straight and is gone at a wall or at the edge of the screen; **faller** falls under gravity, walks and turns round at walls (it uses the `phys` block, with one wall box for all its bodies).
+Walls are the cells of the layers in the column Walls, and the edge of the screen always stops a walker, a chaser, a shot or a faller.
+
+For a kind called `ghost` Studio writes:
+
+| Function | What it does |
+|---|---|
+| `ghostSpawn(x,y,dx,dy)` | a new one in the first free sprite, at the `sprPos` position `x,y`, and for the kinds that move, going in the direction `dx,dy` (each -1, 0 or 1) at its speed; the sprite number, or -1 when all of them are in use |
+| `ghostUpdate()` | moves and animates every ghost that exists (`entitiesUpdate()` calls it) |
+| `ghostHit(i)` | one hit on ghost `i`; true when it was the last one and the ghost is gone |
+| `ghostTouch(s)` | the first ghost that touches sprite `s`, or -1 (a sprite of the hero, an axe) |
+| `ghostCount()`, `ghostClear()` | how many exist, and remove them all |
+| `ghostPlace()` | one on every cell of its layer (`entitiesPlace()` calls it) |
+
+and `entitiesUpdate()`, `entitiesClear()` and `entitiesPlace()`, which do it for every kind in the table.
+
+**To use it.** Fill the table, save it as `GAME.ENT` next to `GAME.SRC` (or in the project), and click **Generate into the program** (or Tools > Generate Entities into the Program).
+Studio adds the blocks the table needs when they are missing and writes the code between two marker lines, `//@entities begin` and `//@entities end`: that part is Studio's, so change the table and generate again,
+never the code. Everything outside the markers is left as it was, one undo takes the whole change back, and generating twice changes nothing. At the start of a game call `layLoad("LEVEL.LAY")`, `entitiesClear()` and `entitiesPlace()`;
+once a frame, set `entTargetX` and `entTargetY` if there are chasers, call `entitiesUpdate()`, then `sprUpdt()`. Here is the table of DUNGEON HUNT:
+
+| Name | First sprite | Sprites | Image | Frames | Every | Kind | Speed | Walls | Hits | Box x,y,w,h | Place on layer | Face |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| axe | 1 | 4 | 2 | 2 | 4 | shot | 7 | 1 | 1 | 23,20,2,2 | none | no |
+| ghost | 5 | 8 | 4 | 2 | 8 | chaser | 2 | 1 | 1 | 12,10,24,24 | none | yes |
+| generator | 13 | 2 | 6 | 2 | 8 | static | 0 | 0 | 3 | 12,10,24,24 | 2 | no |
+| chest | 15 | 8 | 8 | 2 | 16 | static | 0 | 0 | 1 | 12,10,24,24 | 1 | no |
+| apple | 23 | 2 | 10 | 1 | 1 | static | 0 | 0 | 1 | 12,10,24,24 | 3 | no |
+
+and the main loop of a game that uses it, with `sprites`, `pad` and `timer` ticked:
+
+```c
+loadSprites("HUNT.SPR",0);
+layLoad("HUNT.LAY");
+entitiesClear();
+entitiesPlace();
+int hx=72;
+int hy=68;
+sprPos(0,hx,hy);
+while(_keyDwn!=12) {                             // until ESC
+	padRead();
+	tmTick();
+	if(padDown(0b10000000)) hx+=3;               // right
+	if(padDown(0b01000000)) hx-=3;               // left
+	if(padHit(0b00000001)&&tmDone(0)) {          // A: an axe flies to the right, one every 12 frames
+		axeSpawn(hx,hy,1,0);
+		tmSet(0,12);
+	}
+	if(tmEvery(1,100)) ghostSpawn(entX[13],entY[13],0,0);        // a generator sends a ghost every 100 frames
+	entTargetX=hx;                               // the ghosts walk to the warrior
+	entTargetY=hy;
+	entitiesUpdate();
+	for(int a=1;a<5;a++) {
+		if(entOn[a]) {
+			int g=ghostTouch(a);                 // an axe that touches a ghost kills both
+			if(g>=0) {
+				ghostHit(g);
+				axeHit(a);
+			}
+		}
+	}
+	sprPos(0,hx,hy);
+	vSync();
+	sprUpdt();
+}
+```
+
+The machine counts 1 for each function and each parameter and refuses a program above 254: the editor says how many the table uses, and refuses a table that alone would be too much. The table is a Studio file, the machine never reads it.
+
 ## 10. Small Windows
 
 Every editor and panel adapts to a narrower window instead of being cut off: toolbars wrap onto several lines,
@@ -1352,6 +1523,7 @@ separately.
 | Step over, into, out | `F10`, `F11`, `Shift+F11` |
 | Toggle a breakpoint | `F9` (or click the gutter) |
 | Check the program | `Ctrl+Shift+B` |
+| Show or hide the screen overlays | `F7` |
 | Image converter | `Ctrl+Shift+I` |
 | The machine's manual | `F1` |
 
@@ -1381,6 +1553,7 @@ Every file below is the machine's own format, read and written byte for byte: wh
 | `.WAV` | PCM audio |
 | `.EXT.json`, `.NOTES.json` | Studio's own companions of an `.M8S`: pattern lengths and effects, step notes. The machine ignores them |
 | `.M8P` | a Studio project: a small JSON manifest, with an 8.3 name |
+| `.ENT` | a Studio entity table (section 9.11): JSON text, one record for each kind of thing. The machine never reads it |
 
 ## Appendix C. Troubleshooting
 
@@ -1394,7 +1567,7 @@ the position is inside the visible area (X 48 to 847, Y 42 to 521; (0,0) hides a
 The **Hardware** panel shows the real registers.
 
 **Two sprites "collide" at the start of the game.** Hidden sprites sit at (0,0), where they overlap each other. Make sure a sprite has been placed and shown
-(`sprUpdt()`) before you test it, as the tutorial does at the end of `startGame`.
+(`sprUpdt()`) before you test it, as the tutorial does at the end of `startGame`. `View > Overlays` shows it: *Sprites parked at 0,0* lists them, *Sprite boxes* turns red what touches.
 
 **The colours are wrong.** The sprite, tile and bitmap palettes start with the machine's default values, which is not what your picture uses. Load a `.PAL` or `.PLA`
 (`loadPal`) or set the values with `poke` to `0x1170` (tiles), `0x11A0` (bitmap), `0x11D0` and `0x2FA0` (sprites).
