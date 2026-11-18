@@ -11,6 +11,8 @@ de texte). Ce manuel comporte trois parties :
 Le Micro-8 lui-même (son matériel, ses commandes, toute l'API Lofi) est décrit dans le *Micro-8 User's Manual*, que Studio
 ouvre avec `F1`. Ce manuel parle de Studio et renvoie à l'autre pour la machine.
 
+Pour en savoir plus sur le Micro-8, suivre son développement ou en acheter un, rendez-vous sur le site de son concepteur, Franck Sauer : **[www.micro-8.com](https://www.micro-8.com)**.
+
 ## Sommaire
 
 - [Sommaire](#sommaire)
@@ -43,6 +45,7 @@ ouvre avec `F1`. Ce manuel parle de Studio et renvoie à l'autre pour la machine
   - [9.8. Bibliothèque Micro-8](#98-bibliotheque-micro-8)
   - [9.9. Projets](#99-projets)
   - [9.10. Transfert avec la machine (MIDI)](#910-transfert-avec-la-machine-midi)
+  - [9.11. Table d'entités](#911-table-dentites)
 - [10. Petites fenêtres](#10-petites-fenetres)
 - [11. Limites connues](#11-limites-connues)
 - [Annexe A. Raccourcis clavier](#annexe-a-raccourcis-clavier)
@@ -972,6 +975,11 @@ Studio exécute le programme sur un émulateur de la machine, vous pouvez donc l
    un quart du budget, avec la bibliothèque, le lecteur et les effets sonores. L'estimation vient d'un modèle ajusté sur les programmes compilés de la carte elle-même (à 5 % près).
 7. **Vitesse.** Par défaut l'émulateur va aussi vite que le PC. `Run > Hardware Speed (X1)` tourne à la vitesse de la vraie machine : chaque opération de la VM coûte un temps fixe, un programme fait donc autant de travail par image
    que sur la console. Si le jeu ralentit en X1, une image a trop à faire (ici : jusqu'à huit fantômes à la poursuite, quatre haches testées contre dix cibles) ; c'est à vérifier avant d'envoyer un jeu sur une vraie machine.
+8. **Superpositions.** `Affichage > Superpositions` (et `F7`, qui les montre ou les cache toutes) dessine sur l'écran ce que le programme ne peut pas montrer de lui-même, en marche ou en pause : les **boîtes des sprites**, rouges tant qu'elles touchent
+   un autre sprite, les sprites **rangés en 0,0**, la **grille de tuiles**, les **calques de collision** de `HUNT.LAY`, et sous le pointeur le pixel, la tuile, le sprite et ses calques. Dans un combat, la boîte d'un générateur
+   devient rouge quand une hache l'atteint : c'est le test que fait `isSprSpr` (section 7.2).
+
+![DUNGEON HUNT avec les superpositions : boîtes des sprites, sprites rangés, calques et valeurs sous le pointeur](img/t_overlays.png)
 
 ### 5.9. Étape 9 : vérifier, exporter, et lancer sur la machine
 
@@ -1087,6 +1095,22 @@ Limite : c'est un modèle de coût, pas une émulation au cycle près de l'ATmeg
 
 Menu Tools : contrôle des indices de tableau (désactivé comme sur la vraie machine / avertir dans Output /
 arrêter), son, convention de notes du synthé, capture d'écran PNG, export du son de la session en WAV.
+
+### 7.2. Superpositions
+
+**Affichage > Superpositions** dessine des repères de débogage sur l'écran émulé. Ils sont lus dans les registres et la mémoire de la machine à chaque affichage de l'écran, et montrent donc aussi bien un programme en marche
+qu'un programme en pause : arrêtez-vous sur un point d'arrêt, puis regardez. `F7` les cache tous et ramène ceux que vous aviez choisis. Le choix est mémorisé.
+
+| Superposition | Ce qu'elle montre |
+|---|---|
+| Boîtes des sprites | La boîte de collision de chaque sprite qui est à l'écran (les quatre octets à la fin de son image, réglés dans l'éditeur de sprites), avec le numéro du sprite, dans le contour pointillé de son image 24 x 21. La boîte est verte, et rouge tant qu'elle touche un autre sprite : c'est exactement ce que répond `isSprSpr`. |
+| Sprites rangés en 0,0 | Les sprites laissés en X=0, Y=0, qui est la façon de cacher un sprite, listés dans une bande en bas. Ils sont tous au même endroit, donc un test de collision entre deux d'entre eux est vrai tant que l'un d'eux n'est pas placé (annexe C). |
+| Grille de tuiles | Les tuiles 16 x 16 (32 x 32 pixels d'écran, 25 x 15) avec leurs numéros de colonne et de ligne, selon les registres de défilement. |
+| Calques de collision | Les calques d'un fichier `.LAY` sur les cases, avec la couleur de chaque calque dans l'éditeur de carte (jaune, bleu, vert, rouge, violet, turquoise, orange, blanc). Studio prend le `.LAY` à côté du programme qui tourne, celui qui porte son nom en premier ; **Fichier de calques** en choisit un autre, et chaque entrée **Calque** active ou coupe un calque. Une case dans plusieurs calques est rayée. |
+| Valeurs sous le pointeur | Une barre en bas de l'écran : le pixel, le même point en unités de sprite (X + 48, Y + 42, ce que prend `sprPos`), la case de tuile et son numéro dans le tampon de tuiles, la case de texte (80 x 40), les sprites dont la boîte est sous le pointeur, et les calques de la case. |
+
+Un fichier `.LAY` est une donnée de votre propre programme : Studio ne peut pas savoir où le programme en garde sa copie, les calques sont donc dessinés depuis la première case de tuile et ne suivent que les registres de défilement.
+Un programme qui déplace une carte plus grande que l'écran avec son propre décalage montre ses calques au mauvais endroit.
 
 ## 8. Convertisseur d'images
 
@@ -1279,7 +1303,66 @@ seule annulation retire l'insertion.
 | `song` | `songLoad` / `songStart` / `songTick` / `songStop` | projet tracker `.M8S`, joué par le coeur du PLAYER |
 
 Toutes renvoient `true` en cas de succès (`_fError` à 0). Un `.SCR` abîmé est refusé. La fin de `M8LIB.SRC` (`//@main`) est un auto-test à lancer tel quel (F5) : il écrit puis relit
-chaque type de fichier et joue `NEWSONG.M8S` s'il existe.
+chaque type de fichier, essaie ceux des blocs de jeu ci-dessous qui n'ont besoin ni de manette ni de son, et joue `NEWSONG.M8S` s'il existe.
+
+**Blocs de jeu.** Le même menu propose des blocs pour ce que presque tout jeu récrit. Lofi n'a pas de structures : leurs données sont dans des tableaux globaux, et chaque nom commence par le préfixe du bloc
+(`pad`, `tm`, `st`, `lay`, `ent`, `hud`, `sfx`) pour ne pas entrer en conflit avec les vôtres.
+
+| Bloc | Fonctions | Ce qu'il fait |
+|---|---|---|
+| `pad` | `padRead` / `padDown` / `padHit` / `padUp` | la manette avec ses fronts : appelez `padRead()` une fois par image, puis testez un masque (A 1, B 2, Start 4, Select 8, Haut 16, Bas 32, Gauche 64, Droite 128) ; `padHit` n'est vrai que sur l'image où un bouton s'enfonce |
+| `timer` | `tmSet` / `tmTick` / `tmDone` / `tmEvery` | 8 minuteries en images ; `tmEvery(i,12)` est vrai une fois toutes les 12 images, pour une cadence de tir ou un générateur |
+| `state` | `stGo` / `stTick` / `stIs` | l'état du jeu (titre, partie, fin) dans `st`, et le nombre d'images qu'il dure dans `stAge` |
+| `layer` | `layLoad` / `layCell` / `layPoint` / `layBox` / `layFind` / `layCount` / `layX` / `layY` | collisions et placement d'après le `.LAY` d'une carte de 25 x 15 (`layCell(col,row)` donne les bits de calques d'une case). `layBox(px,py,12,10,24,24,1)` demande si une boîte de 24 x 24 dans un sprite placé en `px,py` touche le calque 0 (hors de l'écran compte comme un mur) ; `layFind(2,0)` est la première case du calque 1, et `layX`, `layY` donnent la position de sprite qui centre un sprite sur une case |
+| `phys` | `physPlace` / `physStep` / `physJump` / `physTouch` / `physBox` / `physBlocked` / `physRebound` | gravité, sauts, murs et rebonds pour des sprites sur un calque du `.LAY` (il amène `layer`). Un corps est un sprite de 0 à 31, sa position et sa vitesse sont en 1/16 de pixel (`physX[i]/16` est la position de `sprPos`). `physStep(i,mask)` applique la gravité et la traînée, puis déplace le corps pixel par pixel et l'arrête aux cases des calques de `mask` : il ne traverse jamais un mur, quelle que soit sa vitesse, et `physGnd[i]` dit s'il repose sur quelque chose. `physJump(i,88)` saute de 38 pixels, depuis le sol seulement ; `physTouch(i,mask)` dit si le corps recouvre un calque (pièces, pointes) ; `physBox` règle la boîte qui heurte les murs. `physGrav`, `physFall`, `physDrag` et `physBounce` (0 à 16) sont de simples globales : `physGrav=0` donne un jeu vu de dessus qui glisse le long des murs. `physBlocked` et `physRebound` sont ses aides. Pas de pentes ni de plateformes mobiles : un corps ne rencontre que des cases entières. `Examples/OS/BSMCODE/GRAVITY/GRAVITY.SRC` en est un jeu : un robot qui marche, saute et vole à travers sept pièces, chacune avec sa gravité (terre, lune, lourd, glace, ressorts, une tempête qui change le monde, l'espace sans aucune), prend les cellules d'énergie, évite des drones faits avec la table d'entités de la section 9.11 et rejoint la sortie (son tutoriel est sur le site web) |
+| `ent` | `entNew` / `entKill` / `entStep` / `entTouch` / `entClear` / `entCount` | tirs et ennemis en réserve de sprites, chacun avec une vitesse : `entNew(1,4,2,x,y,7,0)` prend le premier sprite libre de 1 à 4, `entStep` les déplace tous, `entTouch(0,5,8)` est le premier vivant parmi les sprites 5 à 12 qui touche le sprite 0 |
+| `hud` | `hudFill` / `hudPrint` | du texte avec sa couleur, puisque `print` peint en noir sur rien : couleur = fond * 16 + lettres |
+| `sfx` | `sfxPlay` / `sfxTick` | un son court sur la voix FM 5, coupé après le nombre d'images donné |
+
+Un guerrier qui marche et lance des haches, avec `pad`, `timer` et `ent` cochés :
+
+```c
+int hx=100;
+int hy=200;
+sprPos(0,hx,hy);
+while(_keyDwn!=12) {                             // until ESC
+	padRead();
+	tmTick();
+	if(padDown(0b10000000)) hx+=3;               // right
+	if(padDown(0b01000000)) hx-=3;               // left
+	if(padHit(0b00000001)&&tmDone(0)) {          // A: a shot in sprites 1 to 4, one every 10 frames at most
+		entNew(1,4,2,hx,hy,7,0);
+		tmSet(0,10);
+	}
+	entStep(1,4);
+	for(int i=1;i<5;i++) {
+		if(entOn[i]&&entX[i]>850) entKill(i);    // gone off the right side
+	}
+	sprPos(0,hx,hy);
+	vSync();
+	sprUpdt();
+}
+```
+
+Un jeu de plateformes est la même boucle avec `pad` et `phys` cochés, et le calque 0 de `LEVEL.LAY` comme sol et murs :
+
+```c
+layLoad("LEVEL.LAY");
+physPlace(0,100,100);
+while(_keyDwn!=12) {                             // until ESC
+	padRead();
+	physVx[0]=0;
+	if(padDown(0b10000000)) physVx[0]=40;        // right: 2.5 pixels a frame
+	if(padDown(0b01000000)) physVx[0]=-40;       // left
+	if(padHit(0b00000001)) physJump(0,88);       // A: 38 pixels high, only from the ground
+	physStep(0,1);                               // gravity and walls: layer 0
+	vSync();
+	sprUpdt();
+}
+```
+
+Les tests de collision voient l'image du dernier `sprUpdt()`. Une chose tuée va en 0,0, où les sprites cachés se touchent tous, c'est pourquoi `entTouch` ne regarde que les vivantes
+(`Affichage > Superpositions` le montre, section 7.2).
 
 ### 9.9. Projets
 
@@ -1324,6 +1407,94 @@ Le débit est d'environ 1,3 Ko/s : une image de 48 000 octets prend 40 s environ
 
 Le clavier MIDI choisi dans Tools > MIDI Input joue aussi dans le programme en cours, comme sur la machine.
 
+### 9.11. Table d'entités
+
+Un jeu déplace toujours les mêmes quelques sortes de choses, ennemis, tirs, objets, et chacune demande le même code : une réserve de sprites, une façon de bouger, des coups, une animation.
+**Tools > New Entity table** (ou un fichier `NOM.ENT`) liste les sortes dans un tableau, une ligne chacune, et Studio écrit ce code pour vous, au-dessus des blocs `ent`, `layer` et `phys` de la bibliothèque (section 9.8).
+
+| Colonne | Ce qu'elle règle |
+|---|---|
+| Name | le nom de la sorte, une lettre minuscule puis des lettres ou des chiffres : il commence ses fonctions (`ghost` : `ghostSpawn`, `ghostUpdate`...) |
+| First sprite, Sprites | la plage de sprites qu'elle possède, donc aussi le maximum qui peut exister en même temps : les sprites 5 à 12 sont 5 et 8. Deux sortes ne partagent jamais un sprite |
+| Image, Frames, Every | le numéro d'image dans le `.SPR`, le nombre d'images parcourues à partir de là, et le nombre d'images d'écran entre deux d'entre elles |
+| Kind | comment elle bouge, voir plus bas |
+| Speed | des pixels par image |
+| Walls | les calques du `.LAY` qui l'arrêtent, en somme : 1 est le calque 0, 2 le calque 1, 4 le calque 2, 8 le calque 3 et ainsi de suite jusqu'à 128 pour le calque 7 |
+| Hits | les coups qu'il faut pour en tuer un |
+| Box x,y,w,h | la boîte qui heurte les murs, dans le sprite (largeur et hauteur jusqu'à 32) ; la boîte réglée dans l'éditeur de sprites est celle de `isSprSpr` pour les contacts, celle-ci sert aux murs |
+| Place on layer | en met un sur chaque case de ce calque au début de la partie, autant qu'il a de sprites (coffres, générateurs) ; none : le programme les fait apparaître |
+| Face | tourne le sprite vers la gauche quand il va vers la gauche |
+
+Les sortes : **static** reste où elle est (objets, générateurs) et s'anime ; **walker** marche dans la direction donnée et fait demi-tour aux murs ; **chaser** marche vers `entTargetX`, `entTargetY` et glisse le long des murs, comme les fantômes du tutoriel ;
+**shot** vole droit et disparaît à un mur ou au bord de l'écran ; **faller** tombe sous la gravité, marche et fait demi-tour aux murs (il utilise le bloc `phys`, avec une seule boîte de murs pour tous ses corps).
+Les murs sont les cases des calques de la colonne Walls, et le bord de l'écran arrête toujours un walker, un chaser, un shot ou un faller.
+
+Pour une sorte appelée `ghost`, Studio écrit :
+
+| Fonction | Ce qu'elle fait |
+|---|---|
+| `ghostSpawn(x,y,dx,dy)` | un nouveau dans le premier sprite libre, à la position `sprPos` `x,y`, et pour les sortes qui bougent, dans la direction `dx,dy` (chacun -1, 0 ou 1) à sa vitesse ; le numéro du sprite, ou -1 quand tous servent |
+| `ghostUpdate()` | déplace et anime chaque fantôme qui existe (`entitiesUpdate()` l'appelle) |
+| `ghostHit(i)` | un coup sur le fantôme `i` ; vrai si c'était le dernier et que le fantôme a disparu |
+| `ghostTouch(s)` | le premier fantôme qui touche le sprite `s`, ou -1 (un sprite du héros, une hache) |
+| `ghostCount()`, `ghostClear()` | combien existent, et les retirer tous |
+| `ghostPlace()` | un sur chaque case de son calque (`entitiesPlace()` l'appelle) |
+
+et `entitiesUpdate()`, `entitiesClear()` et `entitiesPlace()`, qui le font pour chaque sorte du tableau.
+
+**Pour l'utiliser.** Remplissez le tableau, enregistrez-le sous `GAME.ENT` à côté de `GAME.SRC` (ou dans le projet), et cliquez sur **Generate into the program** (ou Tools > Generate Entities into the Program).
+Studio ajoute les blocs dont le tableau a besoin quand ils manquent et écrit le code entre deux lignes repères, `//@entities begin` et `//@entities end` : cette partie est à Studio, on change donc le tableau et on génère de nouveau,
+jamais le code. Tout ce qui est hors des repères reste comme c'était, une seule annulation reprend tout le changement, et générer deux fois ne change rien. Au début d'une partie, appelez `layLoad("LEVEL.LAY")`, `entitiesClear()` et `entitiesPlace()` ;
+à chaque image, réglez `entTargetX` et `entTargetY` s'il y a des chasers, appelez `entitiesUpdate()`, puis `sprUpdt()`. Voici le tableau de DUNGEON HUNT :
+
+| Name | First sprite | Sprites | Image | Frames | Every | Kind | Speed | Walls | Hits | Box x,y,w,h | Place on layer | Face |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| axe | 1 | 4 | 2 | 2 | 4 | shot | 7 | 1 | 1 | 23,20,2,2 | none | no |
+| ghost | 5 | 8 | 4 | 2 | 8 | chaser | 2 | 1 | 1 | 12,10,24,24 | none | yes |
+| generator | 13 | 2 | 6 | 2 | 8 | static | 0 | 0 | 3 | 12,10,24,24 | 2 | no |
+| chest | 15 | 8 | 8 | 2 | 16 | static | 0 | 0 | 1 | 12,10,24,24 | 1 | no |
+| apple | 23 | 2 | 10 | 1 | 1 | static | 0 | 0 | 1 | 12,10,24,24 | 3 | no |
+
+et la boucle principale d'un jeu qui l'utilise, avec `sprites`, `pad` et `timer` cochés :
+
+```c
+loadSprites("HUNT.SPR",0);
+layLoad("HUNT.LAY");
+entitiesClear();
+entitiesPlace();
+int hx=72;
+int hy=68;
+sprPos(0,hx,hy);
+while(_keyDwn!=12) {                             // until ESC
+	padRead();
+	tmTick();
+	if(padDown(0b10000000)) hx+=3;               // right
+	if(padDown(0b01000000)) hx-=3;               // left
+	if(padHit(0b00000001)&&tmDone(0)) {          // A: an axe flies to the right, one every 12 frames
+		axeSpawn(hx,hy,1,0);
+		tmSet(0,12);
+	}
+	if(tmEvery(1,100)) ghostSpawn(entX[13],entY[13],0,0);        // a generator sends a ghost every 100 frames
+	entTargetX=hx;                               // the ghosts walk to the warrior
+	entTargetY=hy;
+	entitiesUpdate();
+	for(int a=1;a<5;a++) {
+		if(entOn[a]) {
+			int g=ghostTouch(a);                 // an axe that touches a ghost kills both
+			if(g>=0) {
+				ghostHit(g);
+				axeHit(a);
+			}
+		}
+	}
+	sprPos(0,hx,hy);
+	vSync();
+	sprUpdt();
+}
+```
+
+La machine compte 1 pour chaque fonction et chaque paramètre et refuse un programme au-dessus de 254 : l'éditeur dit combien le tableau en utilise, et refuse un tableau qui serait déjà trop à lui seul. Le tableau est un fichier de Studio, la machine ne le lit jamais.
+
 ## 10. Petites fenêtres
 
 Chaque éditeur et chaque panneau s'adapte à une fenêtre étroite au lieu d'être coupé : les barres d'outils passent sur
@@ -1361,6 +1532,7 @@ séparément.
 | Pas à pas sur, dans, hors | `F10`, `F11`, `Shift+F11` |
 | Basculer un point d'arrêt | `F9` (ou clic dans la gouttière) |
 | Vérifier le programme | `Ctrl+Shift+B` |
+| Montrer ou cacher les superpositions de l'écran | `F7` |
 | Convertisseur d'images | `Ctrl+Shift+I` |
 | Le manuel de la machine | `F1` |
 
@@ -1390,6 +1562,7 @@ Tous les fichiers ci-dessous sont au format de la machine, lus et écrits octet 
 | `.WAV` | audio PCM |
 | `.EXT.json`, `.NOTES.json` | compagnons propres à Studio d'un `.M8S` : longueurs de patterns et effets, notes de pas. La machine les ignore |
 | `.M8P` | un projet Studio : un petit manifeste JSON, au nom 8.3 |
+| `.ENT` | une table d'entités Studio (section 9.11) : du texte JSON, un enregistrement par sorte de chose. La machine ne la lit jamais |
 
 ## Annexe C. Dépannage
 
@@ -1403,7 +1576,7 @@ la position est dans la zone visible (X de 48 à 847, Y de 42 à 521 ; (0,0) cac
 Le panneau **Hardware** montre les vrais registres.
 
 **Deux sprites « se touchent » au début du jeu.** Les sprites cachés sont en (0,0), où ils se chevauchent. Assurez-vous qu'un sprite a été placé et affiché
-(`sprUpdt()`) avant de le tester, comme le fait le tutoriel à la fin de `startGame`.
+(`sprUpdt()`) avant de le tester, comme le fait le tutoriel à la fin de `startGame`. `Affichage > Superpositions` le montre : *Sprites rangés en 0,0* les liste, *Boîtes des sprites* met en rouge ce qui se touche.
 
 **Les couleurs sont fausses.** Les palettes de sprites, de tuiles et de bitmap démarrent avec les valeurs par défaut de la machine, qui ne sont pas celles de votre image. Chargez un `.PAL` ou `.PLA`
 (`loadPal`) ou réglez les valeurs avec `poke` en `0x1170` (tuiles), `0x11A0` (bitmap), `0x11D0` et `0x2FA0` (sprites).
