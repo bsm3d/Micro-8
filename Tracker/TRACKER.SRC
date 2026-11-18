@@ -1,11 +1,10 @@
 // MICRO-8 TRACKER 0.1
 // Benoit (BSM) Saint-Moulin
 // www.bsm3d.com
-// 8 pistes : 6 voix FM (YM2612), voix 0 du synt (batterie ou oscillateur),
-// voix 1 du synth.
-// Pas de morceau : un pattern (jusqu'a 256 pas sur plusieurs blocs) joue en boucle.
-// Les octets 128.. et 256.. de sng[] restent a zero (reserves pour un morceau, lus
-// par Micro-8 Studio) mais ne sont pas geres ici.
+// 8 tracks: 6 FM voices (YM2612), synth voice 0 (drums or oscillator),
+// synth voice 1.
+// No song: a pattern (up to 256 steps over several blocks) plays in a loop.
+// Bytes 128.. and 256.. of sng[] stay at zero (reserved for a song, read by Micro-8 Studio) but are not handled here.
 
 byte sng[384];
 byte bak[384];
@@ -16,13 +15,13 @@ text tname[8]={"FM1","FM2","FM3","FM4","FM5","FM6","DRM","SYN"};
 text tabs[5]={"PATTERN","SETUP","FILE","HELP","ABOUT"};
 int tabx[6]={20,28,34,39,44,49};
 
-// codes des touches : notes (Z a I), chiffres (0 a 9), lettres (A a Z)
+// key codes: notes (Z to I), digits (0 to 9), letters (A to Z)
 byte nkey[25]={72,32,52,14,73,53,15,74,34,54,16,75,41,21,62,2,42,63,3,43,23,64,4,44,65};
 byte dkey[10]={25,1,21,2,22,3,23,4,24,5};
 byte akey[26]={13,74,73,14,42,33,15,34,65,16,35,17,75,
                 54,45,66,41,63,32,43,44,53,62,52,64,72};
 
-// valeurs par defaut de sng[50] a sng[67]
+// default values of sng[50] to sng[67]
 byte dflt[18]={3,0,8,8,4,0,8,8,4,0,0,0,128,64,3,4,0,0};
 int lastIns[8];
 int vu[8];
@@ -31,14 +30,14 @@ int tempo=120;
 int stepMs=125;
 nat carry=0;
 
-// ligne ou commence la grille (les rangees au dessus : entetes + equaliseur)
+// line where the grid starts (the rows above: headers + equalizer)
 int gY=7;
 int curPat=0;
 int curRow=0;
 int curTrk=0;
 int curFld=0;
-int top=0;            // premiere ligne de la grille (negative en debut de lecture)
-int vline=0;          // ligne jouee qui continue de compter quand le pattern boucle
+int top=0;            // first line of the grid (negative at the start of playback)
+int vline=0;          // played line that keeps counting when the pattern loops
 int octv=4;
 int insv=0;
 int velv=100;
@@ -74,7 +73,7 @@ text pname={8};
 text insName={31};
 text msg={80};
 
-// ecran SETUP : libelle, octet de sng[], par piste ou non, maximum
+// SETUP screen: label, byte of sng[], per track or not, maximum
 text plab[25]={"TRACK","INSTRUMENT (0-9)","VOICE OCTAVE","PAN 0-3","VOLUME",
 	"DRM/SYN0 WAVE","SYN1 WAVE","ENV0 ATTACK","ENV0 DECAY","ENV0 SUSTAIN","ENV0 RELEASE",
 	"ENV1 ATTACK","ENV1 DECAY","ENV1 SUSTAIN","ENV1 RELEASE","FILTER ON","FILTER MODE",
@@ -138,7 +137,7 @@ void puth2(int x,int y,int v,int col)
 	putc(x+1,y,hd(v&15),col);
 }
 
-// texte s en (x,y) sur w cases
+// text s at (x,y) over w cells
 void puts(int x,int y,text s,int w,int col)
 {
 	areaSet(0x1200,80,x,y,w,1,' ');
@@ -153,7 +152,7 @@ void clearLine(int y)
 	areaSet(0x1E80,80,0,y,80,1,0x52);
 }
 
-// ------------------------------------------------------------------ blocs et patterns
+// ------------------------------------------------------------------ blocks and patterns
 nat pidx(int b,int s,int t,int f)
 {
 	nat i=(nat)b;
@@ -184,7 +183,7 @@ bool blockEmpty(int b)
 	return true;
 }
 
-// vrai si le bloc b prolonge le bloc b-1
+// true if block b continues block b-1
 bool cont(int b)
 {
 	if(b<=0||b>63) return false;
@@ -222,7 +221,7 @@ int plen(int p)
 	return blocks(p)*16;
 }
 
-// case d'un pattern par sa ligne (0 a plen-1)
+// cell of a pattern by its line (0 to plen-1)
 int rget(int p,int r,int t,int f)
 {
 	return pget(p+r/16,r%16,t,f);
@@ -233,7 +232,7 @@ void rset(int p,int r,int t,int f,int v)
 	poke(0x3000+pidx(p+r/16,r%16,t,f),(byte)v,0x90);
 }
 
-// pattern suivant (d>0) ou precedent, -1 s'il n'y en a pas
+// next pattern (d>0) or previous one, -1 if there is none
 int nextPat(int p,int d)
 {
 	if(d>0)
@@ -250,9 +249,8 @@ bool isDrum(int t)
 	return (t==6&&cg(50)==3)||(t==7&&cg(69)==3);
 }
 
-// courbe de l'enveloppe (attaque, decroissance, maintien, chute) dans une case de w x h
-// caracteres ;
-// le plateau de maintien est affiche sur une largeur fixe, juste pour montrer son niveau
+// curve of the envelope (attack, decay, sustain, release) in a cell of w x h characters;
+// the sustain plateau is shown over a fixed width, just to show its level
 void drawEnv(int x,int y,int w,int h,int a,int d,int s,int r)
 {
 	areaSet(0x1200,80,x,y,w,h,' ');
@@ -323,7 +321,7 @@ int waitKey()
 	return k;
 }
 
-// saisie d'une ligne dans tbuf[] (maxLen <= 31) ; renvoie sa longueur, -1 si ESC
+// input of a line into tbuf[] (maxLen <= 31); returns its length, -1 if ESC
 int readLine(int x,int y,int maxLen)
 {
 	int len=0;
@@ -353,7 +351,7 @@ void bufToText(nat addr,int len)
 	poke(addr+(nat)len,0);
 }
 
-// Y ou O pour oui
+// Y or O (oui) for yes
 bool askYes(text q)
 {
 	clearLine(37);
@@ -398,8 +396,8 @@ void applySynth()
 void initSound()
 {
 	ymInit(0);
-	// les 10 instruments par defaut (ceux de DEMOS/ORGAN) : apres ymInit, la banque de la
-	// machine est vide ; celle d'un projet charge les remplace ensuite (applyBank)
+	// the 10 default instruments (those of DEMOS/ORGAN): after ymInit the machine's bank is empty;
+	// the one of a loaded project replaces them afterwards (applyBank)
 	ymLoad("/tools/sounded/sounds/bass01.ins",0);
 	ymLoad("/tools/sounded/sounds/bass02.ins",1);
 	ymLoad("/tools/sounded/sounds/bass03.ins",2);
@@ -492,7 +490,7 @@ void defaults()
 		cs(34+t,100);
 		cs(76+t,t);
 	}
-	cs(82,9);   // canaux MIDI pour Studio (batterie sur le canal 9)
+	cs(82,9);   // MIDI channels for Studio (drums on channel 9)
 	for(int i=0;i<18;i++) sng[50+i]=dflt[i];
 	for(int i=0;i<128;i++) sng[256+i]=64;
 	tempo=120;
@@ -504,9 +502,9 @@ void calcStep()
 	stepMs=15000/tempo;
 }
 
-// ------------------------------------------------------------------ affichage
-// premiere ligne montree : en lecture suivie, la ligne jouee reste au milieu et la grille
-// defile ; sinon la page de 16 lignes du curseur
+// ------------------------------------------------------------------ display
+// first line shown: when following playback, the played line stays in the middle and the grid
+// scrolls; otherwise the page of 16 lines of the cursor
 int viewTop()
 {
 	if(playing&&follow&&playHead==curPat) return vline-8;
@@ -558,7 +556,7 @@ void drawCell(int r,int t,int y)
 	}
 }
 
-// la marque de lecture '>' ; y = 0..15 dans la grille
+// the playback mark '>'; y = 0..15 in the grid
 void mark(int y,bool on)
 {
 	if(y<0) return;
@@ -569,15 +567,15 @@ void mark(int y,bool on)
 void drawRow(int r)
 {
 	int n=plen(curPat);
-	// en lecture suivie, apres la fin du pattern la grille montre son tour suivant : une ligne
-	// du pattern se trouve a sa place dans la fenetre (r peut etre la ligne ou sa place)
+	// when following playback, after the end of the pattern the grid shows its next lap: a line
+	// of the pattern is in its place in the window (r can be the line or its place)
 	bool wrap=playing&&follow&&playHead==curPat;
 	if(wrap&&r>=0) r=top+((r-top)%n+n)%n;
 	if(r<top||r>=top+16) return;
 	int y=gY+r-top;
 	int rr=r;
 	if(wrap&&rr>=0) rr=rr%n;
-	// avant le debut ou apres la fin du pattern : une ligne vide
+	// before the start or after the end of the pattern: an empty line
 	if(rr<0||rr>=n)
 	{
 		areaSet(0x1200,80,0,y,75,1,' ');
@@ -596,9 +594,8 @@ void drawGrid()
 	for(int i=0;i<16;i++) drawRow(top+i);
 }
 
-// equaliseur : une colonne par piste, sur les 4 lignes entre les entetes et la grille -
-// un bloc plein par
-// segment allume plutot qu'une seule ligne, pour se voir de loin
+// equalizer: one column per track, over the 4 lines between the headers and the grid -
+// a full block per lit segment rather than a single line, to be seen from afar
 void drawVu(int t)
 {
 	int x=3+t*9;
@@ -612,7 +609,7 @@ void drawVu(int t)
 	}
 }
 
-// ce qui joue : >P03:2A->05 (pattern:ligne, pattern en attente apres un ,/.)
+// what is playing: >P03:2A->05 (pattern:line, pending pattern after a ,/.)
 void drawBadge()
 {
 	areaSet(0x1200,80,59,1,21,1,' ');
@@ -651,8 +648,7 @@ void drawStatus()
 	puts(0,38,msg,79,0x5F);
 }
 
-// combien des 64 blocs contiennent des notes - le vrai budget du morceau sur cette
-// machine
+// how many of the 64 blocks contain notes - the real budget of the song on this machine
 int blocksUsed()
 {
 	int n=0;
@@ -663,16 +659,12 @@ int blocksUsed()
 	return n;
 }
 
-// blocksUsed() regarde chaque pas de chaque bloc (8192 peeks) : trop lourd pour le
-// refaire a chaque
-// redessin. Un cache mis a jour toutes les 3 secondes depuis la boucle principale suffit
-// largement pour
-// un chiffre juste informatif.
+// blocksUsed() looks at every step of every block (8192 peeks): too heavy to redo at every redraw.
+// A cache updated every 3 seconds from the main loop is plenty for an informative figure.
 int blkCache=0;
 nat blkNext=3000;
 
-// sous la grille : la page d'un pattern long (si plus d'un bloc), et le budget de blocs
-// utilises
+// under the grid: the page of a long pattern (if more than one block), and the budget of blocks used
 void drawPageInfo()
 {
 	int y=gY+16;
@@ -746,9 +738,8 @@ void drawFile()
 	puts(2,6,"S save  L load  R rename  N new",31,0x52);
 }
 
-// trois colonnes verticales (une par groupe de touches) plutot qu'un pave de texte
-// deux colonnes verticales (touches -> action), avec de la marge entre elles - pas un
-// pave de texte
+// three vertical columns (one per group of keys) rather than a block of text
+// two vertical columns (keys -> action), with space between them - not a block of text
 void drawHelp()
 {
 	puts(2,3,"PATTERN",7,0x5B);
@@ -825,9 +816,8 @@ void drawScreen()
 	else puts(0,39,"TAB next screen",78,0x5F);
 }
 
-// ------------------------------------------------------------------ lecture
-// pas suivant : le bloc suivant du pattern, ou celui en attente (,/. pendant la lecture)
-// une fois boucle
+// ------------------------------------------------------------------ playback
+// next step: the next block of the pattern, or the pending one (,/. during playback) once looped
 void advance()
 {
 	playRow++;
@@ -883,7 +873,7 @@ void tickPlay()
 	{
 		if(vu[t]>0) vu[t]--;
 	}
-	// la ligne courante : une piste muette ne joue rien
+	// the current line: a muted track plays nothing
 	for(int t=0;t<8;t++)
 	{
 		int v=pget(playBlk,playRow,t,0);
@@ -893,7 +883,7 @@ void tickPlay()
 	}
 	playHead=headOf(playBlk);
 	playLine=(playBlk-playHead)*16+playRow;
-	// suivre la lecture : le pattern qui joue (sauf s'il y en a un en attente) et sa page
+	// follow playback: the pattern that is playing (unless one is pending) and its page
 	bool full=false;
 	if(follow&&curPat!=playHead&&curPat!=cue)
 	{
@@ -901,14 +891,14 @@ void tickPlay()
 		curRow=ci(curRow,0,plen(curPat)-1);
 		full=true;
 	}
-	// la ligne virtuelle : +1 a chaque pas, meme quand le pattern repart a 0 ; elle ne recale
-	// que sur un autre pattern, un saut, ou au bout d'environ une heure
+	// the virtual line: +1 at each step, even when the pattern restarts at 0; it only resyncs
+	// on another pattern, a jump, or after about an hour
 	int n=plen(playHead);
 	if(full||vline>30000) vline=playLine;
 	else if(playLine==(vline+1)%n) vline++;
 	else if(playLine!=vline%n) vline=playLine;
 	int nt=viewTop();
-	// une ligne plus loin : la grille defile d'une ligne au lieu d'etre redessinee
+	// one line further: the grid scrolls by one line instead of being redrawn
 	bool roll=!full&&nt==top+1;
 	if(nt!=top&&!roll) full=true;
 	int oldShown=shown;
@@ -922,7 +912,7 @@ void tickPlay()
 	if(roll)
 	{
 		top=nt;
-		// ligne par ligne, de haut en bas : chaque copie ne recouvre pas sa source
+		// line by line, from top to bottom: each copy does not cover its source
 		for(int i=0;i<15;i++)
 		{
 			nat a=(nat)((gY+i)*80);
@@ -931,7 +921,7 @@ void tickPlay()
 		}
 		drawRow(top+15);
 		oldShown--;
-		// redessin en cours (une ligne par tour) : les lignes pas encore faites ont monte
+		// redraw in progress (one line per turn): the lines not yet done have moved up
 		if(pend>0) pend--;
 	}
 	if(full) top=nt;
@@ -952,9 +942,8 @@ void tickPlay()
 	drawStatus();
 }
 
-// ------------------------------------------------------------------ fichiers
-// un .M8S endommage ou d'une autre version ne doit jamais envoyer a la puce une valeur
-// hors de sa plage
+// ------------------------------------------------------------------ files
+// a damaged .M8S, or one of another version, must never send the chip a value out of its range
 void fixSng()
 {
 	cs(5,ci(cg(5),0,128));
@@ -980,20 +969,15 @@ void fixSng()
 	for(int i=0;i<128;i++) cs(128+i,ci(cg(128+i),0,63));
 }
 
-// NOM.M8S, compresse comme sur C64 (format decrit dans micro8_tracker/README.md) :
-//   "M8S1" ; le morceau : 16 octets (un bit par octet non nul de sng[0..127]) puis ces
-//   octets, les sng[5] numeros
-//   de bloc du morceau, puis 0, ou 1 et leurs transpositions ; les instruments : 2 octets
-//   (un bit par emplacement
-//   FM enregistre) puis 54 octets chacun ; les patterns, bloc par bloc (les vides sont
-//   sautes) : le numero du bloc,
-//   un octet (un bit par piste non vide), puis pour chaque piste non vide, soit 254 et la
-//   piste deja ecrite qu'elle
-//   repete (bloc*8+piste sur 2 octets, transposition+128), soit le nombre d'evenements et
-//   chacun : pas (0-15)
-//   +16 si l'instrument change +32 si la velocite change, la note, puis l'instrument et
-//   la velocite s'ils changent ;
-//   255 pour finir
+// NAME.M8S, compressed as on the C64 (format described in the README of the Tracker folder):
+//   "M8S1"; the song: 16 bytes (one bit per non-zero byte of sng[0..127]) then those bytes,
+//   the sng[5] block numbers of the song, then 0, or 1 and their transpositions; the instruments: 2 bytes
+//   (one bit per recorded FM slot) then 54 bytes each; the patterns, block by block (empty ones are
+//   skipped): the block number, a byte (one bit per non-empty track), then for each non-empty track either 254 and
+//   the track already written that it repeats (block*8+track on 2 bytes, transposition+128), or the number of events
+//   and each one: step (0-15) +16 if the instrument changes +32 if the velocity changes, the note, then the
+//   instrument and the velocity if they change;
+//   255 to end
 byte cbits[16];
 byte bitv[8]={1,2,4,8,16,32,64,128};
 byte magic[4]={77,56,83,49};
@@ -1018,7 +1002,7 @@ nat cellAddr(int b,int t,int k)
 	return 0x3000+(nat)b*384+(nat)k*24+(nat)t*3;
 }
 
-// une case (note, instrument, velocite) dans nt, ni, nv
+// a cell (note, instrument, velocity) into nt, ni, nv
 void rd(int b,int t,int k)
 {
 	nat a=cellAddr(b,t,k);
@@ -1049,7 +1033,7 @@ bool has(int m,int i)
 	return (m/bitv[i])%2==1;
 }
 
-// un emplacement tout a zero garde l'instrument de la machine
+// a slot of all zeros keeps the machine's instrument
 void applyBank()
 {
 	for(int i=0;i<10;i++)
@@ -1096,7 +1080,7 @@ int trkCount(int b,int t)
 	return n;
 }
 
-// la premiere vraie note de la piste (ni vide ni OFF), 0 sinon
+// the first real note of the track (neither empty nor OFF), 0 otherwise
 int firstNote(int b,int t)
 {
 	for(int k=0;k<16;k++)
@@ -1107,7 +1091,7 @@ int firstNote(int b,int t)
 	return 0;
 }
 
-// une empreinte qui ne change pas quand la piste est transposee
+// a fingerprint that does not change when the track is transposed
 int trkSig(int b,int t)
 {
 	int f=firstNote(b,t);
@@ -1121,7 +1105,7 @@ int trkSig(int b,int t)
 	return s;
 }
 
-// la transposition qui donne la piste (b,t) a partir de la piste j, ou -999
+// the transposition that gives track (b,t) from track j, or -999
 int trkMatch(int j,int b,int t)
 {
 	int d=firstNote(b,t)-firstNote(j/8,j%8);
@@ -1186,11 +1170,11 @@ void putTrack(int b,int t)
 	nUsed++;
 }
 
-// nom du fichier, partage par les fonctions de chargement et de sauvegarde : pas de
-// text local, la machine ne libere pas sa place dans la pile du compilateur
+// file name, shared by the load and save functions: no local text, the machine does not free its place
+// on the compiler's stack
 text fnm={16};
 
-// le fichier est d'abord efface : fOpen ne raccourcit pas un fichier existant
+// the file is erased first: fOpen does not shorten an existing file
 byte saveOne()
 {
 	memSet(&fnm,17,0);
@@ -1287,8 +1271,7 @@ int get1()
 	return v;
 }
 
-// charge NOM.M8S dans sng[], les patterns et bank[] ; 0 si tout va bien (applyBank()
-// apres initSound())
+// loads NAME.M8S into sng[], the patterns and bank[]; 0 if all is well (applyBank() after initSound())
 byte loadFiles()
 {
 	memSet(&fnm,17,0);
@@ -1378,8 +1361,7 @@ byte loadFiles()
 void saveProject()
 {
 	cs(4,tempo);
-	// pas de morceau ici : la position unique du morceau designe le pattern affiche, que
-	// PLAYER et Studio rejouent
+	// no song here: the single position of the song designates the displayed pattern, which PLAYER and Studio replay
 	if(cg(5)<=1) cs(128,curPat);
 	byte e=saveOne();
 	if(e==0) setMsg("SAVED");
@@ -1556,10 +1538,9 @@ void renameProject()
 	drawScreen();
 }
 
-// ------------------------------------------------------------------ outils de pattern
-// longueur du pattern p (n blocs) : les blocs gagnes doivent etre libres (pas dans un
-// autre pattern long) ;
-// s'ils ont des notes, on demande. Raccourcir garde les notes.
+// ------------------------------------------------------------------ pattern tools
+// length of pattern p (n blocks): the blocks gained must be free (not in another long pattern);
+// if they have notes, we ask. Shortening keeps the notes.
 void setLength(int p,int n)
 {
 	int old=blocks(p);
@@ -1603,9 +1584,8 @@ void transposeTrack(int d)
 	}
 }
 
-// ------------------------------------------------------------------ ecran PATTERN
-// autre pattern : en lecture d'un pattern seul, il est mis en attente ; en lecture du
-// morceau, le suivi s'arrete
+// ------------------------------------------------------------------ PATTERN screen
+// another pattern: when playing a single pattern, it is put on hold; when playing the song, following stops
 void gotoPattern(int p)
 {
 	if(p<0) return;
@@ -1613,7 +1593,7 @@ void gotoPattern(int p)
 	curRow=ci(curRow,0,plen(p)-1);
 	if(playing)
 	{
-		// joue tout de suite, au meme pas de la mesure (saut direct, sans attendre la fin du
+		// plays right away, at the same step of the bar (direct jump, without waiting for the end of the
 		// pattern)
 		cue=-1;
 		int h=headOf(playBlk);
@@ -1628,10 +1608,8 @@ void gotoPattern(int p)
 	drawStatus();
 }
 
-// FCTN ou CTRL + haut/bas : note (demi-ton, SHIFT : octave ; une case vide prend le C de
-// l'octave),
-// instrument ou velocite (SHIFT : 16) de la case sous le curseur ; la note s'entend a
-// l'arret
+// FCTN or CTRL + up/down: note (semitone, SHIFT: octave; an empty cell takes the C of the octave),
+// instrument or velocity (SHIFT: 16) of the cell under the cursor; the note is heard when stopped
 void cellStep(int d)
 {
 	int v=rget(curPat,curRow,curTrk,0);
@@ -1671,7 +1649,7 @@ void keyPatternFctn(int k)
 	int d=keyDigit(k);
 	if(d>=1&&d<=8)
 	{
-		// piste muette tout de suite : sa note en cours est coupee
+		// track muted right away: its current note is cut
 		cs(41+d,1-cg(41+d));
 		if(cg(41+d)!=0) noteOff(d-1);
 	}
@@ -1693,7 +1671,7 @@ void keyPatternFctn(int k)
 	}
 	else if(k==17)
 	{
-		// 16 -> 64 -> 128 -> 256 -> 16 pas
+		// 16 -> 64 -> 128 -> 256 -> 16 steps
 		if(playing) stopPlay();
 		if(n==16) setLength(curPat,1);
 		else if(n==1) setLength(curPat,4);
@@ -1715,7 +1693,7 @@ void keyPatternFctn(int k)
 	drawStatus();
 }
 
-// ecrit une note (255 = note off) sous le curseur et descend du pas d'edition
+// writes a note (255 = note off) under the cursor and moves down by the edit step
 void enterNote(int v,int vel)
 {
 	rset(curPat,curRow,curTrk,0,v);
@@ -1727,7 +1705,7 @@ void enterNote(int v,int vel)
 	curRow=(curRow+stepv)%plen(curPat);
 }
 
-// apres un deplacement : la page entiere si elle change, sinon les deux lignes touchees
+// after a move: the whole page if it changes, otherwise the two lines touched
 void redrawRows(int oldRow)
 {
 	if(viewTop()!=top)
@@ -1761,7 +1739,7 @@ void keyPattern(int k)
 	else if(k==80) curRow=(curRow+1)%len;
 	else if(k==57||k==59)
 	{
-		// gauche / droite : note, instrument, velocite, puis la piste voisine
+		// left / right: note, instrument, velocity, then the neighbouring track
 		if(k==57) curFld--;
 		else curFld++;
 		if(curFld<0) curTrk=(curTrk+7)%8;
@@ -1815,7 +1793,7 @@ void keyPattern(int k)
 	redrawRows(oldRow);
 }
 
-// ------------------------------------------------------------------ ecran SETUP
+// ------------------------------------------------------------------ SETUP screen
 void changeParam(int i,int d)
 {
 	if(i==0)
@@ -1862,7 +1840,7 @@ void keySetup(int k)
 	}
 }
 
-// ------------------------------------------------------------------ ecran FILE
+// ------------------------------------------------------------------ FILE screen
 void keyFile(int k)
 {
 	if(k==63)
@@ -1881,7 +1859,7 @@ void keyFile(int k)
 	drawScreen();
 }
 
-// ------------------------------------------------------------------ touches communes
+// ------------------------------------------------------------------ common keys
 void chgTempo(int d)
 {
 	if(mShift) d=d*10;
@@ -1913,7 +1891,7 @@ void doKey(int k)
 		if(playing) stopPlay();
 		else startPlay();
 	}
-	// 9 et 0 : tempo, sauf sur le champ instru ou avec FCTN
+	// 9 and 0: tempo, except on the instrument field or with FCTN
 	else if((k==5||k==25)&&!mFctn&&!(scr==0&&curFld==1))
 	{
 		if(k==5) chgTempo(-1);
@@ -1924,10 +1902,8 @@ void doKey(int k)
 	else if(scr==2) keyFile(k);
 }
 
-// FCTN et SHIFT. Appuis et relachements arrivent dans deux files : apres une action
-// longue, on peut lire le
-// relachement avant l'appui. L'appui ne vaut alors que pour la touche suivante (sinon il
-// resterait pour toujours).
+// FCTN and SHIFT. Presses and releases arrive in two queues: after a long action, the release can be read
+// before the press. The press then only counts for the next key (otherwise it would stay forever).
 void onKey(int k)
 {
 	if(k==79)
@@ -1974,7 +1950,7 @@ void onKey(int k)
 	ctrlOnce=false;
 }
 
-// une touche enfoncee par tour de boucle, apres avoir lu les touches relachees
+// one key down per loop turn, after reading the released keys
 void handleKeys()
 {
 	int k=getKeyUp();
@@ -1992,7 +1968,7 @@ void handleKeys()
 	if(k!=0) onKey(k);
 }
 
-// fleche gardee enfoncee (clavier) : repetition apres 0,4 s, toutes les 70 ms
+// arrow held down (keyboard): repeat after 0.4 s, every 70 ms
 void keyRepeat()
 {
 	if(repKey==0) return;
@@ -2022,7 +1998,7 @@ while(!quit)
 	updateBlocksUsed();
 	if(playing) tickPlay();
 	
-	// apres changement de page en lecture, une ligne de la grille par boucle
+	// after a page change while playing, one line of the grid per loop
 	if(pend>=0)
 	{
 		if(scr==0) drawRow(top+pend);

@@ -1,235 +1,240 @@
 # Micro-8 Tracker
 
-Un tracker de patterns pour la machine **Micro-8**, écrit en **Lofi**, et son lecteur. Il remplace l'ancien tracker
-JavaScript, qui n'est plus maintenu.
+A pattern tracker for the **Micro-8** machine, written in **Lofi**, and its player. It replaces the old JavaScript tracker,
+which is no longer maintained.
 
-## Les programmes
+## The programs
 
-| Fichier | Rôle |
+| File | Role |
 |---|---|
-| `TRACKER.SRC` | **0.1, prototype** : 8 pistes, patterns de 16 à 256 pas, un pattern joue en boucle (pas de morceau), écrans PATTERN, SETUP, FILE, HELP, ABOUT |
-| `TRACKER2.SRC` | **0.2, le tracker complet** : morceau (SONG), muet/solo, entrée MIDI, oscilloscopes, 5 écrans (PATTERN, SONG, SETUP, FILE, HELP), grille qui défile pendant la lecture, nom de l'auteur et site www.bsm3d.com en bas de l'écran. Les 10 instruments par défaut sont chargés depuis `/tools/sounded/sounds`. Compilé sur la machine : 84 % de la zone de code |
-| `PLAYER.SRC` | le lecteur seul, sans édition : à copier dans un jeu ou une démo pour rejouer un projet |
-| `SIDRUSH.SRC` | **SID RUSH** : démo musicale originale façon C64 et cracktro (basse FM au galop, arpèges à la fréquence d'image, mélodie à vibrato, batterie DPCM, barre raster « copper », titre arc-en-ciel, étoiles en parallaxe, crédits « Code, Design, Music ») ; générée par `micro8_studio/dev/make_sidrush.py`. Arpège : un `synNoteOn` par image (le firmware écrit les deux octets de fréquence d'un coup), sans `poke` de registres |
-| `SIDRUSH.M8S` (+ `.EXT.json`, `.NOTES.json` pour Studio) | la musique de SID RUSH en projet tracker, un seul fichier à ouvrir dans le tracker de Micro-8 Studio, TRACKER2 (FILE : `R` SID RUSH, `L`) ou PLAYER (le choisir dans sa liste) : basse FM1 (BASS01), mélodie FM2 (LEAD02), batterie DRM, arpège SYN, un motif par mesure (17), 34 positions, tempo 150. La machine joue l'arpège une note par pas ; avec les FX Studio actifs (codes `Axy` et vibrato `Vxy`, lus seulement par Studio), Studio rejoue l'arpège rapide de la démo. Généré par `micro8_studio/dev/make_sidrush_tracker.py` depuis les mêmes données que la démo |
+| `TRACKER.SRC` | **0.1, prototype**: 8 tracks, patterns of 16 to 256 steps, one pattern plays in a loop (no song), screens PATTERN, SETUP, FILE, HELP, ABOUT |
+| `TRACKER2.SRC` | **0.2, the complete tracker**: song (SONG), mute/solo, MIDI input, oscilloscopes, 5 screens (PATTERN, SONG, SETUP, FILE, HELP), a grid that scrolls during playback, the author's name and the site www.bsm3d.com at the bottom of the screen. The 10 default instruments are loaded from `/tools/sounded/sounds`. Compiled on the machine: 84 % of the code area |
+| `PLAYER.SRC` | the player alone, without editing: to copy into a game or a demo to replay a project |
 
-Les programmes lisent et écrivent les **mêmes fichiers** : un projet fait avec l'un s'ouvre dans les autres, et
-dans Micro-8 Studio.
+The programs read and write the **same files**: a project made with one opens in the others, and in Micro-8 Studio.
 
-## État sur la vraie machine
+The tracker's own demo, **SID RUSH**, is in the [`SidRush/`](../SidRush) folder.
 
-- **Synthé numérique (d'après le FPGA)** : une enveloppe ou un son DPCM ne repart que sur un front montant du
-  déclenchement. Les trois programmes font donc `synNoteOff` puis `synNoteOn` à chaque note des pistes DRM et SYN,
-  comme l'exemple DRUMBOX de la carte SD ; sans cela, sur la machine, une note répétée sans note off ne se rejouait
-  pas.
+## State on the real machine
 
-- **Compilation.** TRACKER.SRC a été compilé sur la machine : arrêt ligne 190, `Unsupported operand type` sur `>>`,
-  puis la version complète (alors nommée TRACKER3, aujourd'hui TRACKER2.SRC) vers la ligne 297, sur `)`. Cause trouvée : le compilateur de la machine ne décale (`<<`, `>>`)
-  que d'un `byte`. `v>>(b%8)` avec `b` en `int` est refusé ; aucun des 73 programmes de la carte SD ne décale d'autre
-  chose qu'un `byte`. Corrigé dans les trois programmes (`byte s=(byte)(b%8); v>>s`). Micro-8 Studio signale
-  maintenant cette erreur avant la machine. Corrigé et recompilé depuis.
-- **Fins de ligne.** Deuxième essai : TRACKER.SRC refusé ligne 7 (puis 9), SIDRUSH.SRC ligne 8, `at ','.
-  Expect expression.`, chaque fois sur la première ligne vide du fichier. Ces sources étaient en fins de ligne
-  Windows (CRLF) ; les 73 programmes de la carte SD sont tous en LF. Le compilateur de la machine ne saute pas
-  le CR (0x0D est le saut de ligne de son écran) : caché dans les commentaires, il casse la première ligne qui
-  n'en est pas une. Toutes les sources (tracker, `lib/`) sont passées en LF, Studio enregistre toujours en LF
-  et son analyseur refuse un CR comme la machine. Les lignes restent sous 159 caractères (117 au plus dans TRACKER2). Recompilé depuis sur la machine.
-- **Ligne de 159 caractères (2026-10-05).** la première version de la démo ne se lançait pas alors que l'ancien SIDRUSH oui : la ligne du tableau `rainbow` faisait exactement 159 caractères, la limite de lecture de la machine (le retour à la ligne compte probablement, le `;` final était perdu). Règle : **garder les lignes bien en dessous de 159 caractères (viser 130 au plus)** et couper les grands tableaux sur plusieurs lignes ; l'analyseur de Studio (`source_rules`) ne signale que > 159. Arpège (tick à chaque note, constaté sur la machine malgré un seul `synNoteOn` par image) : `synNoteOff(1)` en fin d'image juste avant `vSync()` et relâchement d'enveloppe rapide (`synEnv(1,0,5,9,15)`), pour que le changement de hauteur se fasse porte fermée. Même passage : l'arpège de l'ancien SIDRUSH passait de `poke` des registres à un `synNoteOn` par image (glitch), et `newChord` ne déclenche plus la première note (`arpFrame` la joue : un seul déclenchement).
-- **OS de la machine.** Troisième essai : `getKeyDwn()` inconnu ligne 332 avec l'OS 0.1.x. Après mise à jour
-  en 0.8.0 (`flash`), arrêt ligne 1561 sur `Type mismatch` : `memSet(..., 384*n, ...)` avec `n` en `int`, alors que
-  la taille est un `nat`. La machine refuse tout argument d'API d'un type plus haut que celui du manuel (pas de
-  conversion implicite vers le bas). Corrigé par des casts dans TRACKER, TRACKER2 et PLAYER (5 appels) ; l'analyseur
-  de Studio vérifie maintenant ces types (table tirée du manuel, aucun faux positif sur les 73 programmes de la
-  carte). Corrigé et recompilé depuis.
-- **`break` et `continue` fuient la pile (2026-10-05).** `TRACKER2` démarrait, dessinait son écran, puis ne réagissait plus : les touches arrivaient dans la console (« Error ln 1, at '-' »). Cause lue dans le firmware (`breakStatement`, `continueStatement`, `patchLoopJumps`) : un `break` n'émet qu'un saut, les variables locales déclarées dans la boucle ne sont pas retirées de la pile de valeurs (256 entrées). Mes blocs `while(true) { ... break; }`, qui remplaçaient des fonctions, en laissaient des dizaines à chaque tour de la boucle principale. Ils sont réécrits sans `break` (drapeau `done`), et l'analyseur de Studio refuse maintenant un `break` ou `continue` qui laisse des locales dans une boucle imbriquée dans un `while`.
-- **Taille du code** (estimée d'après la source, modèle ajusté sur les 73 `.BIN` de la carte SD, à 5 % près) :
-  TRACKER.SRC environ 15 Ko, PLAYER.SRC environ 3 Ko. Mesure sur la machine (2026-10-05) : TRACKER2.SRC occupe 84 % de la zone de
-  code de 32 Ko, TRACKER 60 %. Si `compile` refuse TRACKER2.SRC faute de place : `data 0xC000` avant de compiler donne 36 Ko de code (le tracker n'utilise qu'environ
-  2,8 Ko de données). Ce réglage reste en EEPROM ; `data 0xB000` remet le partage par défaut.
-- **Limites du manuel** (6.4.5), toutes loin du maximum : table des symboles environ 3,7 Ko sur 11, 16 niveaux
-  d'appel sur 64, 20 valeurs de pile au plus par fonction sur 256.
-- Contrôles sur le PC : l'analyseur de Micro-8 Studio (dans l'éditeur, ou `python micro8_studio/lofic.py FICHIER.SRC`)
-  applique les règles de la machine et estime la taille du code.
+- **Digital synth (from the FPGA)**: an envelope or a DPCM sound only restarts on a rising edge of the trigger. The three
+  programs therefore do `synNoteOff` then `synNoteOn` at each note of the DRM and SYN tracks, like the DRUMBOX example of
+  the SD card; without that, on the machine, a note repeated without a note off was not replayed.
 
-## Fichiers d'un projet
+- **Compilation.** TRACKER.SRC was compiled on the machine: stop at line 190, `Unsupported operand type` on `>>`,
+  then the complete version (then named TRACKER3, today TRACKER2.SRC) around line 297, on `)`. Cause found: the machine's
+  compiler only shifts (`<<`, `>>`) a `byte`. `v>>(b%8)` with `b` an `int` is refused; none of the 73 programs of the SD card
+  shifts anything other than a `byte`. Fixed in the three programs (`byte s=(byte)(b%8); v>>s`). Micro-8 Studio now
+  reports this error before the machine does. Fixed and recompiled since.
+- **Line endings.** Second try: TRACKER.SRC refused at line 7 (then 9), SIDRUSH.SRC at line 8, `at ','.
+  Expect expression.`, each time on the first empty line of the file. These sources had Windows line endings (CRLF); the
+  73 programs of the SD card are all LF. The machine's compiler does not skip the CR (0x0D is the line feed of its screen):
+  hidden in the comments, it breaks the first line that is not one. All the sources (tracker, `lib/`) were converted to LF,
+  Studio always saves in LF and its analyzer refuses a CR like the machine. Lines stay under 159 characters (117 at most in
+  TRACKER2). Recompiled on the machine since.
+- **159-character line (2026-10-05).** The first version of the demo did not start while the old SIDRUSH did: the line of the
+  `rainbow` array was exactly 159 characters, the machine's read limit (the line break probably counts, the final `;` was
+  lost). Rule: **keep lines well under 159 characters (aim for 130 at most)** and split big arrays over several lines;
+  Studio's analyzer (`source_rules`) only reports > 159. Arpeggio (a tick at each note, seen on the machine despite a single
+  `synNoteOn` per frame): `synNoteOff(1)` at the end of the frame just before `vSync()` and a fast envelope release
+  (`synEnv(1,0,5,9,15)`), so the pitch change happens with the gate closed. Same pass: the arpeggio of the old SIDRUSH went
+  from `poke` of the registers to one `synNoteOn` per frame (glitch), and `newChord` no longer triggers the first note
+  (`arpFrame` plays it: a single trigger).
+- **Machine OS.** Third try: `getKeyDwn()` unknown at line 332 with OS 0.1.x. After updating to 0.8.0 (`flash`), stop at
+  line 1561 on `Type mismatch`: `memSet(..., 384*n, ...)` with `n` an `int`, while the size is a `nat`. The machine refuses any
+  API argument of a type higher than the manual's (no implicit conversion downwards). Fixed with casts in TRACKER, TRACKER2 and
+  PLAYER (5 calls); Studio's analyzer now checks these types (table taken from the manual, no false positive on the 73
+  programs of the card). Fixed and recompiled since.
+- **`break` and `continue` leak the stack (2026-10-05).** `TRACKER2` started, drew its screen, then no longer reacted: the keys
+  arrived in the console ("Error ln 1, at '-'"). Cause read in the firmware (`breakStatement`, `continueStatement`,
+  `patchLoopJumps`): a `break` only emits a jump, the local variables declared in the loop are not removed from the value stack
+  (256 entries). My `while(true) { ... break; }` blocks, which replaced functions, left dozens of them at each turn of the main
+  loop. They were rewritten without `break` (a `done` flag), and Studio's analyzer now refuses a `break` or `continue` that
+  leaves locals in a loop nested in a `while`.
+- **Code size** (estimated from the source, model fitted on the 73 `.BIN` of the SD card, within 5 %): TRACKER.SRC about
+  15 KB, PLAYER.SRC about 3 KB. Measured on the machine (2026-10-05): TRACKER2.SRC takes 84 % of the 32 KB code area, TRACKER
+  60 %. If `compile` refuses TRACKER2.SRC for lack of room: `data 0xC000` before compiling gives 36 KB of code (the tracker only
+  uses about 2.8 KB of data). This setting stays in EEPROM; `data 0xB000` restores the default split.
+- **Manual limits** (6.4.5), all far from the maximum: symbol table about 3.7 KB of 11, 16 call levels of 64, at most 20 stack
+  values per function of 256.
+- Checks on the PC: Micro-8 Studio's analyzer (in the editor, or `python micro8_studio/lofic.py FILE.SRC`) applies the
+  machine's rules and estimates the code size.
 
-Un projet est **un seul fichier `NOM.M8S`, compressé comme sur C64** : les pistes sont des listes d'événements, et
-une piste déjà écrite ailleurs, même transposée, n'est qu'une référence de 4 octets (comme les patterns transposés de
-Future Composer).
+## Files of a project
 
-| Partie | Contenu |
+A project is **a single `NAME.M8S` file, compressed as on the C64**: the tracks are lists of events, and a track already
+written elsewhere, even transposed, is only a 4-byte reference (like the transposed patterns of Future Composer).
+
+| Part | Content |
 |---|---|
-| en-tête | `M8S1` |
-| morceau | 16 octets (un bit par octet non nul des 128 premiers réglages) puis ces octets ; les numéros de bloc du morceau (autant que sa longueur) ; `0`, ou `1` suivi des transpositions du morceau |
-| instruments | 2 octets (un bit par emplacement FM enregistré) puis 54 paramètres par instrument |
-| patterns | pour chaque bloc non vide : son numéro (0-63), un octet (un bit par piste non vide), puis pour chaque piste non vide soit `254`, la piste déjà écrite qu'elle répète (bloc × 8 + piste, 2 octets) et la transposition (+128), soit le nombre d'événements puis chacun : pas (0-15) + 16 si l'instrument change + 32 si la vélocité change, la note, puis l'instrument et la vélocité s'ils changent |
-| fin | `255` |
+| header | `M8S1` |
+| song | 16 bytes (one bit per non-zero byte of the first 128 settings) then those bytes; the block numbers of the song (as many as its length); `0`, or `1` followed by the transpositions of the song |
+| instruments | 2 bytes (one bit per recorded FM slot) then 54 parameters per instrument |
+| patterns | for each non-empty block: its number (0-63), a byte (one bit per non-empty track), then for each non-empty track either `254`, the track already written that it repeats (block × 8 + track, 2 bytes) and the transposition (+128), or the number of events then each one: step (0-15) + 16 if the instrument changes + 32 if the velocity changes, the note, then the instrument and the velocity if they change |
+| end | `255` |
 
-Tailles : SID RUSH (17 patterns, 34 positions, 2 instruments) fait **782 octets** écrit par Studio, 1 220 enregistré
-par TRACKER2 (qui garde ses 10 instruments) ; 25 500 en format brut. Sur la machine (mode X1 de l'émulateur) :
-chargement 0,14 s, enregistrement 0,6 s (le tracker cherche les pistes répétées).
+Sizes: SID RUSH (17 patterns, 34 positions, 2 instruments) is **782 bytes** written by Studio, 1,220 saved by TRACKER2
+(which keeps its 10 instruments); 25,500 in raw format. On the machine (the emulator's X1 mode): loading 0.14 s, saving
+0.6 s (the tracker looks for repeated tracks).
 
-- **Un seul fichier** : TRACKER, TRACKER2, PLAYER, le bloc `song` de la bibliothèque M8LIB et Micro-8 Studio
-  écrivent et lisent `NOM.M8S`. Le fichier est effacé puis réécrit à chaque sauvegarde (`fOpen` ne raccourcit pas
-  un fichier existant).
-- **Instruments.** Un emplacement tout à zéro garde l'instrument de la machine. Micro-8 Studio ne réécrit que les
-  emplacements qu'il connaît.
-- **Longueurs** : octets 84 à 91, un bit par bloc (1 = le bloc prolonge le précédent).
-- **Pistes muettes** : octets 42 à 49 (TRACKER, TRACKER2). PLAYER les respecte.
-- **Fichier endommagé** : au chargement, chaque réglage est ramené dans sa plage (instrument 0-9, octave 0-7,
-  volume 0-127…) et chaque note jouée aussi : la puce ne reçoit jamais une valeur hors limites.
-- **TRACKER.SRC 0.1 n'a pas de morceau** : à l'enregistrement, la position unique du morceau désigne le pattern
-  affiché. PLAYER et Studio rejouent donc ce que tu entendais, pattern long compris.
+- **A single file**: TRACKER, TRACKER2, PLAYER, the `song` block of the M8LIB library and Micro-8 Studio write and read
+  `NAME.M8S`. The file is erased then rewritten at each save (`fOpen` does not shorten an existing file).
+- **Instruments.** A slot of all zeros keeps the machine's instrument. Micro-8 Studio only rewrites the slots it knows.
+- **Lengths**: bytes 84 to 91, one bit per block (1 = the block continues the previous one).
+- **Muted tracks**: bytes 42 to 49 (TRACKER, TRACKER2). PLAYER respects them.
+- **Damaged file**: when loading, each setting is brought back into its range (instrument 0-9, octave 0-7, volume 0-127...)
+  and so is each note played: the chip never receives an out-of-range value.
+- **TRACKER.SRC 0.1 has no song**: when saving, the single position of the song designates the displayed pattern. PLAYER and
+  Studio therefore replay what you heard, long pattern included.
 
-## Premier lancement
+## First launch
 
-1. Copie `TRACKER2.SRC` (ou `TRACKER.SRC`) et `PLAYER.SRC` sur la carte SD, par exemple dans `/TOOLS/TRACKER`.
-2. Sur la machine : `cd /tools/tracker`, puis `compile tracker2.src` et `run tracker2.bin`. Le tracker charge ses 10
-   instruments par défaut depuis `/tools/sounded/sounds` (la banque FM de la machine est vide après `ymInit`).
-3. **Notes.** Les vrais programmes de la carte SD (`EXAMPLES/AUDIO/SIMPLSND`, `DEMOS/ORGAN`) jouent le La 440 Hz avec
-   la **note 69** sur une **voix d'octave 5**, comme un numéro MIDI ; le tracker part de là.
-4. TRACKER2 occupe 84 % de la zone de code (32 Ko, réglage par défaut `data 0xB000`), TRACKER 60 %.
-5. **Instruments FM** : sur SETUP, `L` charge un `.INS` dans l'emplacement de la piste (par exemple
-   `/demos/organ/sounds/pad01.ins`), `S` enregistre l'instrument édité dans un `.INS`. Ils sont aussi gardés avec le
-   projet (`NOM.M8S`).
-6. Pour rejouer un projet sans le tracker : `compile player.src`, `run player.bin` dans le dossier des `.M8S`,
-   puis choisir le morceau dans la liste.
+1. Copy `TRACKER2.SRC` (or `TRACKER.SRC`) and `PLAYER.SRC` to the SD card, for example into `/TOOLS/TRACKER`.
+2. On the machine: `cd /tools/tracker`, then `compile tracker2.src` and `run tracker2.bin`. The tracker loads its 10 default
+   instruments from `/tools/sounded/sounds` (the machine's FM bank is empty after `ymInit`).
+3. **Notes.** The real programs of the SD card (`EXAMPLES/AUDIO/SIMPLSND`, `DEMOS/ORGAN`) play A 440 Hz with **note 69** on an
+   **octave-5 voice**, like a MIDI number; the tracker starts from there.
+4. TRACKER2 takes 84 % of the code area (32 KB, default setting `data 0xB000`), TRACKER 60 %.
+5. **FM instruments**: on SETUP, `L` loads an `.INS` into the track's slot (for example `/demos/organ/sounds/pad01.ins`), `S`
+   saves the edited instrument into an `.INS`. They are also kept with the project (`NAME.M8S`).
+6. To replay a project without the tracker: `compile player.src`, `run player.bin` in the folder of the `.M8S` files, then
+   choose the song in the list.
 
-## Les 8 pistes
+## The 8 tracks
 
-| Piste | Voix matérielle | Usage |
+| Track | Hardware voice | Use |
 |---|---|---|
-| FM1 à FM6 | 6 voix du YM2612 | mélodies, basses, accords ; banque de 10 instruments |
-| DRM | voix 0 du synthé numérique | batterie (20 sons DPCM) ou oscillateur (carré, dents de scie, bruit) |
-| SYN | voix 1 du synthé numérique | oscillateur (ou batterie) |
+| FM1 to FM6 | 6 voices of the YM2612 | melodies, basses, chords; bank of 10 instruments |
+| DRM | voice 0 of the digital synth | drums (20 DPCM sounds) or oscillator (square, sawtooth, noise) |
+| SYN | voice 1 of the digital synth | oscillator (or drums) |
 
-Les deux voix du synthé partagent un filtre, deux enveloppes et un LFO (réglages dans SETUP).
+The two synth voices share a filter, two envelopes and an LFO (settings in SETUP).
 
 ## TRACKER2.SRC (0.2)
 
-Une version allégée de l'ancien TRACKER3 (sans clavier à l'écran, sans cadres, aide courte) pour tenir dans la zone de code. Un seul
-écran : barre d'outils en haut (transport, BPM, octave, pas d'édition), pistes (muet/solo, oscilloscope par piste : la forme d'onde
-seule), vue centrale à onglets (PATTERN, SONG, SETUP, FILE, HELP ; `TAB`), état et nom de l'auteur (www.bsm3d.com) en bas.
+A lighter version of the old TRACKER3 (no on-screen keyboard, no frames, short help) to fit in the code area. A single
+screen: toolbar at the top (transport, BPM, octave, edit step), tracks (mute/solo, one oscilloscope per track: the waveform
+alone), a central tabbed view (PATTERN, SONG, SETUP, FILE, HELP; `TAB`), status and the author's name (www.bsm3d.com) at the
+bottom.
 
-- **Retirés pour tenir sur la machine** (2026-10-03 à 05) : la souris, le clavier à l'écran, la mini-vue du morceau, le panneau des
-  enveloppes, le rythme euclidien, l'écran ABOUT et les barres de niveau à côté des oscilloscopes. Le compilateur de la machine refuse
-  plus de 254 fonctions + paramètres et un code de plus de 32 Ko (36 Ko avec `data 0xC000`).
-- **Valeur de la case** : `FCTN` ou `CTRL` + haut/bas change la note (demi-ton, `SHIFT` : octave), l'instrument ou la
-  vélocité sous le curseur ; la note s'entend à l'arrêt.
-- **Répétition** : une flèche gardée enfoncée se répète (après 0,4 s, toutes les 70 ms).
-- Les **oscilloscopes** sont dessinés d'après les notes jouées : la machine ne relit pas le son.
+- **Removed to fit on the machine** (2026-10-03 to 05): the mouse, the on-screen keyboard, the mini song view, the envelope
+  panel, the Euclidean rhythm, the ABOUT screen and the level bars next to the oscilloscopes. The machine's compiler refuses
+  more than 254 functions + parameters and code over 32 KB (36 KB with `data 0xC000`).
+- **Value of the cell**: `FCTN` or `CTRL` + up/down changes the note (semitone, `SHIFT`: octave), the instrument or the
+  velocity under the cursor; the note is heard when stopped.
+- **Repeat**: an arrow held down repeats (after 0.4 s, every 70 ms).
+- The **oscilloscopes** are drawn from the notes played: the machine does not read the sound back.
 
 ### PATTERN
 
-Grille de 8 pistes, 16 lignes à la fois. Case : **note**, **instrument** (0-9), **vélocité** (hexadécimal, 01 à 7F).
-Un pattern fait 16, 64, 128 ou 256 pas (4, 8 ou 16 blocs de 16 pas qui se suivent).
+Grid of 8 tracks, 16 lines at a time. Cell: **note**, **instrument** (0-9), **velocity** (hexadecimal, 01 to 7F).
+A pattern is 16, 64, 128 or 256 steps long (4, 8 or 16 blocks of 16 steps that follow each other).
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| flèches | déplacer le curseur (gauche/droite : note, instrument, vélocité, puis piste suivante) |
-| `SHIFT+haut` / `SHIFT+bas` | page précédente / suivante d'un pattern long |
-| `Z S X D C V G B H N J M` | notes Do à Si de l'octave courante |
-| `Q 2 W 3 E R 5 T 6 Y 7 U I` | mêmes notes une octave plus haut |
+| arrows | move the cursor (left/right: note, instrument, velocity, then next track) |
+| `SHIFT+up` / `SHIFT+down` | previous / next page of a long pattern |
+| `Z S X D C V G B H N J M` | notes C to B of the current octave |
+| `Q 2 W 3 E R 5 T 6 Y 7 U I` | same notes one octave higher |
 | `1` | note off |
-| `Retour arrière` | efface la case |
-| `-` / `=` | octave -/+ (champ note) ; vélocité -/+ (champ vélocité, `SHIFT` : pas de 16) |
-| `[` / `]` | instrument par défaut -/+ |
-| `;` / `'` | vélocité par défaut -/+ |
-| `,` / `.` | pattern précédent / suivant ; pendant la lecture d'un pattern, il joue tout de suite, au même pas de la mesure |
-| `0-9` | sur le champ instrument : instrument de la case |
-| `FCTN+C` / `FCTN+V` / `FCTN+K` | copier / coller / effacer le pattern (tous ses blocs) |
-| `FCTN+L` | longueur du pattern : 16, 64, 128, 256 pas |
-| `FCTN+-` / `FCTN+=` | pas d'édition (0 à 16) |
-| `FCTN+1` à `FCTN+8` | piste muette / audible, tout de suite : sa note en cours est coupée (enregistré dans le projet) |
-| `FCTN+SHIFT+1` à `8` | piste en solo (pas enregistré) |
-| `FCTN+F` | suivre la lecture ou non |
-| `FCTN+gauche` / `FCTN+droite` | transposer la piste courante du pattern (pas la batterie) |
+| `Backspace` | clears the cell |
+| `-` / `=` | octave -/+ (note field); velocity -/+ (velocity field, `SHIFT`: steps of 16) |
+| `[` / `]` | default instrument -/+ |
+| `;` / `'` | default velocity -/+ |
+| `,` / `.` | previous / next pattern; while a pattern plays, it plays right away, at the same step of the bar |
+| `0-9` | on the instrument field: instrument of the cell |
+| `FCTN+C` / `FCTN+V` / `FCTN+K` | copy / paste / clear the pattern (all its blocks) |
+| `FCTN+L` | pattern length: 16, 64, 128, 256 steps |
+| `FCTN+-` / `FCTN+=` | edit step (0 to 16) |
+| `FCTN+1` to `FCTN+8` | track muted / audible, right away: its current note is cut (saved in the project) |
+| `FCTN+SHIFT+1` to `8` | track in solo (not saved) |
+| `FCTN+F` | follow playback or not |
+| `FCTN+left` / `FCTN+right` | transpose the current track of the pattern (not the drums) |
 
-Sur la piste DRM, les touches de notes choisissent un des 20 sons de la batterie (`Z` = grosse caisse acoustique…).
-Allonger un pattern prend les blocs suivants (le tracker demande `Y`/`O` s'ils ont des notes) ; raccourcir garde les
-notes des blocs libérés.
+On the DRM track, the note keys choose one of the 20 drum sounds (`Z` = acoustic bass drum...). Lengthening a pattern takes the
+following blocks (the tracker asks `Y`/`O` if they have notes); shortening keeps the notes of the freed blocks.
 
 ### SONG
 
-Vue arrangement : une bande de blocs, un par entrée, colorés par pattern ; l'entrée choisie en surbrillance, celle
-qui joue en rouge.
+Arrangement view: a strip of blocks, one per entry, coloured by pattern; the chosen entry highlighted, the one playing in
+red.
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| haut / bas | choisir une entrée |
-| gauche / droite | pattern précédent / suivant |
+| up / down | choose an entry |
+| left / right | previous / next pattern |
 | `-` / `=` | transposition -/+ |
-| `A` | insérer une copie de l'entrée |
-| `Retour arrière` | supprimer l'entrée |
-| `L` | boucle du morceau on/off |
+| `A` | insert a copy of the entry |
+| `Backspace` | delete the entry |
+| `L` | song loop on/off |
 
 ### SETUP
 
-26 réglages : piste sélectionnée (instrument, octave de voix, panoramique, volume, muet), formes d'onde du synthé,
-enveloppes, filtre, LFO, **NOTE MODE** et **NOTE OFFSET**. Haut/bas : choisir ; gauche/droite (ou `-` `=`) : changer
-(`SHIFT` : pas de 8). `L` : charger un `.INS` dans l'emplacement de la piste ; `S` : enregistrer
-cet instrument dans un `.INS`.
+26 settings: selected track (instrument, voice octave, pan, volume, mute), synth waveforms, envelopes, filter, LFO, **NOTE MODE**
+and **NOTE OFFSET**. Up/down: choose; left/right (or `-` `=`): change (`SHIFT`: steps of 8). `L`: load an `.INS` into the
+track's slot; `S`: save this instrument into an `.INS`.
 
 ### FILE
 
-`S` sauvegarde (`NOM.M8S`, un seul fichier), `L` charge, `R` renomme le projet (8 caractères), `N` nouveau.
+`S` saves (`NAME.M8S`, a single file), `L` loads, `R` renames the project (8 characters), `N` new.
 
-### Touches communes
+### Common keys
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `Espace` | lecture / arrêt du pattern courant (en boucle) |
-| `Entrée` | lecture / arrêt du morceau à partir de l'entrée choisie |
-| `9` / `0` | tempo -/+ 1 (`SHIFT` : 10), de 40 à 255 BPM |
-| `Échap` | arrêt |
-| `FCTN+Échap` | quitter |
+| `Space` | play / stop the current pattern (in a loop) |
+| `Enter` | play / stop the song from the chosen entry |
+| `9` / `0` | tempo -/+ 1 (`SHIFT`: 10), from 40 to 255 BPM |
+| `Esc` | stop |
+| `FCTN+Esc` | quit |
 
-Le tempo est en noires ; un pas est une double-croche (`15000 / BPM` millisecondes). **Clavier MIDI** (port MIDI IN)
-: chaque note joue sur la piste courante ; à l'arrêt, sur PATTERN, elle s'écrit sous le curseur.
+The tempo is in quarter notes; a step is a sixteenth note (`15000 / BPM` milliseconds). **MIDI keyboard** (MIDI IN port): each note
+plays on the current track; when stopped, on PATTERN, it is written under the cursor.
 
 ## TRACKER.SRC (0.1)
 
-Le prototype, volontairement réduit : pas de morceau (un pattern joue en boucle), pas de solo, de rythme
-euclidien, d'entrée MIDI ni de panneau d'enveloppe. Écrans PATTERN, SETUP, FILE, HELP, ABOUT au clavier.
+The prototype, deliberately reduced: no song (one pattern plays in a loop), no solo, Euclidean rhythm, MIDI input or envelope
+panel. Screens PATTERN, SETUP, FILE, HELP, ABOUT, by keyboard.
 
-Touches : celles de PATTERN ci-dessus sans `FCTN+SHIFT+1..8` ; `FCTN` ou `CTRL` +
-haut/bas change la valeur de la case ou du réglage ; sur SETUP, `CTRL` + gauche/droite change la valeur de 2, `L`
-charge un `.INS`. Communes : `Espace`, `9`/`0`, `TAB`, `FCTN+Échap`. Mêmes fichiers que la 0.2, instruments compris.
+Keys: those of PATTERN above without `FCTN+SHIFT+1..8`; `FCTN` or `CTRL` + up/down changes the value of the cell or of the
+setting; on SETUP, `CTRL` + left/right changes the value by 2, `L` loads an `.INS`. Common: `Space`, `9`/`0`, `TAB`,
+`FCTN+Esc`. Same files as 0.2, instruments included.
 
 ## PLAYER.SRC
 
-Liste les morceaux `.M8S` de son dossier (haut/bas pour choisir, `Entrée` pour jouer, `Échap` pour revenir à la
-liste, `Échap` encore pour quitter) et rejoue celui choisi avec ses instruments : morceau avec transpositions et boucle, pistes
-muettes respectées, et pour un morceau d'une seule position (projet 0.1) le pattern entier en boucle. Pendant la
-lecture, tout de suite : `1` à `8` rend une piste muette ou audible (sa note en cours est coupée), gauche/droite
-saute à la position précédente/suivante au même pas. Une quarantaine
-de petites fonctions, sans code d'édition : à copier dans un jeu ou une démo.
+Lists the `.M8S` songs of its folder (up/down to choose, `Enter` to play, `Esc` to go back to the list, `Esc` again to quit) and
+replays the chosen one with its instruments: song with transpositions and loop, muted tracks respected, and for a song of a
+single position (project 0.1) the whole pattern in a loop. During playback, right away: `1` to `8` mutes or unmutes a track
+(its current note is cut), left/right jumps to the previous/next position at the same step. About forty small functions,
+without editing code: to copy into a game or a demo.
 
-## Correspondance avec le tracker JavaScript
+## Correspondence with the JavaScript tracker
 
 | JS | Micro-8 |
 |---|---|
-| 4 voix (lead, basse, arpège, batterie) | 8 pistes (6 FM + 2 synthé) |
-| ADSR par voix, formes d'onde | instruments FM (YM2612) et enveloppes du synthé |
-| filtre par voix, panoramique, volume | panoramique et volume par piste ; un filtre partagé pour le synthé |
-| delay, saturation, compresseur, bitcrusher | **non repris** (le matériel n'a pas ces effets) |
-| export WAV / stems | dans Micro-8 Studio |
-| arrangement, transposition par pattern | écran SONG |
+| 4 voices (lead, bass, arpeggio, drums) | 8 tracks (6 FM + 2 synth) |
+| ADSR per voice, waveforms | FM instruments (YM2612) and synth envelopes |
+| filter per voice, pan, volume | pan and volume per track; one shared filter for the synth |
+| delay, saturation, compressor, bitcrusher | **not carried over** (the hardware has no such effects) |
+| WAV / stems export | in Micro-8 Studio |
+| arrangement, transposition per pattern | SONG screen |
 
-## À vérifier au premier lancement
+## To check at first launch
 
-1. **Compilation** de TRACKER2 : modifié le 2026-11-09 (`FCTN+1..8` mute et `FCTN+SHIFT+1..8` solo rétablis en ligne, sans fonction de plus ; TRACKER2 est à 253 fonctions+paramètres sur 254). Mesuré à 84 % de la zone de code le 2026-10-05, avant ce changement : à recompiler.
-2. **`_fError` après `ymLoad`/`ymSave`/`import`** : supposé mis à jour comme les autres fonctions fichier.
-3. **`ymInit`** : les instruments du projet sont chargés après `ymInit`, au cas où il remettrait la banque à zéro.
-4. **Codes de touches** (annexe B.2) : `FCTN`+chiffre donne-t-il bien le code du chiffre (mute et solo de TRACKER2, vérifiés seulement dans l'émulateur) ?
-5. **Vitesse de la VM** : à tempo très élevé, la lecture pourrait sauter des pas. Micro-8 Studio a un mode
-   « Hardware Speed (X1) » pour s'en faire une idée ; à calibrer avec `micro8_studio/dev/X1BENCH.SRC`.
-6. **Zone mémoire des patterns** (page `0x90`, de `0x24000` à `0x2B800` avec le presse-papier) : à éviter en double
-   buffer bitmap.
+1. **Compilation** of TRACKER2: modified on 2026-11-09 (`FCTN+1..8` mute and `FCTN+SHIFT+1..8` solo restored inline, without an
+   extra function; TRACKER2 is at 253 functions+parameters of 254). Measured at 84 % of the code area on 2026-10-05, before
+   this change: recompile.
+2. **`_fError` after `ymLoad`/`ymSave`/`import`**: assumed updated like the other file functions.
+3. **`ymInit`**: the project's instruments are loaded after `ymInit`, in case it resets the bank to zero.
+4. **Key codes** (appendix B.2): does `FCTN`+digit really give the digit's code (mute and solo of TRACKER2, only checked in the
+   emulator)?
+5. **VM speed**: at a very high tempo, playback could skip steps. Micro-8 Studio has a "Hardware Speed (X1)" mode to get an
+   idea; to calibrate with `micro8_studio/dev/X1BENCH.SRC`.
+6. **Pattern memory area** (page `0x90`, from `0x24000` to `0x2B800` with the clipboard): to avoid with a double-buffered
+   bitmap.
 
-## Prochaines étapes possibles
+## Possible next steps
 
-- Effets par case (arpège, glissando, coupure) : il faudrait un fichier de plus et un moteur de lecture plus fin ;
-  TRACKER2 n'a plus que 16 % de la zone de code en marge (davantage avec `data 0xC000`). Micro-8 Studio les a déjà
-  (« Studio FX »), dans Studio seulement.
-- Visualisation du son avec l'ADC (`adcSampleL`) : l'émulateur ne simule pas l'ADC, à essayer sur la machine.
+- Effects per cell (arpeggio, glissando, cut): this needs one more file and a finer playback engine; TRACKER2 only has 16 % of
+  the code area left as margin (more with `data 0xC000`). Micro-8 Studio already has them ("Studio FX"), in Studio only.
+- Visualising the sound with the ADC (`adcSampleL`): the emulator does not simulate the ADC, to try on the machine.
