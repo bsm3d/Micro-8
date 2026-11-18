@@ -300,7 +300,7 @@ int sngGet1() {
 // text's room on its stack)
 text fnm={16};
 
-// charge NOM.M8S dans sng[], les patterns et sngBank[] ; 0 si tout va bien (applyBank() apres initSound())
+// loads NAME.M8S into sng[], the patterns and sngBank[]; 0 if all is well (applyBank() after initSound())
 bool songLoad(text name) {
 	memSet(&fnm,17,0);
 	concat(fnm,name);
