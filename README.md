@@ -30,6 +30,7 @@ Projects for the **Micro-8**, an 8-bit retro computer programmed in its own C-li
 | [`Tracker/`](Tracker) | **Micro-8 Tracker 0.1**, an 8-track pattern tracker, and a standalone player |
 | [`Demos/`](Demos) | **Demos**: dots tunnel, copper bars, sinus scroller, stars field and 3D stars, rotating cubes, Lorenz attractor, black hole |
 | [`DungeonHunt/`](DungeonHunt) | **DUNGEON HUNT**, the complete game built step by step in the Micro-8 Studio manual: sprites, tiles with layers, title screen, music and sounds |
+| [`Gravity/`](Gravity) | **GRAVITY**, the platform game of the second tutorial: seven worlds with their own gravity, built on the physics and entity blocks of the Micro-8 library |
 | [`Micro-8-Studio/`](Micro-8-Studio) | **Micro-8 Studio**, the development environment for Windows: editor, debugger, emulator and tools ([download](https://github.com/bsm3d/Micro-8/releases/latest)) |
 
 ## Notes

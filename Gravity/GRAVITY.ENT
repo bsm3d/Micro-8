@@ -1,0 +1,25 @@
+{
+ "format": 1,
+ "entities": [
+  {
+   "name": "drone",
+   "first": 1,
+   "count": 4,
+   "ref": 4,
+   "frames": 2,
+   "every": 8,
+   "kind": "walker",
+   "speed": 2,
+   "walls": 65,
+   "hp": 1,
+   "box": [
+    12,
+    10,
+    24,
+    24
+   ],
+   "place": -1,
+   "flip": false
+  }
+ ]
+}
