@@ -8,7 +8,7 @@ de texte). Ce manuel comporte trois parties :
 - **Tutoriel** (chapitre 5) : un jeu complet, DUNGEON HUNT, construit pas à pas avec tous les éditeurs, testé, puis envoyé sur la carte.
 - **Référence** (chapitres 6 à 11) et **annexes** (raccourcis, formats de fichiers, dépannage) : ce que fait chaque partie de Studio, en détail.
 
-Le Micro-8 lui-même (son matériel, ses commandes, toute l'API Lofi) est décrit dans le *Micro-8 User's Manual*, que Studio
+Le Micro-8 et son langage, Lofi, ont été créés par Franck Sauer. Le Micro-8 lui-même (son matériel, ses commandes, toute l'API Lofi) est décrit dans le *Micro-8 User's Manual*, que Studio
 ouvre avec `F1`. Ce manuel parle de Studio et renvoie à l'autre pour la machine.
 
 Pour en savoir plus sur le Micro-8, suivre son développement ou en acheter un, rendez-vous sur le site de son concepteur, Franck Sauer : **[www.micro-8.com](https://www.micro-8.com)**.
