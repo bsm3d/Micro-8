@@ -30,7 +30,7 @@ No Python installation or other dependency is needed: everything is included.
 
 ```
 511524612db21d13f408a5c13ced84cd7c126b4ebf31e0ba1237a27d9d437ca3  Micro8Studio-1.3.0-win64-portable.zip
-c7cfb12b0592c47663bd51d9c2227f25c6edbfe67034f9ba94834a219123ea7c  Micro8Studio-1.3.0-Setup.exe
+b1834863677c82d55cee5e153608114ac517f2158eea863e3489cb7c8989ff8b  Micro8Studio-1.3.0-Setup.exe
 ```
 
 ## Documentation

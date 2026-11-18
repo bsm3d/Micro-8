@@ -1,22 +1,17 @@
-// MICRO-8 TRACKER - lecteur seul (exemple a coller dans un jeu ou une demo)
+// MICRO-8 TRACKER - player only (an example to paste into a game or a demo)
 // Benoit (BSM) Saint-Moulin - www.bsm3d.com
 //
-// Liste les morceaux NOM.M8S du dossier (format de TRACKER.SRC / TRACKER2.SRC, voir leur
-// README), haut/bas pour
-// choisir, ENTREE pour jouer, ECHAP pour revenir a la liste. Aucune des fonctions
-// d'edition (grille, souris,
-// ecrans) n'est necessaire pour la lecture, seulement une vingtaine de petites fonctions.
+// Lists the NAME.M8S songs of the folder (format of TRACKER.SRC / TRACKER2.SRC, see their README), up/down to
+// choose, ENTER to play, ESC to go back to the list. None of the editing functions (grid, mouse, screens) is
+// needed to play, only about twenty small functions.
 //
-// sng[] (384 octets) : 4 tempo  5 longueur du morceau  6 boucle  7 mode de note  8
-// decalage de note (+64)
-//   10.. instrument  18.. octave  26.. panoramique  34.. volume  42.. muette  50 onde
-//   voix 0  84..91 blocs lies  51..58 enveloppes
-//   59..63 filtre  64..66 LFO  69 onde voix 1  128.. bloc a chaque position  256..
+// sng[] (384 bytes): 4 tempo  5 song length  6 loop  7 note mode  8 note offset (+64)
+//   10.. instrument  18.. octave  26.. pan  34.. volume  42.. mute  50 wave voice 0  84..91 linked blocks
+//   51..58 envelopes  59..63 filter  64..66 LFO  69 wave voice 1  128.. block at each position  256..
 //   transposition (+64)
-// pat (24576 octets, page 0x90) : 64 blocs de 16 pas x 8 pistes x (note, instrument,
-// velocite).
-// bank (540 octets) : les 10 instruments FM du projet, 54 parametres chacun (ymGetParam).
-// NOM.M8S : voir oneName() plus bas (format compact).
+// pat (24576 bytes, page 0x90): 64 blocks of 16 steps x 8 tracks x (note, instrument, velocity).
+// bank (540 bytes): the 10 FM instruments of the project, 54 parameters each (ymGetParam).
+// NAME.M8S: see oneName() below (compact format).
 
 byte sng[384];
 text pname={8};
@@ -40,7 +35,7 @@ int ci(int v,int lo,int hi) {
 	return v;
 }
 
-// une case (bloc, pas, piste, champ : 0 note, 1 instrument, 2 velocite)
+// a cell (block, step, track, field: 0 note, 1 instrument, 2 velocity)
 int pget(int b,int s,int t,int f) {
 	nat i=(nat)b;
 	i=i*16+(nat)s;
@@ -53,7 +48,7 @@ void cs(int i,int v) {
 	sng[i]=(byte)v;
 }
 
-// touches 0-9 (codes du clavier de la machine)
+// keys 0-9 (key codes of the machine's keyboard)
 byte dkey[10]={25,1,21,2,22,3,23,4,24,5};
 
 int keyDigit(int k) {
@@ -63,8 +58,7 @@ int keyDigit(int k) {
 	return -1;
 }
 
-// un .M8S endommage ou d'une autre version ne doit jamais envoyer a la puce une valeur
-// hors de sa plage
+// a damaged .M8S, or one of another version, must never send the chip a value out of its range
 void fixSng() {
 	cs(5,ci(cg(5),0,128));
 	cs(6,ci(cg(6),0,1));
@@ -96,14 +90,13 @@ int spat(int i) {
 	return sng[128+i];
 }
 
-// transposition d'une position, deja centree sur 0 (stockee +64)
+// transposition of a position, already centred on 0 (stored +64)
 int strans(int i) {
 	int v=sng[256+i];
 	return v-64;
 }
 
-// vrai si le bloc b prolonge le bloc b-1 (octets 84..91, un bit par bloc ; decalage par
-// un byte)
+// true if block b continues block b-1 (bytes 84..91, one bit per block; shifted by a byte)
 bool cont(int b) {
 	if(b<=0||b>63) return false;
 	int v=sng[84+b/8];
@@ -137,8 +130,8 @@ void applySynth() {
 
 void initSound() {
 	ymInit(0);
-	// les 10 instruments par defaut (ceux de DEMOS/ORGAN) : apres ymInit, la banque de la
-	// machine est vide ; celle d'un projet charge les remplace ensuite (applyBank)
+	// the 10 default instruments (those of DEMOS/ORGAN): after ymInit the machine's bank is empty;
+	// the one of a loaded project replaces them afterwards (applyBank)
 	ymLoad("/tools/sounded/sounds/bass01.ins",0);
 	ymLoad("/tools/sounded/sounds/bass02.ins",1);
 	ymLoad("/tools/sounded/sounds/bass03.ins",2);
@@ -155,20 +148,15 @@ void initSound() {
 	applySynth();
 }
 
-// NOM.M8S, compresse comme sur C64 (format decrit dans micro8_tracker/README.md) :
-//   "M8S1" ; le morceau : 16 octets (un bit par octet non nul de sng[0..127]) puis ces
-//   octets, les sng[5] numeros
-//   de bloc du morceau, puis 0, ou 1 et leurs transpositions ; les instruments : 2 octets
-//   (un bit par emplacement
-//   FM enregistre) puis 54 octets chacun ; les patterns, bloc par bloc (les vides sont
-//   sautes) : le numero du bloc,
-//   un octet (un bit par piste non vide), puis pour chaque piste non vide, soit 254 et la
-//   piste deja ecrite qu'elle
-//   repete (bloc*8+piste sur 2 octets, transposition+128), soit le nombre d'evenements et
-//   chacun : pas (0-15)
-//   +16 si l'instrument change +32 si la velocite change, la note, puis l'instrument et
-//   la velocite s'ils changent ;
-//   255 pour finir
+// NAME.M8S, compressed as on the C64 (format described in the README of the Tracker folder):
+//   "M8S1"; the song: 16 bytes (one bit per non-zero byte of sng[0..127]) then those bytes,
+//   the sng[5] block numbers of the song, then 0, or 1 and their transpositions; the instruments: 2 bytes
+//   (one bit per recorded FM slot) then 54 bytes each; the patterns, block by block (empty ones are
+//   skipped): the block number, a byte (one bit per non-empty track), then for each non-empty track either 254 and
+//   the track already written that it repeats (block*8+track on 2 bytes, transposition+128), or the number of events
+//   and each one: step (0-15) +16 if the instrument changes +32 if the velocity changes, the note, then the
+//   instrument and the velocity if they change;
+//   255 to end
 byte cbits[16];
 byte bitv[8]={1,2,4,8,16,32,64,128};
 byte magic[4]={77,56,83,49};
@@ -191,7 +179,7 @@ nat cellAddr(int b,int t,int k) {
 	return 0x3000+(nat)b*384+(nat)k*24+(nat)t*3;
 }
 
-// une case (note, instrument, velocite) dans nt, ni, nv
+// a cell (note, instrument, velocity) into nt, ni, nv
 void rd(int b,int t,int k) {
 	nat a=cellAddr(b,t,k);
 	nt=peek(a,0x90);
@@ -217,7 +205,7 @@ bool has(int m,int i) {
 	return (m/bitv[i])%2==1;
 }
 
-// un emplacement tout a zero garde l'instrument de la machine
+// a slot of all zeros keeps the machine's instrument
 void applyBank() {
 	for(int i=0;i<10;i++) {
 		if(slotUsed(i)) {
@@ -246,12 +234,11 @@ int get1() {
 	return v;
 }
 
-// nom du fichier, partage par les fonctions de chargement et de sauvegarde : pas de
-// text local, la machine ne libere pas sa place dans la pile du compilateur
+// file name, shared by the load and save functions: no local text, the machine does not free its place
+// on the compiler's stack
 text fnm={16};
 
-// charge NOM.M8S dans sng[], les patterns et bank[] ; 0 si tout va bien (applyBank()
-// apres initSound())
+// loads NAME.M8S into sng[], the patterns and bank[]; 0 if all is well (applyBank() after initSound())
 byte loadFiles() {
 	memSet(&fnm,17,0);
 	oneName(fnm);
@@ -336,7 +323,7 @@ void stopAll() {
 	for(int t=0;t<8;t++) noteOff(t);
 }
 
-// note d'API (1..120 -> numero Micro-8, decale par sng[8])
+// API note (1..120 -> Micro-8 number, shifted by sng[8])
 int apiNote(int v) {
 	return ci(v-1+cg(8)-64,0,127);
 }
@@ -379,8 +366,7 @@ void calcStep() {
 	stepMs=15000/tempo;
 }
 
-// les 8 pistes d'un pas : 255 = note off, 0 = rien ; la transposition ne joue que sur les
-// pistes FM
+// the 8 tracks of a step: 255 = note off, 0 = nothing; the transposition only applies to the FM tracks
 void triggerRow(int b,int s) {
 	int tr=strans(playPos);
 	for(int t=0;t<8;t++) {
@@ -394,12 +380,10 @@ void triggerRow(int b,int s) {
 	}
 }
 
-// pas suivant : la position (un bloc de 16 pas) est deja developpee dans sng[128..], meme
-// pour un pattern
-// long - pas besoin de connaitre les blocs qui se suivent, juste avancer dans le morceau.
-// Un morceau d'une seule
-// position (projet de TRACKER.SRC 0.1, ou pattern seul) : son pattern est joue en entier,
-// blocs suivants compris.
+// next step: the position (a block of 16 steps) is already expanded in sng[128..], even for a long pattern -
+// no need to know the blocks that follow each other, just move on in the song. A song of a single
+// position (project of TRACKER.SRC 0.1, or a lone pattern): its pattern is played in full,
+// following blocks included.
 void advance() {
 	playRow++;
 	if(playRow<16) return;
@@ -442,9 +426,8 @@ void tickPlay() {
 	if(!playing) stopAll();
 }
 
-// ------------------------------------------------------------------ choix du morceau
-// les fichiers .M8S du dossier courant (32 au plus) : leur nom sans l'extension, 8
-// caracteres et un 0 chacun
+// ------------------------------------------------------------------ choice of the song
+// the .M8S files of the current folder (32 at most): their name without the extension, 8 characters and a 0 each
 byte songList[288];
 int nSongs=0;
 text dname={13};
@@ -507,7 +490,7 @@ void drawList(int sel) {
 	}
 }
 
-// les pistes : leur numero, ou - si elle est muette
+// the tracks: their number, or - if muted
 void drawMutes() {
 	curPos(2,7);
 	print("tracks ");
@@ -542,12 +525,12 @@ void playSong() {
 		k=getKeyDwn();
 		int d=keyDigit(k);
 		if(d>=1&&d<=8) {
-			// piste muette tout de suite : sa note en cours est coupee
+			// track muted right away: its current note is cut
 			cs(41+d,1-cg(41+d));
 			if(cg(41+d)!=0) noteOff(d-1);
 			drawMutes();
 		} else if((k==57||k==59)&&slen()>1) {
-			// position voisine tout de suite, au meme pas
+			// neighbouring position right away, at the same step
 			if(k==57) playPos=(playPos+slen()-1)%slen();
 			else playPos=(playPos+1)%slen();
 			playBlk=spat(playPos);
