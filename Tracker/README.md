@@ -49,8 +49,10 @@ The tracker's own demo, **SID RUSH**, is in the [`SidRush/`](../SidRush) folder.
   arrived in the console ("Error ln 1, at '-'"). Cause read in the firmware (`breakStatement`, `continueStatement`,
   `patchLoopJumps`): a `break` only emits a jump, the local variables declared in the loop are not removed from the value stack
   (256 entries). My `while(true) { ... break; }` blocks, which replaced functions, left dozens of them at each turn of the main
-  loop. They were rewritten without `break` (a `done` flag), and Studio's analyzer now refuses a `break` or `continue` that
-  leaves locals in a loop nested in a `while`.
+  loop. They were rewritten without `break` (a `done` flag), and Studio's analyzer refused a `break` or `continue` that left
+  locals in a loop nested in a `while`. **Fixed in OS 0.9** (official changelog: "break/continue in loops with local variables
+  corrupted the stack"): Studio's check is removed; the `done` workaround stays in TRACKER2 (it still works, no reason to rewrite
+  it).
 - **Code size** (estimated from the source, model fitted on the 73 `.BIN` of the SD card, within 5 %): TRACKER.SRC about
   15 KB, PLAYER.SRC about 3 KB. Measured on the machine (2026-10-05): TRACKER2.SRC takes 84 % of the 32 KB code area, TRACKER
   60 %. If `compile` refuses TRACKER2.SRC for lack of room: `data 0xC000` before compiling gives 36 KB of code (the tracker only
