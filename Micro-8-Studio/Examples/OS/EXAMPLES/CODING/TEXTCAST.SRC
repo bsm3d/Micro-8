@@ -1,17 +1,0 @@
-
-//Cast address to text
-
-memSet(0x1200,3200,' ');//clear text
-
-
-text t="Hello world";
-
-void f(nat addr)
-{
-	print((text)addr,"");
-}
-
-nat tAddr=&t;
-
-for(int i; i<#t; i++) f(tAddr++);
-

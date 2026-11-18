@@ -38,19 +38,21 @@ c7cfb12b0592c47663bd51d9c2227f25c6edbfe67034f9ba94834a219123ea7c  Micro8Studio-1
 - [`docs/Studio_README_en.md`](docs/Studio_README_en.md) / [`docs/Studio_README_fr.md`](docs/Studio_README_fr.md):
   the Micro-8 Studio manual, in English and French: getting started, a complete tutorial (the DUNGEON HUNT game),
   then the reference for the editor, debugger, emulator and tools.
-- [`docs/Micro-8_User_Manual.md`](docs/Micro-8_User_Manual.md): the reference manual for the Micro-8 console
-  (Lofi language, API, hardware).
 
-The tutorial's finished game is in [`DungeonHunt/`](../DungeonHunt).
+The Micro-8 User's Manual (the reference of the console: Lofi language, API, hardware) comes with Studio. For news about the
+Micro-8, to follow its development or to buy one, go to the website of its designer, Franck Sauer:
+[www.micro-8.com](https://www.micro-8.com).
+
+The finished games of the two tutorials are in [`DungeonHunt/`](../DungeonHunt) and [`Gravity/`](../Gravity).
 
 The [`Tracker/`](../Tracker) and [`SidRush/`](../SidRush) folders of this repository hold the corresponding
 Lofi sample programs.
 
 ## License
 
-(c) Benoit Saint-Moulin ([www.bsm3d.com](https://www.bsm3d.com)). All rights reserved.
+© Benoit Saint-Moulin ([www.bsm3d.com](https://www.bsm3d.com)). All rights reserved. Free to use.
 
-Includes [Nuked-OPN2](https://github.com/nukeykt/Nuked-OPN2) (LGPL 2.1, (c) Nuke.YKT) for exact YM2612
+Includes [Nuked-OPN2](https://github.com/nukeykt/Nuked-OPN2) (LGPL 2.1, © Nuke.YKT) for exact YM2612
 emulation.
 
-The Micro-8 console's are the property of Franck Sauer.
+The Micro-8 console is the property of Franck Sauer: [www.micro-8.com](https://www.micro-8.com).

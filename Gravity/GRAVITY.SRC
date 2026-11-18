@@ -1,0 +1,1252 @@
+// GRAVITY - seven worlds, one robot: collect the energy cells, then reach the exit
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Game 1.1 for Micro-8 OS 0.9
+
+// Arrows walk (and fly, in space), Z or Up jumps, Enter starts, Esc quits.
+
+// ---- M8LIB: pal - loadPal/savePal: a 48-byte .PAL (16 red, 16 green, 16 blue values 0-7) into or from a palette address
+bool loadPal(text f,nat pal) {
+	import(f,pal,48);
+	return _fError==0;
+}
+
+bool savePal(text f,nat pal) {
+	export(f,pal,48);
+	return _fError==0;
+}
+
+// ---- M8LIB: bitmap - loadBitmap/saveBitmap: the 400x240 16-colour picture (.BMP, 48000 bytes) of the displayed bitmap page
+bool loadBitmap(text f) {
+	byte page=peek(0x2F05);
+	import(f,0x3000,48000,page);
+	return _fError==0;
+}
+
+bool saveBitmap(text f) {
+	byte page=peek(0x2F05);
+	export(f,0x3000,48000,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: sprites - loadSprites/saveSprites: a .SPR sprite set (256 bytes a sprite) from sprite 'first', n sprites (0 = whole file)
+bool loadSprites(text f,int first) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveSprites(text f,int first,int n) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	nat sz=(nat)n*256;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: tiles - loadTiles/saveTiles: a .TLS tile set (128 bytes a 16x16 tile) from tile 'first', n tiles (0 = whole file)
+bool loadTiles(text f,int first) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveTiles(text f,int first,int n) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	nat sz=(nat)n*128;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: level - loadLevel/saveLevel: a .LVL map (one tile number a cell) into or from a byte array (&array, its size)
+bool loadLevel(text f,nat dst,nat size) {
+	import(f,dst,size);
+	return _fError==0;
+}
+
+bool saveLevel(text f,nat src,nat size) {
+	export(f,src,size);
+	return _fError==0;
+}
+
+// ---- M8LIB: screen - loadScreen/saveScreen: a .SCR text screen (3200 glyphs, 3200 colours, Fletcher-16 checksum) straight to the screen
+byte scrCheck[2];
+
+// Fletcher-16 of the 6400 bytes of the text screen (glyphs at 0x1200, colours at 0x1E80), as Screen Designer
+int scrFletcher() {
+	int s1=0;
+	int s2=0;
+	for(nat i=0;i<6400;i++) {
+		s1=(s1+peek(0x1200+i))%255;
+		s2=(s2+s1)%255;
+	}
+	return s2*256+s1;
+}
+
+bool saveScreen(text f) {
+	int ck=scrFletcher();
+	int hiPart=ck/256;
+	scrCheck[0]=(byte)(ck-hiPart*256);
+	scrCheck[1]=(byte)hiPart;
+	export(f,0x1200,6400);
+	if(_fError!=0) return false;
+	fOpen(1,f);
+	fWrite(1,&scrCheck,6400,2);
+	fClose(1);
+	return _fError==0;
+}
+
+// a file without the checksum (6400 bytes, older tools) still loads; a damaged one is refused (after it was shown)
+bool loadScreen(text f) {
+	fOpen(0,f);
+	if(_fError!=0) return false;
+	nat sz=fSize(0);
+	if(sz!=6400&&sz!=6402) {
+		fClose(0);
+		return false;
+	}
+	fRead(0,0x1200,0,6400);
+	if(sz==6402) fRead(0,&scrCheck,6400,2);
+	fClose(0);
+	if(sz==6400) return true;
+	int ck=scrFletcher();
+	int want=scrCheck[1];
+	want=want*256+scrCheck[0];
+	return ck==want;
+}
+
+// ---- M8LIB: song - songLoad/songStart/songTick/songStop: play a tracker project (NAME.M8S) - call songTick() in your loop
+// the song's patterns live in the external SRAM page 0x90 (0x24000-0x2A000): keep that area free
+byte sng[384];
+byte sngBank[540];
+int sngLastIns[8];
+int sngStepMs=125;
+nat sngCarry=0;
+int sngBlk=0;
+int sngRow=0;
+int sngPos=0;
+bool sngPlaying=false;
+
+int sngGet(int i) {
+	return sng[i];
+}
+
+int sngClamp(int v,int lo,int hi) {
+	if(v<lo) return lo;
+	if(v>hi) return hi;
+	return v;
+}
+
+void sngSet(int i,int v) {
+	sng[i]=(byte)v;
+}
+
+int sngLen() {
+	return sngClamp(sngGet(5),0,128);
+}
+
+bool sngCont(int b) {
+	if(b<=0||b>63) return false;
+	int v=sng[84+b/8];
+	byte s=(byte)(b%8);
+	return ((v>>s)&1)!=0;
+}
+
+int sngCell(int b,int s,int t,int f) {
+	nat i=(nat)b;
+	i=i*16+(nat)s;
+	i=i*8+(nat)t;
+	i=i*3+(nat)f;
+	return peek(0x3000+i,0x90);
+}
+
+// every value that reaches the sound chips is kept in its range, whatever the file holds
+void sngFix() {
+	sngSet(5,sngClamp(sngGet(5),0,128));
+	sngSet(6,sngClamp(sngGet(6),0,1));
+	sngSet(7,sngClamp(sngGet(7),0,1));
+	for(int t=0;t<8;t++) {
+		sngSet(10+t,sngClamp(sngGet(10+t),0,9));
+		sngSet(18+t,sngClamp(sngGet(18+t),0,7));
+		sngSet(26+t,sngClamp(sngGet(26+t),0,3));
+		sngSet(34+t,sngClamp(sngGet(34+t),0,127));
+		sngSet(42+t,sngClamp(sngGet(42+t),0,1));
+	}
+	for(int i=51;i<59;i++) sngSet(i,sngClamp(sngGet(i),0,15));
+	sngSet(50,sngClamp(sngGet(50),0,3));
+	sngSet(69,sngClamp(sngGet(69),0,3));
+	sngSet(59,sngClamp(sngGet(59),0,1));
+	sngSet(60,sngClamp(sngGet(60),0,3));
+	sngSet(61,sngClamp(sngGet(61),0,3));
+	sngSet(64,sngClamp(sngGet(64),0,3));
+	sngSet(65,sngClamp(sngGet(65),0,15));
+	sngSet(66,sngClamp(sngGet(66),0,15));
+	for(int i=0;i<128;i++) sngSet(128+i,sngClamp(sngGet(128+i),0,63));
+}
+
+void sngVoice(int t) {
+	if(t<6) {
+		ymVoice((byte)t,(byte)sngGet(10+t),(byte)sngGet(18+t),(byte)sngGet(26+t),(byte)sngGet(34+t));
+		sngLastIns[t]=sngGet(10+t);
+	} else if(t==6) {
+		int p=sngGet(40)/8;
+		synVoice(0,(byte)sngGet(50),(byte)sngGet(24),(byte)sngGet(32),(byte)p);
+	} else {
+		int p=sngGet(41)/8;
+		synVoice(1,(byte)sngGet(69),(byte)sngGet(25),(byte)sngGet(33),(byte)p);
+	}
+}
+
+void sngSound() {
+	ymInit(0);
+	synInit(0);
+	for(int t=0;t<8;t++) sngLastIns[t]=-1;
+	synEnv(0,(byte)sngGet(51),(byte)sngGet(52),(byte)sngGet(53),(byte)sngGet(54));
+	synEnv(1,(byte)sngGet(55),(byte)sngGet(56),(byte)sngGet(57),(byte)sngGet(58));
+	synLFO(0,(byte)sngGet(64),(byte)sngGet(65),(byte)sngGet(66));
+	synFilter(sngGet(59)!=0,(byte)sngGet(60),(byte)sngGet(61));
+	poke(0x111D,(byte)sngGet(62));
+	poke(0x111E,(byte)sngGet(63));
+}
+
+void sngNoteOff(int t) {
+	if(t<6) ymNoteOff((byte)t);
+	else {
+		int sv=t-6;
+		synNoteOff((byte)sv);
+	}
+}
+
+void songStop() {
+	sngPlaying=false;
+	for(int t=0;t<8;t++) sngNoteOff(t);
+}
+
+void sngNote(int t,int v,int vel,int ins) {
+	int vc=sngClamp(vel,0,127);
+	int ic=sngClamp(ins,0,9);
+	int n=sngClamp(v-1+sngGet(8)-64,0,127);
+	int mode=sngGet(7);
+	if(t<6) {
+		int oc=sngGet(18+t);
+		if(mode==1) oc=sngClamp(n/12,0,7);
+		if(ic!=sngLastIns[t]||mode==1) {
+			ymVoice((byte)t,(byte)ic,(byte)oc,(byte)sngGet(26+t),(byte)sngGet(34+t));
+			sngLastIns[t]=ic;
+		}
+		if(mode==1) n=n%12;
+		ymNoteOn((byte)t,(byte)n,(byte)vc);
+	} else {
+		int sv=t-6;
+		// the FPGA restarts an envelope / a DPCM sample on a rising trigger: off first
+		synNoteOff((byte)sv);
+		int wave=sngGet(50);
+		if(sv==1) wave=sngGet(69);
+		if(wave==3) synNoteOn((byte)sv,(byte)sngClamp(v-1,0,19),(byte)vc);
+		else if(mode==1) {
+			int p=sngGet(34+t)/8;
+			int nn12=n%12;
+			synVoice((byte)sv,(byte)wave,(byte)sngClamp(n/12,0,7),(byte)sngGet(26+t),(byte)p);
+			synNoteOn((byte)sv,(byte)nn12,(byte)vc);
+		} else synNoteOn((byte)sv,(byte)n,(byte)vc);
+	}
+}
+
+// NAME.M8S as the trackers save it, compressed the C64 way (format: micro8_tracker/README.md)
+byte sngBits[16];
+byte sngBitv[8]={1,2,4,8,16,32,64,128};
+byte sngMagic[4]={77,56,83,49};
+byte sngIo[128];
+int sngIoPos;
+int sngIoLen;
+nat sngFpos;
+nat sngRsize;
+byte sngErr;
+int sngNT;
+int sngNI;
+int sngNV;
+
+nat sngCellAddr(int b,int t,int k) {
+	return 0x3000+(nat)b*384+(nat)k*24+(nat)t*3;
+}
+
+// one cell (note, instrument, velocity) into sngNT, sngNI, sngNV
+void sngRd(int b,int t,int k) {
+	nat a=sngCellAddr(b,t,k);
+	sngNT=peek(a,0x90);
+	sngNI=peek(a+1,0x90);
+	sngNV=peek(a+2,0x90);
+}
+
+void sngWr(int b,int t,int k) {
+	nat a=sngCellAddr(b,t,k);
+	poke(a,(byte)sngNT,0x90);
+	poke(a+1,(byte)sngNI,0x90);
+	poke(a+2,(byte)sngNV,0x90);
+}
+
+bool sngHas(int m,int i) {
+	return (m/sngBitv[i])%2==1;
+}
+
+int sngGet1() {
+	if(sngErr!=0) return 0;
+	if(sngIoPos>=sngIoLen) {
+		if(sngFpos>=sngRsize) {
+			sngErr=253;
+			return 0;
+		}
+		nat n=sngRsize-sngFpos;
+		if(n>128) n=128;
+		fRead(0,&sngIo,sngFpos,n);
+		sngErr=_fError;
+		sngFpos=sngFpos+n;
+		sngIoLen=(int)n;
+		sngIoPos=0;
+	}
+	int v=sngIo[sngIoPos];
+	sngIoPos++;
+	return v;
+}
+
+// file name buffer: a global, not a local text (the machine compiler never frees a local
+// text's room on its stack)
+text fnm={16};
+
+// charge NOM.M8S dans sng[], les patterns et sngBank[] ; 0 si tout va bien (applyBank() apres initSound())
+bool songLoad(text name) {
+	memSet(&fnm,17,0);
+	concat(fnm,name);
+	concat(fnm,".M8S");
+	import(fnm,&sngIo,4);
+	if(_fError!=0) return false;
+	for(int i=0;i<4;i++) {
+		if(sngIo[i]!=sngMagic[i]) return false;
+	}
+	fOpen(0,fnm);
+	sngRsize=fSize(0);
+	sngFpos=4;
+	sngIoPos=0;
+	sngIoLen=0;
+	sngErr=0;
+	memSet(&sng,256,0);
+	memSet(&sng+256,128,64);
+	memSet(0x3000,24576,0,0x90);
+	memSet(&sngBank,540,0);
+	for(int i=0;i<16;i++) sngBits[i]=(byte)sngGet1();
+	for(int i=0;i<128;i++) {
+		if(sngHas(sngBits[i/8],i%8)) sng[i]=(byte)sngGet1();
+	}
+	int len=sngClamp(sng[5],0,128);
+	for(int i=0;i<len;i++) sng[128+i]=(byte)sngGet1();
+	if(sngGet1()==1) {
+		for(int i=0;i<len;i++) sng[256+i]=(byte)sngGet1();
+	}
+	int m0=sngGet1();
+	int m1=sngGet1();
+	for(int i=0;i<10;i++) {
+		if((i<8&&sngHas(m0,i))||(i>=8&&sngHas(m1,i-8))) {
+			for(int p=0;p<54;p++) sngBank[i*54+p]=(byte)sngGet1();
+		}
+	}
+	for(int kb=0;kb<64&&sngErr==0;kb++) {
+		int b=sngGet1();
+		if(b==255) break;
+		if(b>63) sngErr=254;
+		int tm=sngGet1();
+		for(int t=0;t<8&&sngErr==0;t++) {
+			if(sngHas(tm,t)) {
+				int h=sngGet1();
+				if(h==254) {
+					int j=sngGet1();
+					j=j+sngGet1()*256;
+					int d=sngGet1()-128;
+					if(j>=b*8+t) sngErr=252;
+					for(int k=0;k<16&&sngErr==0;k++) {
+						sngRd(j/8,j%8,k);
+						if(sngNT!=0&&sngNT!=255) sngNT=sngNT+d;
+						if(sngNT<0||sngNT>255) sngErr=251;
+						sngWr(b,t,k);
+					}
+				} else if(h<=16) {
+					sngNI=0;
+					sngNV=0;
+					for(int k=0;k<h;k++) {
+						int e=sngGet1();
+						sngNT=sngGet1();
+						if((e/16)%2==1) sngNI=sngGet1();
+						if((e/32)%2==1) sngNV=sngGet1();
+						sngWr(b,t,e%16);
+					}
+				} else sngErr=250;
+			}
+		}
+	}
+	fClose(0);
+	if(sngErr!=0||sngGet(0)!='M'||sngGet(1)!='8'||sngGet(2)!='T') return false;
+	bool bankOk=true;
+	sngFix();
+	sngSound();
+	if(bankOk) {
+		for(int i=0;i<10;i++) {
+			int sum=0;
+			for(int p=0;p<54;p++) sum=sum+sngBank[i*54+p];
+			if(sum>0) {
+				for(int p=0;p<54;p++) ymSetParam((byte)i,(byte)p,sngBank[i*54+p]);
+			}
+		}
+	}
+	for(int t=0;t<8;t++) sngVoice(t);
+	return true;
+}
+
+void songStart() {
+	sngPos=0;
+	sngBlk=sng[128];
+	sngRow=0;
+	int tempo=sngClamp(sngGet(4),40,255);
+	sngStepMs=15000/tempo;
+	sngCarry=(nat)sngStepMs;
+	clkSet();
+	sngPlaying=true;
+}
+
+void sngRowEvents() {
+	int tr=sng[256+sngPos];
+	tr=tr-64;
+	for(int t=0;t<8;t++) {
+		int v=sngCell(sngBlk,sngRow,t,0);
+		if(sngGet(42+t)!=0) v=0;
+		if(v==255) sngNoteOff(t);
+		else if(v!=0) {
+			if(t<6) v=sngClamp(v+tr,1,120);
+			sngNote(t,v,sngCell(sngBlk,sngRow,t,2),sngCell(sngBlk,sngRow,t,1));
+		}
+	}
+}
+
+void sngAdvance() {
+	sngRow++;
+	if(sngRow<16) return;
+	sngRow=0;
+	if(sngLen()<=1) {
+		if(sngCont(sngBlk+1)) sngBlk++;
+		else {
+			sngBlk=sng[128];
+			if(sngGet(6)==0) sngPlaying=false;
+		}
+		return;
+	}
+	sngPos++;
+	if(sngPos>=sngLen()) {
+		sngPos=0;
+		if(sngGet(6)==0) sngPlaying=false;
+	}
+	sngBlk=sng[128+sngPos];
+}
+
+// call often (every frame is fine): plays the rows that are due by the millisecond clock
+void songTick() {
+	if(!sngPlaying) return;
+	nat now=_mSec;
+	nat s=(nat)sngStepMs;
+	if(now+sngCarry<s) return;
+	sngCarry=now+sngCarry-s;
+	if(sngCarry>s) sngCarry=0;
+	clkSet();
+	sngRowEvents();
+	sngAdvance();
+	if(!sngPlaying) songStop();
+}
+
+// ---- M8LIB: pad - padRead/padDown/padHit/padUp: the pad with edges (A 1, B 2, Start 4, Select 8, Up 16, Down 32, Left 64, Right 128)
+byte padNow=0;
+byte padOld=0;
+
+void padRead() {
+	padOld=padNow;
+	padNow=_padLft;
+}
+
+// held now
+bool padDown(byte m) {
+	return (padNow&m)!=0;
+}
+
+// pressed this frame (was not held on the one before)
+bool padHit(byte m) {
+	return (padNow&m)!=0&&(padOld&m)==0;
+}
+
+// released this frame
+bool padUp(byte m) {
+	return (padNow&m)==0&&(padOld&m)!=0;
+}
+
+// ---- M8LIB: timer - tmSet/tmTick/tmDone/tmEvery: 8 countdown timers counted in frames - call tmTick() once a frame
+int tmLeft[8];
+
+// a timer number outside 0..7 does nothing (the machine does not check array indexes: it would write over other data)
+void tmSet(int i,int frames) {
+	if(i<0||i>7) return;
+	tmLeft[i]=frames;
+}
+
+void tmTick() {
+	for(int i=0;i<8;i++) {
+		if(tmLeft[i]>0) tmLeft[i]--;
+	}
+}
+
+// has timer i run out (a timer never set is out)
+bool tmDone(int i) {
+	if(i<0||i>7) return true;
+	return tmLeft[i]<=0;
+}
+
+// true once every 'frames' frames when called each frame (the first call is true): a spawner, a rate of fire
+bool tmEvery(int i,int frames) {
+	if(i<0||i>7) return false;
+	if(tmLeft[i]>0) return false;
+	tmLeft[i]=frames;
+	return true;
+}
+
+// ---- M8LIB: state - stGo/stTick/stIs: the state of the game (title, play, game over...) and how many frames it has lasted - call stTick() once a frame
+byte st=0;
+int stAge=0;
+
+void stGo(int s) {
+	st=(byte)s;
+	stAge=0;
+}
+
+void stTick() {
+	if(stAge<32000) stAge++;
+}
+
+bool stIs(int s) {
+	return st==s;
+}
+
+// ---- M8LIB: layer - layLoad/layPoint/layBox/layFind/layCount: collisions and placement from a .LAY file (8 layers) of a 25x15 map
+byte layData[379];
+
+// a .LAY of 25 x 15 cells; false when the file is missing or is another size
+bool layLoad(text f) {
+	memSet(&layData,379,0);
+	import(f,&layData,379);
+	if(_fError!=0) return false;
+	return layData[0]==25&&layData[1]==0&&layData[2]==15&&layData[3]==0;
+}
+
+// the layers of a cell, one bit each (layer 0 is 1, layer 7 is 128); outside the map every layer is set
+int layCell(int col,int row) {
+	if(col<0||row<0||col>=25||row>=15) return 255;
+	return layData[4+row*25+col];
+}
+
+// is a screen point (800 x 480 pixels) on a cell that has one of the layers of 'mask'? outside the screen counts as yes
+bool layPoint(int sx,int sy,int mask) {
+	if(sx<0||sy<0||sx>=800||sy>=480) return true;
+	return (layCell(sx/32,sy/32)&mask)!=0;
+}
+
+// would a box of w x h pixels, ox,oy inside a sprite placed at px,py (sprPos units), touch such a cell? w and h up to 32
+bool layBox(int px,int py,int ox,int oy,int w,int h,int mask) {
+	int x0=px-48+ox;
+	int y0=py-42+oy;
+	int x1=x0+w-1;
+	int y1=y0+h-1;
+	return layPoint(x0,y0,mask)||layPoint(x1,y0,mask)||layPoint(x0,y1,mask)||layPoint(x1,y1,mask);
+}
+
+// the cell number (row*25+col) of the n-th cell (from 0) that has one of the layers of 'mask', or -1
+int layFind(int mask,int n) {
+	int k=0;
+	for(int i=0;i<375;i++) {
+		if((layData[4+i]&mask)!=0) {
+			if(k==n) return i;
+			k++;
+		}
+	}
+	return -1;
+}
+
+int layCount(int mask) {
+	int k=0;
+	for(int i=0;i<375;i++) {
+		if((layData[4+i]&mask)!=0) k++;
+	}
+	return k;
+}
+
+// the sprite position (sprPos) that centres a 24 x 21 sprite on a cell number
+int layX(int cell) {
+	return 40+(cell%25)*32;
+}
+
+int layY(int cell) {
+	return 36+(cell/25)*32;
+}
+
+// ---- M8LIB: phys - physPlace/physStep/physJump/physTouch: gravity, jumps, walls and bounces on a .LAY layer (a platformer, a ball)
+// A body is a sprite 0..31: positions in 1/16 pixel (physX/16 is the sprPos position), speeds in 1/16 pixel a frame, walls are the
+// cells of the layers in 'mask'. Everything below is global: set it once or between frames (physGrav=0: a top-down game).
+int physX[32];
+int physY[32];
+int physVx[32];
+int physVy[32];
+bool physGnd[32];
+int physGrav=6;
+int physFall=160;
+int physDrag=0;
+int physBounce=0;
+int physOx=12;
+int physOy=10;
+int physW=24;
+int physH=24;
+
+// the box that hits walls, ox,oy inside the 24 x 21 sprite, w and h up to 32 (the default is the 24 x 24 box at 12,10 of DUNGEON HUNT)
+void physBox(int ox,int oy,int w,int h) {
+	physOx=ox;
+	physOy=oy;
+	physW=w;
+	physH=h;
+}
+
+// the body goes to x,y (sprPos units), at rest
+void physPlace(int i,int x,int y) {
+	if(i<0||i>31) return;
+	physX[i]=x*16;
+	physY[i]=y*16;
+	physVx[i]=0;
+	physVy[i]=0;
+	physGnd[i]=false;
+	sprPos((byte)i,x,y);
+}
+
+bool physBlocked(int x,int y,int mask) {
+	return layBox(x,y,physOx,physOy,physW,physH,mask);
+}
+
+// the speed after a hit: 0, or sent back with physBounce/16 of it when it was fast enough to bounce
+int physRebound(int v) {
+	if(physBounce<=0) return 0;
+	int n=abs(v)*physBounce/16;
+	if(n<24) return 0;
+	if(v>0) return -n;
+	return n;
+}
+
+// one frame: gravity, drag, then the move along x and along y one pixel at a time, stopped by the cells of 'mask' (it never goes through a wall,
+// whatever its speed, which is kept within 100 pixels a frame so that the 16-bit numbers never wrap); physGnd tells whether it stands on
+// something. The sprite shows the new place at the next sprUpdt.
+void physStep(int i,int mask) {
+	if(i<0||i>31) return;
+	int vx=physVx[i];
+	int vy=physVy[i]+physGrav;
+	if(vy>physFall) vy=physFall;
+	if(physDrag>0&&vx!=0) {
+		int d=abs(vx)*physDrag/16;
+		if(d<1) d=1;
+		if(vx>0) vx-=d;
+		else vx+=d;
+	}
+	if(vx>1600) vx=1600;
+	if(vx<-1600) vx=-1600;
+	if(vy>1600) vy=1600;
+	if(vy<-1600) vy=-1600;
+	int cx=physX[i]/16;
+	int cy=physY[i]/16;
+	int nx=physX[i]+vx;
+	if(nx<0) nx=0;
+	int tx=nx/16;
+	int sx=1;
+	if(tx<cx) sx=-1;
+	bool hit=false;
+	while(cx!=tx&&!hit) {
+		if(physBlocked(cx+sx,cy,mask)) hit=true;
+		else cx+=sx;
+	}
+	if(hit) {
+		physX[i]=cx*16;
+		vx=physRebound(vx);
+	} else physX[i]=nx;
+	int ny=physY[i]+vy;
+	if(ny<0) ny=0;
+	int ty=ny/16;
+	int sy=1;
+	if(ty<cy) sy=-1;
+	hit=false;
+	while(cy!=ty&&!hit) {
+		if(physBlocked(cx,cy+sy,mask)) hit=true;
+		else cy+=sy;
+	}
+	if(hit) {
+		physY[i]=cy*16;
+		vy=physRebound(vy);
+	} else physY[i]=ny;
+	physGnd[i]=vy>=0&&physBlocked(cx,cy+1,mask);
+	if(physGnd[i]) {
+		vy=physRebound(vy);                          // it may have arrived on the very pixel of the ground: that is a hit too
+		physY[i]=cy*16;
+		if(vy<0) physGnd[i]=false;
+	}
+	physVx[i]=vx;
+	physVy[i]=vy;
+	sprPos((byte)i,cx,cy);
+}
+
+// a jump of speed v when the body stands on something (88 is 38 pixels high at the default gravity); true when it jumped
+bool physJump(int i,int v) {
+	if(i<0||i>31) return false;
+	if(!physGnd[i]) return false;
+	physVy[i]=-v;
+	physGnd[i]=false;
+	return true;
+}
+
+// does the body overlap a cell of the layers in 'mask' (coins, spikes, a ladder)?
+bool physTouch(int i,int mask) {
+	if(i<0||i>31) return false;
+	return layBox(physX[i]/16,physY[i]/16,physOx,physOy,physW,physH,mask);
+}
+
+// ---- M8LIB: ent - entNew/entKill/entStep/entTouch/entClear/entCount: shots and enemies as a pool of sprites, each with a speed
+int entX[32];
+int entY[32];
+int entDx[32];
+int entDy[32];
+bool entOn[32];
+
+// every range below is kept inside the 32 sprites (the machine does not check array indexes)
+// a new thing in the first free sprite of first..first+n-1: image, position, speed; the sprite number, or -1 when the pool is full
+int entNew(int first,int n,int ref,int x,int y,int dx,int dy) {
+	int a=first;
+	int b=first+n;
+	if(a<0) a=0;
+	if(b>32) b=32;
+	for(int i=a;i<b;i++) {
+		if(!entOn[i]) {
+			entOn[i]=true;
+			entX[i]=x;
+			entY[i]=y;
+			entDx[i]=dx;
+			entDy[i]=dy;
+			sprRef((byte)i,(byte)ref);
+			sprPos((byte)i,x,y);
+			return i;
+		}
+	}
+	return -1;
+}
+
+// the sprite goes to 0,0, where a hidden sprite waits (its box then touches the other hidden ones: test live things only)
+void entKill(int i) {
+	if(i<0||i>31) return;
+	entOn[i]=false;
+	sprPos((byte)i,0,0);
+}
+
+void entClear(int first,int n) {
+	int a=first;
+	int b=first+n;
+	if(a<0) a=0;
+	if(b>32) b=32;
+	for(int i=a;i<b;i++) entKill(i);
+}
+
+// every live thing of the range moves by its speed (shown at the next sprUpdt)
+void entStep(int first,int n) {
+	int a=first;
+	int b=first+n;
+	if(a<0) a=0;
+	if(b>32) b=32;
+	for(int i=a;i<b;i++) {
+		if(entOn[i]) {
+			entX[i]+=entDx[i];
+			entY[i]+=entDy[i];
+			sprPos((byte)i,entX[i],entY[i]);
+		}
+	}
+}
+
+// the first live thing of the range that touches sprite a (isSprSpr: the picture of the last sprUpdt), or -1
+int entTouch(int a,int first,int n) {
+	if(a<0||a>31) return -1;
+	int lo=first;
+	int hi=first+n;
+	if(lo<0) lo=0;
+	if(hi>32) hi=32;
+	for(int i=lo;i<hi;i++) {
+		if(entOn[i]&&isSprSpr((byte)a,(byte)i)) return i;
+	}
+	return -1;
+}
+
+int entCount(int first,int n) {
+	int k=0;
+	int a=first;
+	int b=first+n;
+	if(a<0) a=0;
+	if(b>32) b=32;
+	for(int i=a;i<b;i++) {
+		if(entOn[i]) k++;
+	}
+	return k;
+}
+//@entities begin GRAVITY.ENT
+// Entities: made by Micro-8 Studio from GRAVITY.ENT. Change the table and generate again: this part is rewritten each time.
+int entFrame=0;
+
+// ---- drone: sprites 1 to 4, walker
+int droneHp[4];
+
+// a new drone in the first free sprite; dx, dy are -1, 0 or 1 for the kinds that move; the sprite number, or -1 when all are used
+int droneSpawn(int x,int y,int dx,int dy) {
+	int i=entNew(1,4,4,x,y,dx*2,dy*2);
+	if(i>=0) {
+		droneHp[i-1]=1;
+	}
+	return i;
+}
+
+void droneClear() {
+	entClear(1,4);
+}
+
+int droneCount() {
+	return entCount(1,4);
+}
+
+// the first live drone that touches sprite s, or -1
+int droneTouch(int s) {
+	return entTouch(s,1,4);
+}
+
+// one hit: true when it was the last one and the drone is gone
+bool droneHit(int i) {
+	if(i<1||i>=5||!entOn[i]) return false;
+	droneHp[i-1]--;
+	if(droneHp[i-1]>0) return false;
+	entKill(i);
+	return true;
+}
+
+void droneUpdate() {
+	for(int i=1;i<5;i++) {
+		if(entOn[i]) {
+			int nx=entX[i]+entDx[i];
+			int ny=entY[i]+entDy[i];
+			if(layBox(nx,ny,12,10,24,24,65)) {
+				entDx[i]=-entDx[i];
+				entDy[i]=-entDy[i];
+			} else {
+				entX[i]=nx;
+				entY[i]=ny;
+			}
+			sprRef((byte)i,(byte)(4+((entFrame/8)%2)));
+			sprPos((byte)i,entX[i],entY[i]);
+		}
+	}
+}
+
+// call once a frame, before sprUpdt(): every kind moves, turns, animates
+void entitiesUpdate() {
+	if(entFrame<32000) entFrame++;
+	else entFrame=0;
+	droneUpdate();
+}
+
+// call at the start of a game: every entity is removed
+void entitiesClear() {
+	droneClear();
+}
+
+// every entity that has a layer to be placed on is placed (after layLoad)
+void entitiesPlace() {
+}
+//@entities end
+
+// ---- M8LIB: hud - hudFill/hudPrint: text with its colour (print paints black on nothing): colour = background*16+letters
+// cells outside the 80 x 40 text screen are left alone
+void hudFill(int col,int row,int n,byte color) {
+	if(col<0||col>79||row<0||row>39||n<1) return;
+	int w=n;
+	if(col+w>80) w=80-col;
+	nat a=(nat)row*80+(nat)col;
+	memSet(0x1200+a,(nat)w,' ');
+	memSet(0x1E80+a,(nat)w,color);
+}
+
+void hudPrint(int col,int row,byte color,text msg) {
+	if(col<0||col>79||row<0||row>39) return;
+	curPos((byte)col,(byte)row);
+	print(msg);
+	int n=_curX;
+	n=n-col;
+	if(n>0) memSet(0x1E80+(nat)row*80+(nat)col,(nat)n,color);
+}
+
+// ---- M8LIB: sfx - sfxPlay/sfxTick: a short sound on FM voice 5, which a song of fewer than 6 tracks leaves alone
+byte sfxVoice=5;
+int sfxLeft=0;
+
+void sfxPlay(int note,int frames) {
+	ymVoice(sfxVoice,1,5,3,110);
+	ymNoteOn(sfxVoice,(byte)note,127);
+	sfxLeft=frames;
+}
+
+void sfxTick() {
+	if(sfxLeft>0) {
+		sfxLeft--;
+		if(sfxLeft==0) ymNoteOff(sfxVoice);
+	}
+}
+
+// the states of the game
+int TITLE=0;
+int PLAY=1;
+int CLEAR=2;
+int DEAD=3;
+int WIN=4;
+
+// the .LAY layers: 0 solid, 1 cell, 2 spikes, 3 exit, 4 start, 5 spring, 6 turn (a drone turns round), 7 drone (where one starts)
+byte level[379];                 // a room: 4 header bytes, then 25x15 tile numbers
+text lvName[7]={"GRAVITY1.LVL","GRAVITY2.LVL","GRAVITY3.LVL","GRAVITY4.LVL","GRAVITY5.LVL","GRAVITY6.LVL","GRAVITY7.LVL"};
+text layName[7]={"GRAVITY1.LAY","GRAVITY2.LAY","GRAVITY3.LAY","GRAVITY4.LAY","GRAVITY5.LAY","GRAVITY6.LAY","GRAVITY7.LAY"};
+text wName[5]={"EARTH","MOON","HEAVY","ICE","SPACE"};
+// the five worlds: gravity, drag, the speed of a jump, how hard the arrows push, the top speed
+int wGrav[5]={6,2,14,6,0};
+int wDrag[5]={2,1,6,0,3};
+int wJump[5]={88,88,140,88,0};
+int wAcc[5]={6,6,10,8,5};
+int wMax[5]={40,40,26,64,32};
+byte lvWorld[7]={0,1,2,3,0,0,4};   // the world each room starts in (room 6 changes it every six seconds)
+
+int lv;                          // the room, from 0
+int world;
+int deaths;
+int cells;                       // energy cells still to take
+int cellsAll;
+int cellX[8];                    // the centre of each cell, in screen pixels
+int cellY[8];
+bool cellOn[8];
+int startX;
+int startY;
+int stormT;
+bool faceLeft;
+byte frame;
+
+void setup() {
+	loadPal("GRAVITY.PAL",0x1170);                 // tiles palette
+	loadPal("GRAVITY.PLA",0x11D0);                 // sprites palette A
+	loadTiles("GRAVITY.TLS",0);
+	loadSprites("GRAVITY.SPR",0);
+}
+
+void setWorld() {
+	physGrav=wGrav[world];
+	physDrag=wDrag[world];
+	physBounce=0;
+}
+
+void showHud() {
+	hudFill(0,0,80,0x12);
+	curPos(2,0);
+	print("LEVEL ",lv+1,"/7  ",wName[world],"  GRAVITY ",physGrav);
+	curPos(44,0);
+	print("CELLS ",cellsAll-cells,"/",cellsAll);
+	curPos(62,0);
+	print("DEATHS ",deaths,"   ");
+	memSet(0x1E80,80,0x12);
+}
+
+void hideSprites() {
+	for(int i=0;i<32;i++) {
+		sprPos((byte)i,0,0);
+		sprPal((byte)i,0);
+		sprPrio((byte)i,0);
+	}
+}
+
+// the drones of a room: one on each cell of layer 7, flying to the right until a wall or a turn cell (layer 6) sends them back
+void placeDrones() {
+	droneClear();
+	for(int k=0;k<4;k++) {
+		int c=layFind(128,k);
+		if(c>=0) droneSpawn(layX(c),layY(c),1,0);
+	}
+}
+
+// the robot goes back to the start of the room, whole, and the drones to theirs
+void spawn() {
+	physPlace(0,startX,startY);
+	sprRef(0,0);
+	faceLeft=false;
+	placeDrones();
+}
+
+// the exit opens when the last cell is taken: its tile changes
+void openExit() {
+	int c=layFind(8,0);
+	if(c>=0) {
+		nat a=0x2B00+(nat)((c/25)*32+c%25);
+		poke(a,6);
+	}
+	sfxPlay(88,12);
+}
+
+void startRoom() {
+	loadLevel(lvName[lv],&level,379);
+	layLoad(layName[lv]);
+	areaCpy(&level+4,25,0,0,25,15,0x2B00,32,0,0);   // the room into the tile buffer the screen shows
+	poke(0x2F00,0b00011100);                       // text, tiles and sprites on, bitmap off
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x02);
+	hideSprites();
+	world=lvWorld[lv];
+	setWorld();
+	cellsAll=layCount(2);
+	cells=cellsAll;
+	for(int i=0;i<8;i++) cellOn[i]=false;
+	for(int i=0;i<cellsAll&&i<8;i++) {
+		int c=layFind(2,i);
+		cellX[i]=(c%25)*32+16;
+		cellY[i]=(c/25)*32+16;
+		cellOn[i]=true;
+	}
+	int s=layFind(16,0);
+	startX=layX(s);
+	startY=layY(s);
+	stormT=360;
+	spawn();
+	showHud();
+	hudPrint(2,38,0x12,"ARROWS WALK OR FLY   Z JUMP   ESC QUIT");
+}
+
+void showTitle() {
+	hideSprites();
+	memSet(0x2B00,512,0);
+	loadPal("GRAVITYB.PAL",0x11A0);                // the palette of the bitmap
+	loadBitmap("GRAVITY.BMP");                    // the word GRAVITY, in the flame font, over stars
+	loadScreen("GRAVITY.SCR");                    // the text over it
+	poke(0x2F00,0b00010001);                       // text and bitmap on, tiles and sprites off
+}
+
+void showWin() {
+	hideSprites();
+	memSet(0x2B00,512,0);
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x02);
+	loadPal("GRAVITYB.PAL",0x11A0);
+	loadBitmap("GRAVITYW.BMP");                   // YOU DID IT, in the flame font
+	poke(0x2F00,0b00010101);                       // text, sprites and bitmap on
+	hudPrint(24,19,0x1B,"ALL SEVEN WORLDS CROSSED");
+	hudPrint(23,22,0x12,"THE SHIP IS REPAIRED, THANKS TO YOU");
+	curPos(33,25);
+	print("DEATHS ",deaths,"  ");
+	memSet(0x1E80+25*80+33,12,0x1C);
+	hudPrint(31,29,0x17,"ENTER: PLAY AGAIN");
+	sprRef(0,2);
+	sprPos(0,376,440);
+}
+
+// the arrows push, Z jumps, a spring throws the robot up, and the picture follows what the robot does
+void moveRobot() {
+	int vx=physVx[0];
+	if(padDown(0b01000000)) {
+		vx-=wAcc[world];
+		faceLeft=true;
+	}
+	if(padDown(0b10000000)) {
+		vx+=wAcc[world];
+		faceLeft=false;
+	}
+	if(vx>wMax[world]) vx=wMax[world];
+	if(vx<-wMax[world]) vx=-wMax[world];
+	physVx[0]=vx;
+	if(padHit(0b00010001)) {
+		if(physJump(0,wJump[world])) sfxPlay(70,3);
+	}
+	physStep(0,1);
+	if(physGnd[0]&&layBox(physX[0]/16,physY[0]/16+1,physOx,physOy,physW,physH,32)) {         // a spring under the feet
+		physVy[0]=-156;
+		physGnd[0]=false;
+		sfxPlay(76,6);
+	}
+	byte ref=0;
+	if(!physGnd[0]) ref=2;
+	else if(physVx[0]>8||physVx[0]<-8) ref=(byte)((frame>>2)&1);
+	sprRef(0,ref);
+	sprFlip(0,faceLeft,false);
+}
+
+// no gravity in space: the four arrows push, and the robot drifts to a stop (the library fades the sideways speed, the up and down is faded here)
+void flyRobot() {
+	int vx=physVx[0];
+	int vy=physVy[0];
+	if(padDown(0b01000000)) {
+		vx-=wAcc[world];
+		faceLeft=true;
+	}
+	if(padDown(0b10000000)) {
+		vx+=wAcc[world];
+		faceLeft=false;
+	}
+	if(padDown(0b00010000)) vy-=wAcc[world];
+	if(padDown(0b00100000)) vy+=wAcc[world];
+	if(vy!=0) {
+		int d=abs(vy)*wDrag[world]/16;
+		if(d<1) d=1;
+		if(vy>0) vy-=d;
+		else vy+=d;
+	}
+	if(vx>wMax[world]) vx=wMax[world];
+	if(vx<-wMax[world]) vx=-wMax[world];
+	if(vy>wMax[world]) vy=wMax[world];
+	if(vy<-wMax[world]) vy=-wMax[world];
+	physVx[0]=vx;
+	physVy[0]=vy;
+	physStep(0,1);
+	sprRef(0,2);
+	sprFlip(0,faceLeft,false);
+}
+
+// the cells the robot's middle is on
+void collect() {
+	int rx=physX[0]/16-48+24;
+	int ry=physY[0]/16-42+22;
+	for(int i=0;i<cellsAll&&i<8;i++) {
+		if(cellOn[i]&&abs(rx-cellX[i])<24&&abs(ry-cellY[i])<24) {
+			cellOn[i]=false;
+			cells--;
+			nat a=0x2B00+(nat)((cellY[i]/32)*32+cellX[i]/32);
+			poke(a,0);
+			sfxPlay(84,4);
+			showHud();
+			if(cells==0) openExit();
+		}
+	}
+}
+
+// spikes fill the lower half of their cell: the feet must be down there
+bool onSpikes() {
+	int fy=physY[0]/16-42+physOy+physH-1;
+	int x0=physX[0]/16-48+physOx+4;
+	int x1=x0+physW-9;
+	if(fy%32<16) return false;
+	return (layCell(x0/32,fy/32)&4)!=0||(layCell(x1/32,fy/32)&4)!=0;
+}
+
+void die() {
+	deaths++;
+	sfxPlay(36,22);
+	sprRef(0,3);
+	physVx[0]=0;
+	physVy[0]=0;
+	stGo(DEAD);
+	showHud();
+}
+
+// a drone destroyed from above (the robot bounces off it); anywhere else it hits
+void droneContact() {
+	int d=droneTouch(0);
+	if(d<0) return;
+	if(physVy[0]>0&&physY[0]/16+34<entY[d]+24) {
+		droneHit(d);
+		physVy[0]=-90;
+		physGnd[0]=false;
+		sfxPlay(92,6);
+	} else die();
+}
+
+void roomDone() {
+	stGo(CLEAR);
+	hudPrint(29,19,0x1C,"  ROOM COMPLETE  ");
+	sfxPlay(96,14);
+}
+
+// in room 6 the world changes every six seconds
+void storm() {
+	stormT--;
+	if(stormT<=0) {
+		world=(world+1)%4;
+		setWorld();
+		stormT=360;
+		showHud();
+		sfxPlay(40,10);
+	}
+}
+
+void play() {
+	if(lv==5) storm();
+	if(world==4) flyRobot();
+	else moveRobot();
+	collect();
+	entitiesUpdate();
+	droneContact();
+	if(stIs(DEAD)) return;
+	if(onSpikes()) die();
+	else if(cells==0&&physTouch(0,8)) roomDone();
+}
+
+void nextRoom() {
+	lv++;
+	if(lv>=7) {
+		stGo(WIN);
+		showWin();
+	} else {
+		startRoom();
+		stGo(PLAY);
+	}
+}
+
+void newGame() {
+	lv=0;
+	deaths=0;
+	startRoom();
+	stGo(PLAY);
+}
+
+setup();
+physBox(12,10,24,24);                            // the box that hits walls: the 12 x 12 pixels of the middle of a sprite
+songLoad("GRAVITY");                              // GRAVITY.M8S: the name without its extension
+songStart();
+stGo(TITLE);
+showTitle();
+while(_keyDwn!=12) {                             // until ESC
+	padRead();
+	songTick();
+	sfxTick();
+	stTick();
+	if(stIs(PLAY)) play();
+	else if(stIs(CLEAR)) {
+		if(stAge>90) nextRoom();
+	} else if(stIs(DEAD)) {
+		if(stAge>40) {
+			spawn();
+			stGo(PLAY);
+		}
+	} else {                                     // the title and the end: Enter
+		if(padHit(0b00001101)) {
+			if(stIs(WIN)) {
+				stGo(TITLE);
+				showTitle();
+			} else newGame();
+		}
+	}
+	vSync();
+	sprUpdt();
+	frame++;
+}
+songStop();
+ymNoteOff(5);                                    // leave the machine as it was found
+poke(0x2F00,0b00010001);
+memSet(0x1200,3200,' ');
+memSet(0x1E80,3200,0x12);
+curPos(0,0);
