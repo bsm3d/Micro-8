@@ -7,6 +7,18 @@ analyzer for the Lofi language, debugger (breakpoints, step), hardware-accurate 
 digital synth, tiles, sprites, raster, mouse, gamepad, MIDI), and dedicated tools (music tracker, sprite / tile /
 screen / sound / image editors).
 
+Studio is made for the Micro-8 first, and it also serves other retro game projects, so that one program replaces
+several tools:
+
+- the **sprite editor** exports a PNG sheet with transparency and its JSON atlas (the TexturePacker and Aseprite
+  format), the same sheet cut into sprites for Unity (`.png` + `.png.meta`), or a C header;
+- the **tile map editor** exports the map as text, CSV, JSON for the Tiled editor (with the tiles as a PNG sheet) or a
+  C header, and reads text, CSV and Tiled maps back;
+- the **tracker** exports a song as WAV, MP3, WAV stems (one file a track) or MIDI (the MP3 needs an `ffmpeg.exe`
+  beside Studio or on the PATH);
+- the **code editor** also opens Python, C, C++, assembly, JSON and text files, with their own colours;
+- the **Assets panel** lists every file a program or a project uses and opens each one in its editor.
+
 This repository distributes the **compiled** application.
 
 ## Download
@@ -29,8 +41,8 @@ No Python installation or other dependency is needed: everything is included.
 ### SHA-256 checksums
 
 ```
-52c3dc6a77dfa98646c66cdb74f84f2601fd3677566d5dc106697bcda028cbd0  Micro8Studio-1.3.0-win64-portable.zip
-7876e8cd426af294bfe9d6428899061d7d4df88d894c80fcb2f975a930dbebb3  Micro8Studio-1.3.0-Setup.exe
+6ea0855ee42fe9cc8676133d1c7820d854469d6c75aabaf16dd983b8f66f7919  Micro8Studio-1.3.0-win64-portable.zip
+85c6d78be3ac8cd8ecb6f1bde8492b15c979ab2f6d8865d4f03e6bf40e053328  Micro8Studio-1.3.0-Setup.exe
 ```
 
 ## Documentation
