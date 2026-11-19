@@ -1,4 +1,4 @@
-// PLINKO - balls fall through pegs into bins, in four worlds
+// PLINKO - a musical toy: balls fall on white pegs, every peg plays a note and lights up
 // Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
 // Demo 1.0 for Micro-8 OS 0.9
 
@@ -284,35 +284,28 @@ void hudPrint(int col,int row,byte color,text msg) {
 	if(n>0) memSet(0x1E80+(nat)row*80+(nat)col,(nat)n,color);
 }
 
-// ---- M8LIB: sfx - sfxPlay/sfxTick: a short sound on FM voice 5, which a song of fewer than 6 tracks leaves alone
-byte sfxVoice=5;
-int sfxLeft=0;
-
-void sfxPlay(int note,int frames) {
-	ymVoice(sfxVoice,1,5,3,110);
-	ymNoteOn(sfxVoice,(byte)note,127);
-	sfxLeft=frames;
-}
-
-void sfxTick() {
-	if(sfxLeft>0) {
-		sfxLeft--;
-		if(sfxLeft==0) ymNoteOff(sfxVoice);
-	}
-}
-
-// the tiles: 0 empty, 1 peg, 2 wall, 3 divider, 4 floor. Layer 0 of PLINKO.LAY is every cell a ball cannot enter.
+// the tiles: 0 empty, 1 white peg, 2 wall, 3 divider, 4 floor, 5 to 16 a lit peg: 5 + colour * 3 + (brightness - 1).
+// Layer 0 of PLINKO.LAY is every cell a ball cannot enter. The four rows of pegs are four colours (blue, red, yellow, green) and four voices.
 byte level[379];
 text wName[4]={"EARTH","RUBBER","MOON","SAND"};
 // a world is three numbers: gravity, how much of its speed a ball keeps in a bounce (out of 16), and how much it is slowed sideways
 int wGrav[4]={6,6,2,6};
 int wBounce[4]={9,15,12,3};
 int wDrag[4]={0,0,0,6};
+// and a scale of five notes (semitones above the root): major pentatonic, lydian, whole tone, minor pentatonic
+int scale[20]={0,2,4,7,9, 0,2,4,6,7, 0,2,4,6,8, 0,3,5,7,10};
 int binPts[11]={100,50,20,10,5,2,5,10,20,50,100};
 int tally[11];
+// the six FM voices: bell, marimba, pick, bell (the four rows), a bass for the bins, a lead for the scale heard on Tab
+int vIns[6]={0,1,2,0,3,4};
+int vOct[6]={5,5,5,5,5,5};      // octave 5 plays a note at its own pitch (note 60 is middle C)
 int MAXB=8;                      // how many balls at once: each costs 2 ms a frame, and 8 keep the demo at 30 frames a second
 bool ballOn[17];                 // the balls are the sprites 1 to MAXB, the dropper is sprite 31
 int ballAge[17];                 // frames spent down in a bin
+int actCell[32];                 // the lit pegs: where (row * 32 + column), brightness 1 to 3 (0 is free), frames until it dims
+int actLvl[32];
+int actT[32];
+int actHue[32];
 byte savedTiles[48];
 byte savedSprites[48];
 byte savedBack[3];
@@ -321,6 +314,9 @@ int world;
 int balls;
 int dropX;                       // where the dropper is, in sprite position units
 int rainT;
+int bassT;                       // frames until the bass note of a bin is released
+int arpI;                        // the next note of the scale played after Tab (5 when done)
+int arpT;
 
 void setup() {
 	memCpy(0x1170,&savedTiles,48);                // memCpy(source, destination, size)
@@ -350,6 +346,13 @@ void setup() {
 	physBox(12,10,24,24);          // the 12 x 12 pixels of the middle of a sprite
 	sprRef(31,2);
 	dropX=424;
+	ymInit(0);
+	ymLoad("BELL01.INS",0);        // the instruments sit beside the program
+	ymLoad("MARIMBA.INS",1);
+	ymLoad("PICK01.INS",2);
+	ymLoad("BASS01.INS",3);
+	ymLoad("LEAD02.INS",4);
+	arpI=5;
 }
 
 void setWorld() {
@@ -364,7 +367,7 @@ void showHud() {
 	curPos(2,0);
 	print("PLINKO  ",wName[world],"   GRAVITY ",physGrav,"  BOUNCE ",physBounce,"  DRAG ",physDrag,"   BALLS ",balls,"  SCORE ",score,"   ");
 	memSet(0x1E80,80,0x12);
-	hudPrint(2,1,0x1D,"ARROWS MOVE   Z DROP   X RAIN   TAB WORLD   ENTER CLEAR   ESC QUIT");
+	hudPrint(2,1,0x1F,"ARROWS MOVE   Z DROP   X RAIN   TAB WORLD   ENTER CLEAR   ESC QUIT");
 }
 
 // a number in a bin: the column of the text that centres it under the bin of cell column c
@@ -376,7 +379,88 @@ void binText(int k,int row,int n,byte color) {
 }
 
 void showBins() {
-	for(int k=0;k<11;k++) binText(k,39,tally[k],0x1D);
+	for(int k=0;k<11;k++) binText(k,39,tally[k],0x12);
+}
+
+// a note of a voice, on the left, in the middle or on the right of the stereo field according to the column
+void play(int v,int note,int vel,int col) {
+	int pan=3;
+	if(col<8) pan=2;
+	if(col>16) pan=1;
+	ymVoice((byte)v,(byte)vIns[v],(byte)vOct[v],(byte)pan,110);
+	ymNoteOn((byte)v,(byte)note,(byte)vel);
+}
+
+// a peg lights up in its colour (3 is the brightest) and dims by itself
+void lightPeg(int cell,int hue,int lvl) {
+	int f=-1;
+	for(int a=0;a<32;a++) {
+		if(actLvl[a]>0&&actCell[a]==cell) f=a;
+	}
+	if(f<0) {
+		for(int a=31;a>=0;a--) {
+			if(actLvl[a]==0) f=a;
+		}
+	}
+	if(f<0) return;
+	if(actLvl[f]>lvl) lvl=actLvl[f];
+	actCell[f]=cell;
+	actHue[f]=hue;
+	actLvl[f]=lvl;
+	actT[f]=9;
+	poke(0x2B00+(nat)cell,(byte)(5+hue*3+lvl-1));
+}
+
+void fadePegs() {
+	for(int a=0;a<32;a++) {
+		if(actLvl[a]>0) {
+			actT[a]--;
+			if(actT[a]<=0) {
+				actLvl[a]--;
+				actT[a]=9;
+				if(actLvl[a]==0) poke(0x2B00+(nat)actCell[a],1);
+				else poke(0x2B00+(nat)actCell[a],(byte)(5+actHue[a]*3+actLvl[a]-1));
+			}
+		}
+	}
+}
+
+// the cell of the peg under the ball that has just landed on it, or -1
+int pegUnder(int i) {
+	int px=physX[i]/16;
+	int py=physY[i]/16;
+	int r=(py-8)/32;
+	int c1=(px-36)/32;
+	int c2=(px-13)/32;
+	if(r<0||r>14||c1<0||c2>24) return -1;
+	int t=peek(0x2B00+(nat)(r*32+c1));
+	if(t==1||(t>=5&&t<=16)) return r*32+c1;
+	t=peek(0x2B00+(nat)(r*32+c2));
+	if(t==1||(t>=5&&t<=16)) return r*32+c2;
+	return -1;
+}
+
+// a ball on a peg: the peg lights up, brighter and louder the harder the hit, and plays the note of its column in the scale of the world,
+// on the voice of its row
+void hitPeg(int i,int vy) {
+	int cell=pegUnder(i);
+	if(cell<0) return;
+	int r=cell/32;
+	int c=cell%32;
+	int hue=(r-3)/2;
+	if(hue<0) hue=0;
+	if(hue>3) hue=3;
+	int lvl=1+(vy-20)/20;
+	if(lvl<1) lvl=1;
+	if(lvl>3) lvl=3;
+	int d=(c-2)/2;
+	if(d<0) d=0;
+	if(d>10) d=10;
+	int note=48+12*(d/5)+scale[world*5+d%5];
+	int vel=40+vy;
+	if(vel>127) vel=127;
+	lightPeg(cell,hue,lvl);
+	play(hue,note,vel,c);
 }
 
 void dropBall(int x,int ref) {
@@ -406,7 +490,7 @@ void clearAll() {
 	showBins();
 }
 
-// a ball is counted when it has been down in a bin for two seconds; its bin is the column it is over
+// a ball is counted when it has been down in a bin for two seconds; its bin is the column it is over, and plays a bass note
 void landBall(int i) {
 	int c=(physX[i]/16-24)/32;
 	int k=(c-1)/2;
@@ -417,16 +501,18 @@ void landBall(int i) {
 	ballOn[i]=false;
 	sprPos((byte)i,0,0);
 	balls--;
-	sfxPlay(60+binPts[k]/4,8);
+	play(4,36+12*(k/5)+scale[world*5+k%5],110,c);
+	bassT=40;
 	showHud();
 	showBins();
 }
 
-// one ball: the physics block moves it, then a ball that stands on a peg is pushed off it, and a bounce rings
+// one ball: the physics block moves it, a landing on a peg rings, and a ball that stands on a peg is pushed off it
 void stepBall(int i) {
 	int vy=physVy[i];
+	bool was=physGnd[i];
 	physStep(i,1);
-	if(physVy[i]<0&&vy>40&&physY[i]/16<400) sfxPlay(70+(i%5)*3,2);
+	if(physY[i]/16<400&&((physVy[i]<0&&vy>24)||(physGnd[i]&&!was&&vy>=16))) hitPeg(i,vy);
 	if(physGnd[i]&&physY[i]/16<400) {
 		if(rnd(0,1)==0) physVx[i]=-20;
 		else physVx[i]=20;
@@ -440,11 +526,10 @@ void stepBall(int i) {
 setup();
 setWorld();
 showHud();
-for(int k=0;k<11;k++) binText(k,38,binPts[k],0x12);
+for(int k=0;k<11;k++) binText(k,38,binPts[k],0x1F);
 showBins();
 while(_keyDwn!=12) {             // until ESC
 	padRead();
-	sfxTick();
 	if(padDown(0b01000000)&&dropX>72) dropX-=4;
 	if(padDown(0b10000000)&&dropX<776) dropX+=4;
 	if(padHit(0b00000001)) dropBall(dropX,0);
@@ -457,17 +542,31 @@ while(_keyDwn!=12) {             // until ESC
 		world=(world+1)%4;
 		setWorld();
 		showHud();
-		sfxPlay(48,6);
+		arpI=0;
+		arpT=0;
 	}
 	if(padHit(0b00000100)) clearAll();
+	if(arpI<5) {                 // the five notes of the new scale, one after the other
+		if(arpT<=0) {
+			play(5,60+scale[world*5+arpI],90,12);
+			arpI++;
+			arpT=5;
+		}
+		arpT--;
+	}
+	if(bassT>0) {
+		bassT--;
+		if(bassT==0) ymNoteOff(4);
+	}
 	for(int i=1;i<=MAXB;i++) {
 		if(ballOn[i]) stepBall(i);
 	}
+	fadePegs();
 	sprPos(31,dropX,60);
 	vSync();
 	sprUpdt();
 }
-ymNoteOff(5);                    // leave the machine as it was found
+for(int v=0;v<6;v++) ymNoteOff((byte)v);       // leave the machine as it was found
 for(int i=0;i<32;i++) sprPos((byte)i,0,0);
 sprUpdt();
 memSet(0x2B00,512,0);

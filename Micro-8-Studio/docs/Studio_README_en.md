@@ -2,7 +2,9 @@
 
 Micro-8 Studio is the desktop workshop for the Micro-8 console: a code editor that knows the Lofi language, an emulator
 with a debugger, and the editors for everything a program loads (sprites, tiles, maps, pictures, sounds, music, text
-screens). This manual has three parts:
+screens). It is made for the Micro-8 first, but its tools are not tied to one machine: the sprite, tile map and wave editors and
+the tracker also write the formats other tools read (PNG sheets with a JSON atlas, Tiled maps, C headers, WAV, MP3, MIDI) and the
+code editor opens Python, C and C++ files, so Studio serves other retro game projects too. This manual has three parts:
 
 - **Getting started** (chapters 1 to 4): install, a tour of the window, your first program, and the Lofi language in ten minutes.
 - **Tutorial** (chapter 5): a complete game, DUNGEON HUNT, built step by step with every editor, tested, and sent to the card.
@@ -61,7 +63,9 @@ Studio is made of four tools that share one window:
 - an **emulator** of the Micro-8 with a debugger (breakpoints, stepping, variables, memory, hardware registers);
 - **asset editors** equivalent to the SD card's own tools, plus a tracker and a wave editor: they read and write the real
   files byte for byte, so what you save here opens on the machine and back;
-- a **project** system that keeps a program and its files together, checks them, and sends them to a card or to the machine.
+- a **project** system that keeps a program and its files together, checks them, and sends them to a card or to the machine;
+- **exports for other machines and engines**: sprites as a PNG sheet with its atlas (§9.1), maps as text, CSV, Tiled JSON or C (§9.2),
+  music as WAV, MP3 or MIDI (§9.6), and a code editor that also colours Python, C, C++, assembly and JSON (§6).
 
 **Install.** Unzip the portable version anywhere (a drive, a USB stick) and run `Micro8Studio.exe`, nothing to install; the
 installer places the same files under Program Files or a folder of your choice. The folder holds `Examples\` (the
@@ -95,7 +99,8 @@ restart to apply), and a splash screen with real progress steps (`--no-splash` t
 - **The Micro-8 screen** (right): the emulated 800 x 480 display. `F5` runs the program in it. Click it once to give it
   the keyboard: arrows, `Z` and `X` (the A and B buttons), `Enter` (Start), `Tab` (Select) are the game pad.
 - **Left panels** (tabs at the bottom of the column): **Files** (the card as a tree: double-click opens a file in the
-  right editor, right-click makes a folder), **Outline** (the program's functions and variables), **Search**, **API**
+  right editor, right-click makes a folder), **Assets** (every file the program in front, or the open project, uses, grouped by
+  kind: §9.9), **Outline** (the program's functions and variables), **Search**, **API**
   (every function of the machine with its signature) and the **AI Assistant**.
 - **Bottom panels:** **Problems** (errors and warnings, click to jump), **Output** (messages of the program and of
   Studio), **Variables**, **Watch** and **Breakpoints** (the debugger), **Memory** (a hex dump), **Memory Map** (how much of the code,
@@ -1053,6 +1058,13 @@ You now know the whole path: **assets with the editors, a program that loads the
   model fitted on the SD card's own `.BIN` files, within 5%): shown in the memory map, with a warning past the
   32 KB code segment.
 
+- **Other languages**: the editor also opens `.txt`, `.md`, `.py`, `.c`, `.h`, `.cpp`, `.hpp`, `.cs`, `.js`, `.asm`, `.s`, `.json`
+  and any other text file. The extension decides: a `.SRC` is a Lofi program, the others get the colours of their language
+  (keywords, types, numbers, strings, line and block comments), a completion made of the keywords and of the words of the file,
+  `Ctrl+/` with the comment mark of the language, and none of Lofi's checks: nothing is underlined, the size limit does not
+  apply and `F5` runs the project's program, or nothing. Such a file keeps its encoding (UTF-8, with or without a byte order
+  mark, or Latin-1) and its line ends (CR LF or LF). The name of the language shows in the status bar.
+
 - **Bytes preserved**: a file is saved byte for byte (CR LF or LF line endings kept as they were). The Micro-8's
   own control codes inside text literals (newline 0x0D, colors…) show as control pictures (␍ ␐…); Edit > Insert
   Control Glyph inserts one.
@@ -1161,6 +1173,11 @@ the real SD-card files **byte for byte**.
 - Per-sprite undo, a palette editor (512 colors, palettes A and B).
 - An **AABB collision box** (fields, auto-fit), flips, color replace/swap.
 - An **animation preview** (range, frames per second), importing a PNG sheet, PNG export.
+- **Export for other tools** (the menu of the export button): the set as a **PNG sheet with transparency and its JSON atlas**
+  (`NAME.png` + `NAME.json`, the "frames" format of TexturePacker and Aseprite that the 2D engines and their importers read: the
+  place of every sprite, named `NAME_00`, `NAME_01`..., and its collision box), the same sheet **cut into sprites for Unity**
+  (`NAME.png` + `NAME.png.meta`: sprite mode Multiple, point filter, no compression; copy both files into the Assets folder), or a
+  **C header** (pixels, boxes, palettes). A pixel can be enlarged (1 to 16) in the sheet.
 
 ### 9.2. Tile / map editor
 
@@ -1172,6 +1189,11 @@ the real SD-card files **byte for byte**.
 - Map resizing, a 25×15 screen frame guide, grid, zoom.
 - Deleting a tile renumbers the map automatically.
 - Importing an image into tiles + a map (identical tiles merged), PNG export.
+- **Export the map for other tools** (the menu of the export button): **text** (`.txt`, one character a tile: `.` for tile 0, then
+  `1`-`9`, `A`-`Z`, `a`-`z`), **CSV** (`.csv`, the tile numbers), **JSON** (`.json`, the map format of the Tiled editor, with the tiles
+  written beside it as a PNG sheet `NAME_tiles.png`; the tile number is one more than in Studio, since 0 means no tile for Tiled,
+  and the layers that hold something are hidden layers of 0 and 1) or a **C header** (`.h`: map, layers, tiles and palette as
+  arrays). The import button reads a map back from text, CSV or JSON (Studio's own, or a map made with Tiled).
 - Formats: raw `.TLS` (+ `.PAL`) or the tile editor's own shape (a 48-byte palette in front); `.LVL` with a
   4-byte header (width, height) or raw (width is asked for, as with the TILES demo's 80×24 level).
 - **8 layers** over the map, like the machine's own MAPED (collision, paths, triggers: what a layer means is up to your
@@ -1257,7 +1279,8 @@ references; format described in the Tracker documentation): the Micro-8's built-
 they only *write notes*, so they are 100% compatible with the real machine.
 
 **Studio FX** (arp, retrigger, delay, cut, probability, YM LFO, swing, glide, track lengths): preview-only in
-Studio, can be turned off, playback on the machine stays the on-device tracker's own. MIDI, WAV and stems export.
+Studio, can be turned off, playback on the machine stays the on-device tracker's own. MIDI, WAV, MP3 and stems export (MP3 at 128 to 320 kbit/s; it needs an
+`ffmpeg.exe` beside Studio or on the PATH).
 `.EXT.json`: a sidecar file for pattern lengths and FX, not read by the machine.
 
 Tested byte-exact against the on-device trackers (the two versions of the on-device tracker, and the player): a
@@ -1370,6 +1393,11 @@ main program, the project's files, the open tabs, the current tab and the X1 set
   folder joins it (or **Add Current File to Project**). A new file is offered in the project folder by default.
   **Close Project** closes only the project's tabs.
 - **F5** with an asset editor in front runs the project's program.
+- **Assets panel** (left column): every file of the project, and every file its sources name, grouped by kind (code, sprites,
+  tiles and maps, pictures, palettes, sounds, music, data). A double click opens a file in the editor made for it. Without a
+  project the panel shows the files of the program in front: the names written in its source (`"HERO.SPR"`,
+  `songLoad("TUNE")`, `#include "game.h"`), their companions (the palettes of a sprite set, the layers and tiles of a map) and
+  the files that bear the program's name. A file the source names that is not on the disk is listed in red as missing.
 - **Check Project**: what the real machine would refuse (names that are not 8.3 for its FAT32, compile errors,
   code over the 32 KB segment, missing project files) and the files the program names in its strings that are
   not in the folder (only a note: the program may write them itself).

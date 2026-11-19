@@ -2,7 +2,10 @@
 
 Micro-8 Studio est l'atelier de bureau de la console Micro-8 : un éditeur de code qui connaît le langage Lofi, un émulateur
 avec débogueur, et les éditeurs de tout ce qu'un programme charge (sprites, tuiles, cartes, images, sons, musique, écrans
-de texte). Ce manuel comporte trois parties :
+de texte). Il est fait d'abord pour le Micro-8, mais ses outils ne sont pas liés à une seule machine : les éditeurs de sprites, de
+cartes de tuiles et de wave et le tracker écrivent aussi les formats que lisent les autres outils (planches PNG avec atlas JSON, cartes
+Tiled, en-têtes C, WAV, MP3, MIDI) et l'éditeur de code ouvre les fichiers Python, C et C++ : Studio sert donc aussi à d'autres
+projets de jeux rétro. Ce manuel comporte trois parties :
 
 - **Prise en main** (chapitres 1 à 4) : installation, visite de la fenêtre, premier programme, et le langage Lofi en dix minutes.
 - **Tutoriel** (chapitre 5) : un jeu complet, DUNGEON HUNT, construit pas à pas avec tous les éditeurs, testé, puis envoyé sur la carte.
@@ -62,7 +65,9 @@ Studio réunit quatre outils dans une seule fenêtre :
 - un **émulateur** du Micro-8 avec débogueur (points d'arrêt, pas à pas, variables, mémoire, registres matériels) ;
 - des **éditeurs d'assets** équivalents aux outils de la carte SD, plus un tracker et un éditeur de wave : ils lisent et écrivent
   les vrais fichiers octet pour octet, donc ce que vous enregistrez ici s'ouvre sur la machine, et inversement ;
-- un système de **projets** qui garde un programme et ses fichiers ensemble, les vérifie, et les envoie sur une carte ou vers la machine.
+- un système de **projets** qui garde un programme et ses fichiers ensemble, les vérifie, et les envoie sur une carte ou vers la machine ;
+- des **exports pour d'autres machines et moteurs** : les sprites en planche PNG avec son atlas (§9.1), les cartes en texte, CSV, JSON
+  Tiled ou C (§9.2), la musique en WAV, MP3 ou MIDI (§9.6), et un éditeur de code qui colore aussi Python, C, C++, l'assembleur et JSON (§6).
 
 **Installation.** Décompressez la version portable n'importe où (disque, clé USB) et lancez `Micro8Studio.exe`, sans rien installer ;
 l'installeur place les mêmes fichiers dans Program Files ou le dossier de votre choix. Le dossier contient `Examples\` (le
@@ -96,7 +101,8 @@ l'appliquer), et un écran de démarrage à étapes réelles (`--no-splash` pour
 - **L'écran Micro-8** (à droite) : l'affichage émulé de 800 x 480. `F5` y exécute le programme. Cliquez-le une fois pour lui donner le
   clavier : flèches, `Z` et `X` (les boutons A et B), `Enter` (Start), `Tab` (Select) forment la manette.
 - **Panneaux de gauche** (onglets en bas de la colonne) : **Files** (la carte en arbre : un double clic ouvre un fichier dans le bon
-  éditeur, un clic droit crée un dossier), **Outline** (les fonctions et variables du programme), **Search**, **API** (chaque fonction
+  éditeur, un clic droit crée un dossier), **Assets** (tous les fichiers qu'utilise le programme au premier plan, ou le projet ouvert,
+  groupés par genre : §9.9), **Outline** (les fonctions et variables du programme), **Search**, **API** (chaque fonction
   de la machine avec sa signature) et l'**AI Assistant**.
 - **Panneaux du bas :** **Problems** (erreurs et avertissements, un clic y mène), **Output** (messages du programme et de Studio),
   **Variables**, **Watch** et **Breakpoints** (le débogueur), **Memory** (un dump hexadécimal), **Memory Map** (ce que le programme
@@ -1047,6 +1053,13 @@ Vous connaissez maintenant tout le chemin : **des assets avec les éditeurs, un 
   `int`) et estime la taille du bytecode (modèle ajusté sur les `.BIN` de la carte SD, à 5 % près) : affichée
   dans la carte mémoire, avec un avertissement au-delà des 32 Ko du segment de code.
 
+- **Autres langages** : l'éditeur ouvre aussi les `.txt`, `.md`, `.py`, `.c`, `.h`, `.cpp`, `.hpp`, `.cs`, `.js`, `.asm`, `.s`, `.json`
+  et tout autre fichier texte. L'extension décide : un `.SRC` est un programme Lofi, les autres reçoivent les couleurs de leur langage
+  (mots-clés, types, nombres, textes, commentaires de ligne et de bloc), une complétion faite des mots-clés et des mots du fichier,
+  `Ctrl+/` avec la marque de commentaire du langage, et aucune des vérifications de Lofi : rien n'est souligné, la limite de taille ne
+  s'applique pas et `F5` lance le programme du projet, ou rien. Un tel fichier garde son encodage (UTF-8, avec ou sans marque d'ordre
+  d'octets, ou Latin-1) et ses fins de ligne (CR LF ou LF). Le nom du langage s'affiche dans la barre d'état.
+
 - **Octets préservés** : un fichier est enregistré octet pour octet (fins de ligne CR LF ou LF conservées). Les
   codes de contrôle du Micro-8 dans les textes (nouvelle ligne 0x0D, couleurs…) s'affichent comme des « control
   pictures » (␍ ␐…) ; menu Edit > Insert Control Glyph pour en insérer.
@@ -1159,6 +1172,11 @@ tests).
 - Annulation par sprite, éditeur de palette (512 couleurs, palettes A et B).
 - **Boîte de collision AABB** (champs, ajustement automatique), retournements, remplacement / échange de couleurs.
 - **Aperçu d'animation** (plage, images par seconde), import d'une planche PNG, export PNG.
+- **Export pour d'autres outils** (le menu du bouton d'export) : le jeu en **planche PNG transparente avec son atlas JSON**
+  (`NOM.png` + `NOM.json`, le format « frames » de TexturePacker et d'Aseprite que lisent les moteurs 2D et leurs importeurs : la
+  place de chaque sprite, nommé `NOM_00`, `NOM_01`..., et sa boîte de collision), la même planche **découpée en sprites pour Unity**
+  (`NOM.png` + `NOM.png.meta` : mode Multiple, filtre point, sans compression ; copiez les deux fichiers dans le dossier Assets), ou un
+  **en-tête C** (pixels, boîtes, palettes). Un pixel peut être agrandi (1 à 16) dans la planche.
 
 ### 9.2. Tile / map editor
 
@@ -1170,6 +1188,12 @@ tests).
 - Redimensionnement de la carte, cadre d'écran 25×15, grille, zoom.
 - Supprimer une tuile renumérote la carte automatiquement.
 - Import d'une image en tuiles + carte (tuiles identiques fusionnées), export PNG.
+- **Export de la carte pour d'autres outils** (le menu du bouton d'export) : **texte** (`.txt`, un caractère par tuile : `.` pour la
+  tuile 0, puis `1`-`9`, `A`-`Z`, `a`-`z`), **CSV** (`.csv`, les numéros de tuile), **JSON** (`.json`, le format de carte de l'éditeur
+  Tiled, avec les tuiles écrites à côté en planche PNG `NOM_tiles.png` ; le numéro de tuile vaut un de plus que dans Studio, puisque
+  0 veut dire pas de tuile pour Tiled, et les couches qui contiennent quelque chose deviennent des couches cachées de 0 et de 1) ou
+  **en-tête C** (`.h` : carte, couches, tuiles et palette en tableaux). Le bouton d'import relit une carte depuis du texte, du CSV ou
+  du JSON (celui de Studio, ou une carte faite avec Tiled).
 - Formats : `.TLS` brut (+ `.PAL`) ou forme de l'éditeur de tuiles (palette de 48 octets devant) ; `.LVL` avec
   en-tête de 4 octets (largeur, hauteur) ou brut (largeur demandée, comme le niveau 80×24 de la démo TILES).
 - **8 calques** sur la carte, comme le MAPED de la machine (collisions, chemins, déclencheurs : le sens d'un calque
@@ -1263,7 +1287,7 @@ machine réelle.
 
 **Effets Studio** (arpège, retrigger, delay, cut, probabilité, LFO YM, swing, glide, longueurs de piste) :
 uniquement pour l'aperçu dans Studio, désactivables, la lecture sur machine reste celle du tracker embarqué. Export
-MIDI, WAV, pistes séparées (stems). `.EXT.json` : fichier annexe pour les longueurs de pattern et les effets, pas lu
+MIDI, WAV, MP3, pistes séparées (stems) ; le MP3, de 128 à 320 kbit/s, demande un `ffmpeg.exe` à côté de Studio ou dans le PATH. `.EXT.json` : fichier annexe pour les longueurs de pattern et les effets, pas lu
 par la machine.
 
 Testé octet pour octet contre les trackers embarqués (les deux versions et le lecteur) : un projet fait ici s'ouvre inchangé sur la machine réelle et inversement.
@@ -1377,6 +1401,12 @@ le programme principal, les fichiers du projet, les onglets ouverts, l'onglet co
   le dossier du projet y est ajouté (ou **Add Current File to Project**). Un nouveau fichier est proposé par défaut
   dans le dossier du projet. **Close Project** ferme seulement les onglets du projet.
 - **F5** avec un éditeur d'asset au premier plan lance le programme du projet.
+- **Panneau Assets** (colonne de gauche) : tous les fichiers du projet, et tous ceux que nomment ses sources, groupés par genre (code,
+  sprites, tuiles et cartes, images, palettes, sons, musique, données). Un double clic ouvre un fichier dans l'éditeur fait pour lui.
+  Sans projet, le panneau montre les fichiers du programme au premier plan : les noms écrits dans sa source (`"HERO.SPR"`,
+  `songLoad("TUNE")`, `#include "game.h"`), leurs compagnons (les palettes d'un jeu de sprites, les couches et les tuiles d'une carte)
+  et les fichiers qui portent le nom du programme. Un fichier que la source nomme et qui n'est pas sur le disque est listé en rouge,
+  comme manquant.
 - **Check Project** : ce que la vraie machine refuserait (noms non 8.3 de la FAT32, erreurs de compilation, code
   au-delà du segment de 32 Ko, fichiers du projet manquants) et les fichiers que le programme nomme dans ses textes
   mais qui ne sont pas dans le dossier (simple note : le programme peut les écrire lui-même).
