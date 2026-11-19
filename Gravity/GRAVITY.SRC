@@ -1,8 +1,8 @@
-// GRAVITY - seven worlds, one robot: collect the energy cells, then reach the exit
+// GRAVITY - twelve levels, five worlds, one robot: collect the energy cells, then reach the exit
 // Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
-// Game 1.1 for Micro-8 OS 0.9
+// Game 2.0 for Micro-8 OS 0.9
 
-// Arrows walk (and fly, in space), Z or Up jumps, Enter starts, Esc quits.
+// Arrows walk (and fly, in space), Z or Up jumps, Enter starts, Esc quits. Three lives. A jump from under a brick breaks it.
 
 // ---- M8LIB: pal - loadPal/savePal: a 48-byte .PAL (16 red, 16 green, 16 blue values 0-7) into or from a palette address
 bool loadPal(text f,nat pal) {
@@ -914,23 +914,43 @@ int PLAY=1;
 int CLEAR=2;
 int DEAD=3;
 int WIN=4;
+int INTRO=5;
+int OVER=6;
 
 // the .LAY layers: 0 solid, 1 cell, 2 spikes, 3 exit, 4 start, 5 spring, 6 turn (a drone turns round), 7 drone (where one starts)
+// the tiles of a room (.LVL): 0 sky, 1 star, 2 block, 3 cell, 4 spikes, 5 exit, 6 open exit, 7 spring, 8 brick, 9 hidden block (coin),
+// 10 used block, 11 coin, 12 heart, 13 teleporter, 14 where it lands, 15 box (coin), 16 box (heart), 17 brick with a cell, 18 hidden block (heart)
 byte level[379];                 // a room: 4 header bytes, then 25x15 tile numbers
-text lvName[7]={"GRAVITY1.LVL","GRAVITY2.LVL","GRAVITY3.LVL","GRAVITY4.LVL","GRAVITY5.LVL","GRAVITY6.LVL","GRAVITY7.LVL"};
-text layName[7]={"GRAVITY1.LAY","GRAVITY2.LAY","GRAVITY3.LAY","GRAVITY4.LAY","GRAVITY5.LAY","GRAVITY6.LAY","GRAVITY7.LAY"};
+text lvName[12]={"GRAVITY1.LVL","GRAVITY2.LVL","GRAVITY3.LVL","GRAVITY4.LVL","GRAVITY5.LVL","GRAVITY6.LVL",
+	"GRAVITY7.LVL","GRAVITY8.LVL","GRAVITY9.LVL","GRAVITY10.LVL","GRAVITY11.LVL","GRAVITY12.LVL"};
+text layName[12]={"GRAVITY1.LAY","GRAVITY2.LAY","GRAVITY3.LAY","GRAVITY4.LAY","GRAVITY5.LAY","GRAVITY6.LAY",
+	"GRAVITY7.LAY","GRAVITY8.LAY","GRAVITY9.LAY","GRAVITY10.LAY","GRAVITY11.LAY","GRAVITY12.LAY"};
 text wName[5]={"EARTH","MOON","HEAVY","ICE","SPACE"};
+// the pictures of the six places: behind the rooms (GRAVB) and on the screen shown before them (GRAVW), each with its palette
+text bgBmp[6]={"GRAVB1.BMP","GRAVB2.BMP","GRAVB3.BMP","GRAVB4.BMP","GRAVB5.BMP","GRAVB6.BMP"};
+text bgPal[6]={"GRAVB1.PAL","GRAVB2.PAL","GRAVB3.PAL","GRAVB4.PAL","GRAVB5.PAL","GRAVB6.PAL"};
+text scBmp[6]={"GRAVW1.BMP","GRAVW2.BMP","GRAVW3.BMP","GRAVW4.BMP","GRAVW5.BMP","GRAVW6.BMP"};
+text scPal[6]={"GRAVW1.PAL","GRAVW2.PAL","GRAVW3.PAL","GRAVW4.PAL","GRAVW5.PAL","GRAVW6.PAL"};
+// what the screen before a place says, and the column that centres it
+text zTag[6]={"NORMAL GRAVITY","LOW GRAVITY: JUMP HIGH","HEAVY GRAVITY: SLOW AND LOW","ICE: NOTHING STOPS YOU",
+	"THE WORLD CHANGES EVERY SIX SECONDS","NO GRAVITY: FLY, BEWARE OF THE DRONES"};
+byte zCol[6]={33,29,26,29,22,21};
 // the five worlds: gravity, drag, the speed of a jump, how hard the arrows push, the top speed
 int wGrav[5]={6,2,14,6,0};
 int wDrag[5]={2,1,6,0,3};
 int wJump[5]={88,88,140,88,0};
 int wAcc[5]={6,6,10,8,5};
 int wMax[5]={40,40,26,64,32};
-byte lvWorld[7]={0,1,2,3,0,0,4};   // the world each room starts in (room 6 changes it every six seconds)
+byte lvWorld[12]={0,0,0,1,1,2,2,3,3,0,4,4};   // the world each room starts in (room 10 changes it every six seconds)
+byte lvZone[12]={0,0,0,1,1,2,2,3,3,4,5,5};    // the place: EARTH, MOON, HEAVY, ICE, STORM, SPACE (a screen comes before the first room of each)
 
 int lv;                          // the room, from 0
 int world;
-int deaths;
+int lives;
+nat score;
+nat hi;                          // the high score, kept in GRAVITY.HI
+bool newHi;
+byte hiBuf[2];
 int cells;                       // energy cells still to take
 int cellsAll;
 int cellX[8];                    // the centre of each cell, in screen pixels
@@ -938,15 +958,25 @@ int cellY[8];
 bool cellOn[8];
 int startX;
 int startY;
+int destX;                       // where a teleporter sends the robot
+int destY;
 int stormT;
 bool faceLeft;
 byte frame;
+int dbX[4];                      // the four pieces of a brick that breaks
+int dbY[4];
+int dbVx[4];
+int dbVy[4];
+int dbT=0;
 
 void setup() {
 	loadPal("GRAVITY.PAL",0x1170);                 // tiles palette
 	loadPal("GRAVITY.PLA",0x11D0);                 // sprites palette A
 	loadTiles("GRAVITY.TLS",0);
 	loadSprites("GRAVITY.SPR",0);
+	hiBuf[0]=0;
+	hiBuf[1]=0;
+	if(loadLevel("GRAVITY.HI",&hiBuf,2)) hi=(nat)hiBuf[0]+(nat)hiBuf[1]*256;
 }
 
 void setWorld() {
@@ -958,12 +988,28 @@ void setWorld() {
 void showHud() {
 	hudFill(0,0,80,0x12);
 	curPos(2,0);
-	print("LEVEL ",lv+1,"/7  ",wName[world],"  GRAVITY ",physGrav);
-	curPos(44,0);
-	print("CELLS ",cellsAll-cells,"/",cellsAll);
-	curPos(62,0);
-	print("DEATHS ",deaths,"   ");
+	print("LEVEL ",lv+1,"/12  ",wName[world],"  CELLS ",cellsAll-cells,"/",cellsAll,"  LIVES ",lives,"  SCORE ",score,"  HI ",hi,"   ");
 	memSet(0x1E80,80,0x12);
+}
+
+// points, and the hud shows them
+void addScore(int n) {
+	score+=(nat)n;
+	showHud();
+}
+
+void addLife() {
+	if(lives<9) lives++;
+	sfxPlay(98,10);
+	showHud();
+}
+
+// a text, then a number, in yellow on black: the number of columns the text takes is the width of the colour
+void hudNum(int col,int row,text label,nat n) {
+	curPos((byte)col,(byte)row);
+	print(label,n,"  ");
+	int w=_curX-col;
+	if(w>0) memSet(0x1E80+(nat)row*80+(nat)col,(nat)w,0x1B);
 }
 
 void hideSprites() {
@@ -974,8 +1020,39 @@ void hideSprites() {
 	}
 }
 
-// the drones of a room: one on each cell of layer 7, flying to the right until a wall or a turn cell (layer 6) sends them back
-void placeDrones() {
+// the tile of a cell of the room (the walls round it count as blocks)
+int tileAt(int col,int row) {
+	if(col<0||row<0||col>=25||row>=15) return 2;
+	return level[4+row*25+col];
+}
+
+// a new tile in a cell: the room's memory and the screen (a hidden block shows nothing)
+void setTile(int col,int row,int t) {
+	level[4+row*25+col]=(byte)t;
+	int shown=t;
+	if(t==9||t==18) shown=0;
+	poke(0x2B00+(nat)(row*32+col),(byte)shown);
+}
+
+// the four pieces of a brick fly out of the cell (hitBlock) and fall
+void debrisTick() {
+	if(dbT<=0) return;
+	dbT--;
+	for(int i=0;i<4;i++) {
+		dbX[i]+=dbVx[i];
+		dbY[i]+=dbVy[i];
+		dbVy[i]++;
+		if(dbT==0) sprPos((byte)(8+i),0,0);
+		else sprPos((byte)(8+i),dbX[i],dbY[i]);
+	}
+}
+
+// the robot goes back to the start of the room, whole, and the drones to theirs: one on each cell of layer 7, flying to the right until a
+// wall or a turn cell (layer 6) sends them back
+void spawn() {
+	physPlace(0,startX,startY);
+	sprRef(0,0);
+	faceLeft=false;
 	droneClear();
 	for(int k=0;k<4;k++) {
 		int c=layFind(128,k);
@@ -983,32 +1060,18 @@ void placeDrones() {
 	}
 }
 
-// the robot goes back to the start of the room, whole, and the drones to theirs
-void spawn() {
-	physPlace(0,startX,startY);
-	sprRef(0,0);
-	faceLeft=false;
-	placeDrones();
-}
-
-// the exit opens when the last cell is taken: its tile changes
-void openExit() {
-	int c=layFind(8,0);
-	if(c>=0) {
-		nat a=0x2B00+(nat)((c/25)*32+c%25);
-		poke(a,6);
-	}
-	sfxPlay(88,12);
-}
-
 void startRoom() {
 	loadLevel(lvName[lv],&level,379);
 	layLoad(layName[lv]);
 	areaCpy(&level+4,25,0,0,25,15,0x2B00,32,0,0);   // the room into the tile buffer the screen shows
-	poke(0x2F00,0b00011100);                       // text, tiles and sprites on, bitmap off
+	int z=lvZone[lv];
+	loadPal(bgPal[z],0x11A0);                       // the picture of the place, behind the tiles (the empty tile is transparent)
+	loadBitmap(bgBmp[z]);
+	poke(0x2F00,0b00011101);                       // text, tiles, sprites and bitmap on
 	memSet(0x1200,3200,' ');
 	memSet(0x1E80,3200,0x02);
 	hideSprites();
+	dbT=0;
 	world=lvWorld[lv];
 	setWorld();
 	cellsAll=layCount(2);
@@ -1023,6 +1086,16 @@ void startRoom() {
 	int s=layFind(16,0);
 	startX=layX(s);
 	startY=layY(s);
+	destX=startX;
+	destY=startY;
+	for(int i=0;i<375;i++) {                        // hidden blocks show nothing, and the teleporter lands where the ring is
+		int t=level[4+i];
+		if(t==9||t==18) poke(0x2B00+(nat)((i/25)*32+i%25),0);
+		else if(t==14) {
+			destX=layX(i);
+			destY=layY(i);
+		}
+	}
 	stormT=360;
 	spawn();
 	showHud();
@@ -1036,9 +1109,23 @@ void showTitle() {
 	loadBitmap("GRAVITY.BMP");                    // the word GRAVITY, in the flame font, over stars
 	loadScreen("GRAVITY.SCR");                    // the text over it
 	poke(0x2F00,0b00010001);                       // text and bitmap on, tiles and sprites off
+	hudNum(30,32,"HIGH SCORE ",hi);
+}
+
+// the end of a game: the score, and the high score if it was beaten (kept in a file)
+void finish() {
+	newHi=false;
+	if(score>hi) {
+		hi=score;
+		newHi=true;
+		hiBuf[0]=(byte)(hi&255);
+		hiBuf[1]=(byte)(hi>>8);
+		saveLevel("GRAVITY.HI",&hiBuf,2);
+	}
 }
 
 void showWin() {
+	finish();
 	hideSprites();
 	memSet(0x2B00,512,0);
 	memSet(0x1200,3200,' ');
@@ -1046,14 +1133,93 @@ void showWin() {
 	loadPal("GRAVITYB.PAL",0x11A0);
 	loadBitmap("GRAVITYW.BMP");                   // YOU DID IT, in the flame font
 	poke(0x2F00,0b00010101);                       // text, sprites and bitmap on
-	hudPrint(24,19,0x1B,"ALL SEVEN WORLDS CROSSED");
+	hudPrint(24,19,0x1B,"ALL TWELVE LEVELS CROSSED");
 	hudPrint(23,22,0x12,"THE SHIP IS REPAIRED, THANKS TO YOU");
-	curPos(33,25);
-	print("DEATHS ",deaths,"  ");
-	memSet(0x1E80+25*80+33,12,0x1C);
-	hudPrint(31,29,0x17,"ENTER: PLAY AGAIN");
+	hudNum(33,25,"SCORE ",score);
+	hudNum(33,27,"HIGH SCORE ",hi);
+	if(newHi) hudPrint(31,29,0x19,"A NEW HIGH SCORE !");
+	hudPrint(31,32,0x17,"ENTER: PLAY AGAIN");
 	sprRef(0,2);
 	sprPos(0,376,440);
+}
+
+void showOver() {
+	finish();
+	hideSprites();
+	memSet(0x2B00,512,0);
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x02);
+	loadPal("GRAVITYB.PAL",0x11A0);
+	loadBitmap("GRAVITYO.BMP");                   // GAME OVER
+	poke(0x2F00,0b00010101);
+	hudNum(33,22,"SCORE ",score);
+	hudNum(33,24,"HIGH SCORE ",hi);
+	if(newHi) hudPrint(31,27,0x19,"A NEW HIGH SCORE !");
+	hudPrint(29,31,0x17,"ENTER: BACK TO THE TITLE");
+}
+
+// a robot that goes up and hits a cell with its head: a brick breaks (a cell inside it appears), a box or a hidden block gives its prize
+// and turns into a plain block
+void hitBlock(int col,int row,int t) {
+	if(t==8||t==17) {
+		layData[4+row*25+col]=(byte)(layData[4+row*25+col]&254);     // not solid any more (layer 0)
+		if(t==17) setTile(col,row,3);
+		else setTile(col,row,0);
+		for(int i=0;i<4;i++) {                                     // four pieces of brick fly out of the cell and fall
+			dbX[i]=layX(row*25+col);
+			dbY[i]=layY(row*25+col);
+			dbVx[i]=i*2-3;
+			dbVy[i]=-8+(i&1)*2;
+			sprRef((byte)(8+i),6);
+			sprPal((byte)(8+i),0);
+			sprPrio((byte)(8+i),0);
+		}
+		dbT=26;
+		sfxPlay(60,4);
+		addScore(20);
+	} else {
+		setTile(col,row,10);
+		layData[4+row*25+col]=(byte)(layData[4+row*25+col]|1);       // a hidden block becomes solid
+		if(t==15||t==9) {
+			sfxPlay(90,5);
+			addScore(100);
+		} else addLife();
+	}
+}
+
+// after a step, for a robot that was going up (vb is its speed before the step): hidden blocks are not solid, so one that the head enters is
+// revealed and the robot is put back under it; a solid brick or box over the head is hit
+void bump(int vb) {
+	if(vb>=0) return;
+	int hx=physX[0]/16-48+physOx;
+	int hy=physY[0]/16-42+physOy;
+	int col=0;
+	int r0=hy/32;
+	for(int k=0;k<3;k++) {
+		if(k==0) col=(hx+physW/2)/32;
+		else if(k==1) col=hx/32;
+		else col=(hx+physW-1)/32;
+		int t=tileAt(col,r0);
+		if(t==9||t==18) {
+			hitBlock(col,r0,t);
+			physY[0]=((r0+1)*32+42-physOy)*16;
+			physVy[0]=0;
+			return;
+		}
+	}
+	if(hy<1||physVy[0]<0) return;
+	if(!layBox(physX[0]/16,physY[0]/16-1,physOx,physOy,physW,physH,1)) return;
+	int r=(hy-1)/32;
+	for(int k=0;k<3;k++) {
+		if(k==0) col=(hx+physW/2)/32;
+		else if(k==1) col=hx/32;
+		else col=(hx+physW-1)/32;
+		int t=tileAt(col,r);
+		if(t==8||t==17||t==15||t==16) {
+			hitBlock(col,r,t);
+			return;
+		}
+	}
 }
 
 // the arrows push, Z jumps, a spring throws the robot up, and the picture follows what the robot does
@@ -1073,7 +1239,9 @@ void moveRobot() {
 	if(padHit(0b00010001)) {
 		if(physJump(0,wJump[world])) sfxPlay(70,3);
 	}
+	int vb=physVy[0];
 	physStep(0,1);
+	bump(vb);
 	if(physGnd[0]&&layBox(physX[0]/16,physY[0]/16+1,physOx,physOy,physW,physH,32)) {         // a spring under the feet
 		physVy[0]=-156;
 		physGnd[0]=false;
@@ -1084,6 +1252,7 @@ void moveRobot() {
 	else if(physVx[0]>8||physVx[0]<-8) ref=(byte)((frame>>2)&1);
 	sprRef(0,ref);
 	sprFlip(0,faceLeft,false);
+	if(physGnd[0]&&world!=3&&(physVx[0]>12||physVx[0]<-12)&&(frame&7)==0&&sfxLeft==0) sfxPlay(44+((frame>>3)&1)*4,2);      // a small step, left then right
 }
 
 // no gravity in space: the four arrows push, and the robot drifts to a stop (the library fades the sideways speed, the up and down is faded here)
@@ -1117,20 +1286,39 @@ void flyRobot() {
 	sprFlip(0,faceLeft,false);
 }
 
-// the cells the robot's middle is on
+// the cells the robot's middle is on (one inside a brick shows only when the brick is gone), then a coin, a heart or a teleporter
 void collect() {
 	int rx=physX[0]/16-48+24;
 	int ry=physY[0]/16-42+22;
 	for(int i=0;i<cellsAll&&i<8;i++) {
-		if(cellOn[i]&&abs(rx-cellX[i])<24&&abs(ry-cellY[i])<24) {
+		if(cellOn[i]&&abs(rx-cellX[i])<24&&abs(ry-cellY[i])<24&&tileAt(cellX[i]/32,cellY[i]/32)==3) {
 			cellOn[i]=false;
 			cells--;
-			nat a=0x2B00+(nat)((cellY[i]/32)*32+cellX[i]/32);
-			poke(a,0);
+			setTile(cellX[i]/32,cellY[i]/32,0);
 			sfxPlay(84,4);
+			score+=50;
 			showHud();
-			if(cells==0) openExit();
+			if(cells==0) {                                         // the exit opens when the last cell is taken: its tile changes
+				int e=layFind(8,0);
+				if(e>=0) poke(0x2B00+(nat)((e/25)*32+e%25),6);
+				sfxPlay(88,12);
+			}
 		}
+	}
+	int col=rx/32;
+	int row=ry/32;
+	int t=tileAt(col,row);
+	if(t==11) {
+		setTile(col,row,0);
+		sfxPlay(90,5);
+		addScore(100);
+	} else if(t==12) {
+		setTile(col,row,0);
+		addLife();
+	} else if(t==13) {
+		setTile(col,row,0);
+		physPlace(0,destX,destY);
+		sfxPlay(100,10);
 	}
 }
 
@@ -1143,13 +1331,15 @@ bool onSpikes() {
 	return (layCell(x0/32,fy/32)&4)!=0||(layCell(x1/32,fy/32)&4)!=0;
 }
 
+// a life less: back to the start of the room, or the end of the game with the last one
 void die() {
-	deaths++;
+	lives--;
 	sfxPlay(36,22);
 	sprRef(0,3);
 	physVx[0]=0;
 	physVy[0]=0;
-	stGo(DEAD);
+	if(lives<=0) stGo(OVER);
+	else stGo(DEAD);
 	showHud();
 }
 
@@ -1162,55 +1352,54 @@ void droneContact() {
 		physVy[0]=-90;
 		physGnd[0]=false;
 		sfxPlay(92,6);
+		addScore(200);
 	} else die();
 }
 
-void roomDone() {
-	stGo(CLEAR);
-	hudPrint(29,19,0x1C,"  ROOM COMPLETE  ");
-	sfxPlay(96,14);
-}
-
-// in room 6 the world changes every six seconds
-void storm() {
-	stormT--;
-	if(stormT<=0) {
-		world=(world+1)%4;
-		setWorld();
-		stormT=360;
-		showHud();
-		sfxPlay(40,10);
-	}
-}
-
 void play() {
-	if(lv==5) storm();
+	if(lv==9) {                                      // in room 10 the world changes every six seconds
+		stormT--;
+		if(stormT<=0) {
+			world=(world+1)%4;
+			setWorld();
+			stormT=360;
+			showHud();
+			sfxPlay(40,10);
+		}
+	}
 	if(world==4) flyRobot();
 	else moveRobot();
 	collect();
 	entitiesUpdate();
 	droneContact();
-	if(stIs(DEAD)) return;
+	if(!stIs(PLAY)) return;
 	if(onSpikes()) die();
-	else if(cells==0&&physTouch(0,8)) roomDone();
+	else if(cells==0&&physTouch(0,8)) {
+		stGo(CLEAR);
+		hudPrint(29,19,0x1C,"  ROOM COMPLETE  ");
+		sfxPlay(96,14);
+		addScore(100);
+	}
 }
 
-void nextRoom() {
-	lv++;
-	if(lv>=7) {
-		stGo(WIN);
-		showWin();
+// the first room of a place comes after its screen: its picture, its name, which level comes
+void enterRoom() {
+	if(lv==0||lvZone[lv]!=lvZone[lv-1]) {
+		int z=lvZone[lv];
+		hideSprites();
+		memSet(0x2B00,512,0);
+		memSet(0x1200,3200,' ');
+		memSet(0x1E80,3200,0x02);
+		loadPal(scPal[z],0x11A0);
+		loadBitmap(scBmp[z]);
+		poke(0x2F00,0b00010001);                       // text and bitmap on
+		hudNum(34,31,"LEVEL ",(nat)(lv+1));
+		hudPrint(zCol[z],34,0x12,zTag[z]);
+		stGo(INTRO);
 	} else {
 		startRoom();
 		stGo(PLAY);
 	}
-}
-
-void newGame() {
-	lv=0;
-	deaths=0;
-	startRoom();
-	stGo(PLAY);
 }
 
 setup();
@@ -1224,20 +1413,43 @@ while(_keyDwn!=12) {                             // until ESC
 	songTick();
 	sfxTick();
 	stTick();
+	debrisTick();
 	if(stIs(PLAY)) play();
 	else if(stIs(CLEAR)) {
-		if(stAge>90) nextRoom();
+		if(stAge>90) {
+			lv++;
+			if(lv>=12) {
+				stGo(WIN);
+				showWin();
+			} else enterRoom();
+		}
 	} else if(stIs(DEAD)) {
 		if(stAge>40) {
 			spawn();
 			stGo(PLAY);
+		}
+	} else if(stIs(INTRO)) {
+		if(stAge>150||(stAge>25&&padHit(0b00001101))) {
+			startRoom();
+			stGo(PLAY);
+		}
+	} else if(stIs(OVER)) {
+		if(stAge==45) showOver();
+		if(stAge>100&&padHit(0b00001101)) {
+			stGo(TITLE);
+			showTitle();
 		}
 	} else {                                     // the title and the end: Enter
 		if(padHit(0b00001101)) {
 			if(stIs(WIN)) {
 				stGo(TITLE);
 				showTitle();
-			} else newGame();
+			} else {
+				lv=0;
+				lives=3;
+				score=0;
+				enterRoom();
+			}
 		}
 	}
 	vSync();
