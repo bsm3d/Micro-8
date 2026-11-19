@@ -1,7 +1,7 @@
 # GRAVITY
 
 The tutorial project of the second Micro-8 Studio tutorial (on the [website](https://www.micro-8-studio.com/gravity.html)): a
-platform game in twelve levels and five worlds, built on the physics and entity blocks of the Micro-8 library. Code & Music: Benoit (BSM) Saint-Moulin.
+platform game in twelve levels and five worlds, built on the physics and entity blocks of the Micro-8 library. Created by Benoit (BSM) Saint-Moulin.
 
 ![GRAVITY](img/gravity.png)
 

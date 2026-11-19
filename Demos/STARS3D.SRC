@@ -1,5 +1,5 @@
 // STARS 3D - a 3D star field that rushes at you and rolls
-// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Created by Benoit (BSM) Saint-Moulin, www.bsm3d.com
 // Demo 1.0 for Micro-8 OS 0.9
 
 nat cpuWindow=0x3000;
