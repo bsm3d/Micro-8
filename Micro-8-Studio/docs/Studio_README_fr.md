@@ -4,7 +4,7 @@ Micro-8 Studio est l'atelier de bureau de la console Micro-8 : un éditeur de co
 avec débogueur, et les éditeurs de tout ce qu'un programme charge (sprites, tuiles, cartes, images, sons, musique, écrans
 de texte). Il est fait d'abord pour le Micro-8, mais ses outils ne sont pas liés à une seule machine : les éditeurs de sprites, de
 cartes de tuiles et de wave et le tracker écrivent aussi les formats que lisent les autres outils (planches PNG avec atlas JSON, cartes
-Tiled, en-têtes C, WAV, MP3, MIDI) et l'éditeur de code ouvre les fichiers Python, C et C++ : Studio sert donc aussi à d'autres
+Tiled, en-têtes C, WAV, MIDI) et l'éditeur de code ouvre les fichiers Python, C et C++ : Studio sert donc aussi à d'autres
 projets de jeux rétro. Ce manuel comporte trois parties :
 
 - **Prise en main** (chapitres 1 à 4) : installation, visite de la fenêtre, premier programme, et le langage Lofi en dix minutes.
@@ -67,7 +67,7 @@ Studio réunit quatre outils dans une seule fenêtre :
   les vrais fichiers octet pour octet, donc ce que vous enregistrez ici s'ouvre sur la machine, et inversement ;
 - un système de **projets** qui garde un programme et ses fichiers ensemble, les vérifie, et les envoie sur une carte ou vers la machine ;
 - des **exports pour d'autres machines et moteurs** : les sprites en planche PNG avec son atlas (§9.1), les cartes en texte, CSV, JSON
-  Tiled ou C (§9.2), la musique en WAV, MP3 ou MIDI (§9.6), et un éditeur de code qui colore aussi Python, C, C++, l'assembleur et JSON (§6).
+  Tiled ou C (§9.2), la musique en WAV ou MIDI (§9.6), et un éditeur de code qui colore aussi Python, C, C++, l'assembleur et JSON (§6).
 
 **Installation.** Décompressez la version portable n'importe où (disque, clé USB) et lancez `Micro8Studio.exe`, sans rien installer ;
 l'installeur place les mêmes fichiers dans Program Files ou le dossier de votre choix. Le dossier contient `Examples\` (le
@@ -1287,7 +1287,7 @@ machine réelle.
 
 **Effets Studio** (arpège, retrigger, delay, cut, probabilité, LFO YM, swing, glide, longueurs de piste) :
 uniquement pour l'aperçu dans Studio, désactivables, la lecture sur machine reste celle du tracker embarqué. Export
-MIDI, WAV, MP3, pistes séparées (stems) ; le MP3, de 128 à 320 kbit/s, demande un `ffmpeg.exe` à côté de Studio ou dans le PATH. `.EXT.json` : fichier annexe pour les longueurs de pattern et les effets, pas lu
+MIDI, WAV, pistes séparées (stems). `.EXT.json` : fichier annexe pour les longueurs de pattern et les effets, pas lu
 par la machine.
 
 Testé octet pour octet contre les trackers embarqués (les deux versions et le lecteur) : un projet fait ici s'ouvre inchangé sur la machine réelle et inversement.

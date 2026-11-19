@@ -14,8 +14,7 @@ several tools:
   format), the same sheet cut into sprites for Unity (`.png` + `.png.meta`), or a C header;
 - the **tile map editor** exports the map as text, CSV, JSON for the Tiled editor (with the tiles as a PNG sheet) or a
   C header, and reads text, CSV and Tiled maps back;
-- the **tracker** exports a song as WAV, MP3, WAV stems (one file a track) or MIDI (the MP3 needs an `ffmpeg.exe`
-  beside Studio or on the PATH);
+- the **tracker** exports a song as WAV, WAV stems (one file a track) or MIDI;
 - the **code editor** also opens Python, C, C++, assembly, JSON and text files, with their own colours;
 - the **Assets panel** lists every file a program or a project uses and opens each one in its editor.
 
@@ -41,8 +40,8 @@ No Python installation or other dependency is needed: everything is included.
 ### SHA-256 checksums
 
 ```
-6ea0855ee42fe9cc8676133d1c7820d854469d6c75aabaf16dd983b8f66f7919  Micro8Studio-1.3.0-win64-portable.zip
-85c6d78be3ac8cd8ecb6f1bde8492b15c979ab2f6d8865d4f03e6bf40e053328  Micro8Studio-1.3.0-Setup.exe
+6ae41071951fed17d251675ef852e5d2b9af9811620ded50aee84534011b32b5  Micro8Studio-1.3.0-win64-portable.zip
+215302bccb893d83bf6f0da63cc41dc183aff506324c0b0ee0b1afc637006077  Micro8Studio-1.3.0-Setup.exe
 ```
 
 ## Documentation

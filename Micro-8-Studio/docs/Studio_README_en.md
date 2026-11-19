@@ -3,7 +3,7 @@
 Micro-8 Studio is the desktop workshop for the Micro-8 console: a code editor that knows the Lofi language, an emulator
 with a debugger, and the editors for everything a program loads (sprites, tiles, maps, pictures, sounds, music, text
 screens). It is made for the Micro-8 first, but its tools are not tied to one machine: the sprite, tile map and wave editors and
-the tracker also write the formats other tools read (PNG sheets with a JSON atlas, Tiled maps, C headers, WAV, MP3, MIDI) and the
+the tracker also write the formats other tools read (PNG sheets with a JSON atlas, Tiled maps, C headers, WAV, MIDI) and the
 code editor opens Python, C and C++ files, so Studio serves other retro game projects too. This manual has three parts:
 
 - **Getting started** (chapters 1 to 4): install, a tour of the window, your first program, and the Lofi language in ten minutes.
@@ -65,7 +65,7 @@ Studio is made of four tools that share one window:
   files byte for byte, so what you save here opens on the machine and back;
 - a **project** system that keeps a program and its files together, checks them, and sends them to a card or to the machine;
 - **exports for other machines and engines**: sprites as a PNG sheet with its atlas (§9.1), maps as text, CSV, Tiled JSON or C (§9.2),
-  music as WAV, MP3 or MIDI (§9.6), and a code editor that also colours Python, C, C++, assembly and JSON (§6).
+  music as WAV or MIDI (§9.6), and a code editor that also colours Python, C, C++, assembly and JSON (§6).
 
 **Install.** Unzip the portable version anywhere (a drive, a USB stick) and run `Micro8Studio.exe`, nothing to install; the
 installer places the same files under Program Files or a folder of your choice. The folder holds `Examples\` (the
@@ -1279,8 +1279,7 @@ references; format described in the Tracker documentation): the Micro-8's built-
 they only *write notes*, so they are 100% compatible with the real machine.
 
 **Studio FX** (arp, retrigger, delay, cut, probability, YM LFO, swing, glide, track lengths): preview-only in
-Studio, can be turned off, playback on the machine stays the on-device tracker's own. MIDI, WAV, MP3 and stems export (MP3 at 128 to 320 kbit/s; it needs an
-`ffmpeg.exe` beside Studio or on the PATH).
+Studio, can be turned off, playback on the machine stays the on-device tracker's own. MIDI, WAV and stems export.
 `.EXT.json`: a sidecar file for pattern lengths and FX, not read by the machine.
 
 Tested byte-exact against the on-device trackers (the two versions of the on-device tracker, and the player): a
