@@ -1,0 +1,482 @@
+// PLINKO - balls fall through pegs into bins, in four worlds
+// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Demo 1.0 for Micro-8 OS 0.9
+
+// ---- M8LIB: pal - loadPal/savePal: a 48-byte .PAL (16 red, 16 green, 16 blue values 0-7) into or from a palette address
+bool loadPal(text f,nat pal) {
+	import(f,pal,48);
+	return _fError==0;
+}
+
+bool savePal(text f,nat pal) {
+	export(f,pal,48);
+	return _fError==0;
+}
+
+// ---- M8LIB: sprites - loadSprites/saveSprites: a .SPR sprite set (256 bytes a sprite) from sprite 'first', n sprites (0 = whole file)
+bool loadSprites(text f,int first) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveSprites(text f,int first,int n) {
+	byte page=peek(0x2F04);
+	nat a=0x3000+(nat)first*256;
+	nat sz=(nat)n*256;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: tiles - loadTiles/saveTiles: a .TLS tile set (128 bytes a 16x16 tile) from tile 'first', n tiles (0 = whole file)
+bool loadTiles(text f,int first) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	import(f,a,0,page);
+	return _fError==0;
+}
+
+bool saveTiles(text f,int first,int n) {
+	byte page=peek(0x2F03);
+	nat a=0x3000+(nat)first*128;
+	nat sz=(nat)n*128;
+	export(f,a,sz,page);
+	return _fError==0;
+}
+
+// ---- M8LIB: level - loadLevel/saveLevel: a .LVL map (one tile number a cell) into or from a byte array (&array, its size)
+bool loadLevel(text f,nat dst,nat size) {
+	import(f,dst,size);
+	return _fError==0;
+}
+
+bool saveLevel(text f,nat src,nat size) {
+	export(f,src,size);
+	return _fError==0;
+}
+
+// ---- M8LIB: pad - padRead/padDown/padHit/padUp: the pad with edges (A 1, B 2, Start 4, Select 8, Up 16, Down 32, Left 64, Right 128)
+byte padNow=0;
+byte padOld=0;
+
+void padRead() {
+	padOld=padNow;
+	padNow=_padLft;
+}
+
+// held now
+bool padDown(byte m) {
+	return (padNow&m)!=0;
+}
+
+// pressed this frame (was not held on the one before)
+bool padHit(byte m) {
+	return (padNow&m)!=0&&(padOld&m)==0;
+}
+
+// released this frame
+bool padUp(byte m) {
+	return (padNow&m)==0&&(padOld&m)!=0;
+}
+
+// ---- M8LIB: layer - layLoad/layPoint/layBox/layFind/layCount: collisions and placement from a .LAY file (8 layers) of a 25x15 map
+byte layData[379];
+
+// a .LAY of 25 x 15 cells; false when the file is missing or is another size
+bool layLoad(text f) {
+	memSet(&layData,379,0);
+	import(f,&layData,379);
+	if(_fError!=0) return false;
+	return layData[0]==25&&layData[1]==0&&layData[2]==15&&layData[3]==0;
+}
+
+// the layers of a cell, one bit each (layer 0 is 1, layer 7 is 128); outside the map every layer is set
+int layCell(int col,int row) {
+	if(col<0||row<0||col>=25||row>=15) return 255;
+	return layData[4+row*25+col];
+}
+
+// is a screen point (800 x 480 pixels) on a cell that has one of the layers of 'mask'? outside the screen counts as yes
+bool layPoint(int sx,int sy,int mask) {
+	if(sx<0||sy<0||sx>=800||sy>=480) return true;
+	return (layCell(sx/32,sy/32)&mask)!=0;
+}
+
+// would a box of w x h pixels, ox,oy inside a sprite placed at px,py (sprPos units), touch such a cell? w and h up to 32
+bool layBox(int px,int py,int ox,int oy,int w,int h,int mask) {
+	int x0=px-48+ox;
+	int y0=py-42+oy;
+	int x1=x0+w-1;
+	int y1=y0+h-1;
+	return layPoint(x0,y0,mask)||layPoint(x1,y0,mask)||layPoint(x0,y1,mask)||layPoint(x1,y1,mask);
+}
+
+// the cell number (row*25+col) of the n-th cell (from 0) that has one of the layers of 'mask', or -1
+int layFind(int mask,int n) {
+	int k=0;
+	for(int i=0;i<375;i++) {
+		if((layData[4+i]&mask)!=0) {
+			if(k==n) return i;
+			k++;
+		}
+	}
+	return -1;
+}
+
+int layCount(int mask) {
+	int k=0;
+	for(int i=0;i<375;i++) {
+		if((layData[4+i]&mask)!=0) k++;
+	}
+	return k;
+}
+
+// the sprite position (sprPos) that centres a 24 x 21 sprite on a cell number
+int layX(int cell) {
+	return 40+(cell%25)*32;
+}
+
+int layY(int cell) {
+	return 36+(cell/25)*32;
+}
+
+// ---- M8LIB: phys - physPlace/physStep/physJump/physTouch: gravity, jumps, walls and bounces on a .LAY layer (a platformer, a ball)
+// A body is a sprite 0..31: positions in 1/16 pixel (physX/16 is the sprPos position), speeds in 1/16 pixel a frame, walls are the
+// cells of the layers in 'mask'. Everything below is global: set it once or between frames (physGrav=0: a top-down game).
+int physX[32];
+int physY[32];
+int physVx[32];
+int physVy[32];
+bool physGnd[32];
+int physGrav=6;
+int physFall=160;
+int physDrag=0;
+int physBounce=0;
+int physOx=12;
+int physOy=10;
+int physW=24;
+int physH=24;
+
+// the box that hits walls, ox,oy inside the 24 x 21 sprite, w and h up to 32 (the default is the 24 x 24 box at 12,10 of DUNGEON HUNT)
+void physBox(int ox,int oy,int w,int h) {
+	physOx=ox;
+	physOy=oy;
+	physW=w;
+	physH=h;
+}
+
+// the body goes to x,y (sprPos units), at rest
+void physPlace(int i,int x,int y) {
+	if(i<0||i>31) return;
+	physX[i]=x*16;
+	physY[i]=y*16;
+	physVx[i]=0;
+	physVy[i]=0;
+	physGnd[i]=false;
+	sprPos((byte)i,x,y);
+}
+
+bool physBlocked(int x,int y,int mask) {
+	return layBox(x,y,physOx,physOy,physW,physH,mask);
+}
+
+// the speed after a hit: 0, or sent back with physBounce/16 of it when it was fast enough to bounce
+int physRebound(int v) {
+	if(physBounce<=0) return 0;
+	int n=abs(v)*physBounce/16;
+	if(n<24) return 0;
+	if(v>0) return -n;
+	return n;
+}
+
+// one frame: gravity, drag, then the move along x and along y one pixel at a time, stopped by the cells of 'mask' (it never goes through a wall,
+// whatever its speed, which is kept within 100 pixels a frame so that the 16-bit numbers never wrap); physGnd tells whether it stands on
+// something. The sprite shows the new place at the next sprUpdt.
+void physStep(int i,int mask) {
+	if(i<0||i>31) return;
+	int vx=physVx[i];
+	int vy=physVy[i]+physGrav;
+	if(vy>physFall) vy=physFall;
+	if(physDrag>0&&vx!=0) {
+		int d=abs(vx)*physDrag/16;
+		if(d<1) d=1;
+		if(vx>0) vx-=d;
+		else vx+=d;
+	}
+	if(vx>1600) vx=1600;
+	if(vx<-1600) vx=-1600;
+	if(vy>1600) vy=1600;
+	if(vy<-1600) vy=-1600;
+	int cx=physX[i]/16;
+	int cy=physY[i]/16;
+	int nx=physX[i]+vx;
+	if(nx<0) nx=0;
+	int tx=nx/16;
+	int sx=1;
+	if(tx<cx) sx=-1;
+	bool hit=false;
+	while(cx!=tx&&!hit) {
+		if(physBlocked(cx+sx,cy,mask)) hit=true;
+		else cx+=sx;
+	}
+	if(hit) {
+		physX[i]=cx*16;
+		vx=physRebound(vx);
+	} else physX[i]=nx;
+	int ny=physY[i]+vy;
+	if(ny<0) ny=0;
+	int ty=ny/16;
+	int sy=1;
+	if(ty<cy) sy=-1;
+	hit=false;
+	while(cy!=ty&&!hit) {
+		if(physBlocked(cx,cy+sy,mask)) hit=true;
+		else cy+=sy;
+	}
+	if(hit) {
+		physY[i]=cy*16;
+		vy=physRebound(vy);
+	} else physY[i]=ny;
+	physGnd[i]=vy>=0&&physBlocked(cx,cy+1,mask);
+	if(physGnd[i]) {
+		vy=physRebound(vy);                          // it may have arrived on the very pixel of the ground: that is a hit too
+		physY[i]=cy*16;
+		if(vy<0) physGnd[i]=false;
+	}
+	physVx[i]=vx;
+	physVy[i]=vy;
+	sprPos((byte)i,cx,cy);
+}
+
+// a jump of speed v when the body stands on something (88 is 38 pixels high at the default gravity); true when it jumped
+bool physJump(int i,int v) {
+	if(i<0||i>31) return false;
+	if(!physGnd[i]) return false;
+	physVy[i]=-v;
+	physGnd[i]=false;
+	return true;
+}
+
+// does the body overlap a cell of the layers in 'mask' (coins, spikes, a ladder)?
+bool physTouch(int i,int mask) {
+	if(i<0||i>31) return false;
+	return layBox(physX[i]/16,physY[i]/16,physOx,physOy,physW,physH,mask);
+}
+
+// ---- M8LIB: hud - hudFill/hudPrint: text with its colour (print paints black on nothing): colour = background*16+letters
+// cells outside the 80 x 40 text screen are left alone
+void hudFill(int col,int row,int n,byte color) {
+	if(col<0||col>79||row<0||row>39||n<1) return;
+	int w=n;
+	if(col+w>80) w=80-col;
+	nat a=(nat)row*80+(nat)col;
+	memSet(0x1200+a,(nat)w,' ');
+	memSet(0x1E80+a,(nat)w,color);
+}
+
+void hudPrint(int col,int row,byte color,text msg) {
+	if(col<0||col>79||row<0||row>39) return;
+	curPos((byte)col,(byte)row);
+	print(msg);
+	int n=_curX;
+	n=n-col;
+	if(n>0) memSet(0x1E80+(nat)row*80+(nat)col,(nat)n,color);
+}
+
+// ---- M8LIB: sfx - sfxPlay/sfxTick: a short sound on FM voice 5, which a song of fewer than 6 tracks leaves alone
+byte sfxVoice=5;
+int sfxLeft=0;
+
+void sfxPlay(int note,int frames) {
+	ymVoice(sfxVoice,1,5,3,110);
+	ymNoteOn(sfxVoice,(byte)note,127);
+	sfxLeft=frames;
+}
+
+void sfxTick() {
+	if(sfxLeft>0) {
+		sfxLeft--;
+		if(sfxLeft==0) ymNoteOff(sfxVoice);
+	}
+}
+
+// the tiles: 0 empty, 1 peg, 2 wall, 3 divider, 4 floor. Layer 0 of PLINKO.LAY is every cell a ball cannot enter.
+byte level[379];
+text wName[4]={"EARTH","RUBBER","MOON","SAND"};
+// a world is three numbers: gravity, how much of its speed a ball keeps in a bounce (out of 16), and how much it is slowed sideways
+int wGrav[4]={6,6,2,6};
+int wBounce[4]={9,15,12,3};
+int wDrag[4]={0,0,0,6};
+int binPts[11]={100,50,20,10,5,2,5,10,20,50,100};
+int tally[11];
+int MAXB=8;                      // how many balls at once: each costs 2 ms a frame, and 8 keep the demo at 30 frames a second
+bool ballOn[17];                 // the balls are the sprites 1 to MAXB, the dropper is sprite 31
+int ballAge[17];                 // frames spent down in a bin
+byte savedTiles[48];
+byte savedSprites[48];
+byte savedBack[3];
+nat score;
+int world;
+int balls;
+int dropX;                       // where the dropper is, in sprite position units
+int rainT;
+
+void setup() {
+	memCpy(0x1170,&savedTiles,48);                // memCpy(source, destination, size)
+	memCpy(0x11D0,&savedSprites,48);
+	savedBack[0]=peek(0x11A0);       // colour 0 of the bitmap palette is what shows behind the tiles
+	savedBack[1]=peek(0x11B0);
+	savedBack[2]=peek(0x11C0);
+	loadPal("PLINKO.PAL",0x1170);
+	loadPal("PLINKO.PLA",0x11D0);
+	loadTiles("PLINKO.TLS",0);
+	loadSprites("PLINKO.SPR",0);
+	loadLevel("PLINKO.LVL",&level,379);
+	layLoad("PLINKO.LAY");
+	areaCpy(&level+4,25,0,0,25,15,0x2B00,32,0,0);
+	for(int i=0;i<32;i++) {
+		sprPos((byte)i,0,0);
+		sprPal((byte)i,0);
+		sprPrio((byte)i,0);
+	}
+	poke(0x11A0,0);                // a black background: the bitmap is empty and its colour 0 is black
+	poke(0x11B0,0);
+	poke(0x11C0,0);
+	memSet(0x3000,48000,0,peek(0x2F05));
+	poke(0x2F00,0b00011101);       // text, tiles, sprites and bitmap on
+	memSet(0x1200,3200,' ');
+	memSet(0x1E80,3200,0x02);
+	physBox(12,10,24,24);          // the 12 x 12 pixels of the middle of a sprite
+	sprRef(31,2);
+	dropX=424;
+}
+
+void setWorld() {
+	physFall=80;                    // at most 5 pixels a frame: a ball costs less the slower it goes
+	physGrav=wGrav[world];
+	physBounce=wBounce[world];
+	physDrag=wDrag[world];
+}
+
+void showHud() {
+	hudFill(0,0,80,0x12);
+	curPos(2,0);
+	print("PLINKO  ",wName[world],"   GRAVITY ",physGrav,"  BOUNCE ",physBounce,"  DRAG ",physDrag,"   BALLS ",balls,"  SCORE ",score,"   ");
+	memSet(0x1E80,80,0x12);
+	hudPrint(2,1,0x1D,"ARROWS MOVE   Z DROP   X RAIN   TAB WORLD   ENTER CLEAR   ESC QUIT");
+}
+
+// a number in a bin: the column of the text that centres it under the bin of cell column c
+void binText(int k,int row,int n,byte color) {
+	int col=((2*k+2)*32+16)/10-1;
+	curPos((byte)col,(byte)row);
+	print(n,"   ");
+	memSet(0x1E80+(nat)row*80+(nat)col,3,color);
+}
+
+void showBins() {
+	for(int k=0;k<11;k++) binText(k,39,tally[k],0x1D);
+}
+
+void dropBall(int x,int ref) {
+	for(int i=1;i<=MAXB;i++) {
+		if(!ballOn[i]) {
+			ballOn[i]=true;
+			ballAge[i]=0;
+			physPlace(i,x+rnd(0,8)-4,68);
+			physVx[i]=rnd(0,48)-24;           // a little chance, or every ball would take the same road
+			sprRef((byte)i,(byte)ref);
+			balls++;
+			showHud();
+			return;
+		}
+	}
+}
+
+void clearAll() {
+	for(int i=1;i<=MAXB;i++) {
+		ballOn[i]=false;
+		sprPos((byte)i,0,0);
+	}
+	for(int k=0;k<11;k++) tally[k]=0;
+	balls=0;
+	score=0;
+	showHud();
+	showBins();
+}
+
+// a ball is counted when it has been down in a bin for two seconds; its bin is the column it is over
+void landBall(int i) {
+	int c=(physX[i]/16-24)/32;
+	int k=(c-1)/2;
+	if(k<0) k=0;
+	if(k>10) k=10;
+	if(tally[k]<99) tally[k]++;
+	score+=(nat)binPts[k];
+	ballOn[i]=false;
+	sprPos((byte)i,0,0);
+	balls--;
+	sfxPlay(60+binPts[k]/4,8);
+	showHud();
+	showBins();
+}
+
+// one ball: the physics block moves it, then a ball that stands on a peg is pushed off it, and a bounce rings
+void stepBall(int i) {
+	int vy=physVy[i];
+	physStep(i,1);
+	if(physVy[i]<0&&vy>40&&physY[i]/16<400) sfxPlay(70+(i%5)*3,2);
+	if(physGnd[i]&&physY[i]/16<400) {
+		if(rnd(0,1)==0) physVx[i]=-20;
+		else physVx[i]=20;
+	}
+	if(physY[i]/16>=400) {
+		ballAge[i]++;
+		if(ballAge[i]>120) landBall(i);
+	}
+}
+
+setup();
+setWorld();
+showHud();
+for(int k=0;k<11;k++) binText(k,38,binPts[k],0x12);
+showBins();
+while(_keyDwn!=12) {             // until ESC
+	padRead();
+	sfxTick();
+	if(padDown(0b01000000)&&dropX>72) dropX-=4;
+	if(padDown(0b10000000)&&dropX<776) dropX+=4;
+	if(padHit(0b00000001)) dropBall(dropX,0);
+	rainT++;
+	if(padDown(0b00000010)&&rainT>=6) {
+		rainT=0;
+		dropBall(rnd(72,776),1);
+	}
+	if(padHit(0b00001000)) {
+		world=(world+1)%4;
+		setWorld();
+		showHud();
+		sfxPlay(48,6);
+	}
+	if(padHit(0b00000100)) clearAll();
+	for(int i=1;i<=MAXB;i++) {
+		if(ballOn[i]) stepBall(i);
+	}
+	sprPos(31,dropX,60);
+	vSync();
+	sprUpdt();
+}
+ymNoteOff(5);                    // leave the machine as it was found
+for(int i=0;i<32;i++) sprPos((byte)i,0,0);
+sprUpdt();
+memSet(0x2B00,512,0);
+memCpy(&savedTiles,0x1170,48);
+memCpy(&savedSprites,0x11D0,48);
+poke(0x11A0,savedBack[0]);
+poke(0x11B0,savedBack[1]);
+poke(0x11C0,savedBack[2]);
+poke(0x2F00,0b00010001);
+memSet(0x1200,3200,' ');
+memSet(0x1E80,3200,0x12);
+curPos(0,0);

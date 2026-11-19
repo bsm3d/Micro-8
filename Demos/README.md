@@ -18,13 +18,14 @@ The few comments that follow say only what the code cannot.
 | <img src="img/cubes3.png" alt="Cubes" width="260"> | `CUBES3.SRC` | **Three nested wireframe cubes**, each turning on three axes at its own speeds, the edges at the back drawn dimmer. Integers only: the three columns of the rotation matrix times half the side give three vectors A, B, C; the 8 corners are +-A +-B +-C (4 additions, 4 opposites); the 12 edges are drawn from 4 corners, 3 edges each; the farthest corner gives the 3 hidden edges. 60 frames a second. |
 | <img src="img/stars3d.png" alt="Stars 3D" width="260"> | `STARS3D.SRC` | **Stars 3D**: 96 stars come from the horizon and rush past the viewer (distance on screen = distance from the axis * 255 / depth), dim blue far away, white and bigger when near, the nearest with a streak behind them. The whole field rolls, one way then the other. |
 | <img src="img/lorenz.png" alt="Lorenz" width="260"> | `LORENZ.SRC` | **Lorenz attractor**: two points follow the three Lorenz equations, computed live, from starts a tenth apart. They fly together for a few seconds, then part for good (the butterfly effect). Each leaves a fading trail of 150 positions, gold and blue, and the view turns around the vertical axis. |
+| <img src="img/plinko.png" alt="Plinko" width="260"> | `PLINKO.SRC`, `PLINKO.SPR`, `.PLA`, `.TLS`, `.PAL`, `.LVL`, `.LAY` | **Plinko**: balls fall through four rows of pegs into eleven bins that score from 2 in the middle to 100 at the edges, in four worlds (earth, rubber, moon, sand) that Tab swaps by changing three numbers: gravity, bounce and drag. Arrows move the dropper, Z drops a ball, X rains balls, Enter clears the board. A ball that stands on a peg is pushed off it, and a bounce rings. It is built on the physics blocks of the Micro-8 library (`layer`, `phys`, `pad`, `hud`, `sfx`), whose code is in the program: the pegs, walls and dividers are layer 0 of `PLINKO.LAY`, a bounce is a note on FM voice 5. At most 8 balls at once, to stay at 30 frames a second. Not a demoscene effect but a toy for trying the numbers. |
 | <img src="img/blkhole.png" alt="Black Hole" width="260"> | `BLKHOLE.SRC` | **Black Hole**: the shadow and its photon ring, the accretion disk seen almost edge on (flat in front of the shadow, its back half bent into an arch over it), matter turning faster near the hole (Kepler), the side coming towards the viewer brighter, and the stars behind pushed aside by the gravitational lens. The disk is 1100 dots drawn once; the moving streaks and stars are drawn over it with the XOR mask of `line()` and `plot()`, in two pages (double buffer). |
 
 ## Running them
 
 - **In Micro-8 Studio**: open a `.SRC` and press F5. ESC ends the demo.
 - **On the machine**: copy the folder to the SD card, then `compile NAME.SRC` and `run NAME.BIN`.
-- Keep the resource file next to the program: `SINUS.SPR` with `SINUS.SRC`.
+- Keep the resource files next to the program: `SINUS.SPR` with `SINUS.SRC`, and the seven `PLINKO.*` files together.
 
 ## State
 
@@ -34,7 +35,7 @@ The few comments that follow say only what the code cannot.
   yet**.
 - Frame times in the emulator's timing model: 3 ms (copper bars), 6 ms (scroller), 10 ms (stars, cubes), all at 60
   frames a second; 22 ms (tunnel), 24 ms (3D stars), 25 ms (Lorenz), 28 ms (black hole), shown at 30 frames a
-  second.
+  second. Plinko takes 31 ms a frame with its 8 balls, so 30 a second.
 - Every demo gives the machine back on ESC (palettes, layers, background colour).
 
-The Micro-8 is © Franck Sauer: [www.micro-8.com](https://www.micro-8.com).
+The Micro-8 is (c) Franck Sauer: [www.micro-8.com](https://www.micro-8.com).
