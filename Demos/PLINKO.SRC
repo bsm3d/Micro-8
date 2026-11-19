@@ -1,5 +1,5 @@
 // PLINKO - a musical toy: balls fall on white pegs, every peg plays a note and lights up
-// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Created by Benoit (BSM) Saint-Moulin, www.bsm3d.com
 // Demo 1.0 for Micro-8 OS 0.9
 
 // ---- M8LIB: pal - loadPal/savePal: a 48-byte .PAL (16 red, 16 green, 16 blue values 0-7) into or from a palette address

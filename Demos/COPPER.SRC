@@ -1,5 +1,5 @@
 // COPPER BARS - eight copper bars swinging on a sine, each with its own hue
-// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Created by Benoit (BSM) Saint-Moulin, www.bsm3d.com
 // Demo 1.0 for Micro-8 OS 0.9
 
 byte HALT=0;

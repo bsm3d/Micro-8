@@ -1,7 +1,7 @@
 # DUNGEON HUNT
 
 The tutorial project of the Micro-8 Studio manual (chapter 5): a small top-down dungeon game in the spirit of the 1980s
-arcade classics, made with every editor of Studio. Code & Music: Benoit (BSM) Saint-Moulin.
+arcade classics, made with every editor of Studio. Created by Benoit (BSM) Saint-Moulin.
 
 ![DUNGEON HUNT](../Micro-8-Studio/docs/img/t_game_play.png)
 

@@ -461,7 +461,7 @@ own code after them; here is the whole program of this step, `HUNT1.SRC`, apart 
 
 ```c
 // DUNGEON HUNT, step 1: the dungeon and the warrior
-// Code & Music: Benoit (BSM) Saint-Moulin, www.bsm3d.com
+// Created by Benoit (BSM) Saint-Moulin, www.bsm3d.com
 // Tutorial project for Micro-8 Studio, OS 0.9
 
 byte level[379];                 // HUNT.LVL: 4 header bytes, then 25x15 tile numbers

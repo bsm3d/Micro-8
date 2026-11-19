@@ -1,6 +1,6 @@
 # Micro-8 Demos
 
-Classic demoscene effects for the **Micro-8**, written in **Lofi**. Code & Music: Benoit (BSM) Saint-Moulin.
+Classic demoscene effects for the **Micro-8**, written in **Lofi**. Created by Benoit (BSM) Saint-Moulin.
 
 The copper bars, the sinus scroller and the flat star field are ports of my own reference effects (HTML5 and
 68K assembly versions, written for teaching): same algorithm, same constants. The dots tunnel grew from the same
