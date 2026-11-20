@@ -120,6 +120,8 @@ restart to apply), and a splash screen with real progress steps (`--no-splash` t
   itself. Studio starts a server on this computer only (`http://127.0.0.1:8080` by default); one you started by hand at that address
   is used and never stopped by Studio. A context of 16384 is a good start: the larger it is, the more of the manual goes with each
   question. Nothing leaves the computer. llama.cpp has no web search.
+
+  ![The llama.cpp server window: the program, the model, the context, the GPU layers, the command that will run, and the server's output](img/10_llama_server.png)
 - **Bottom panels:** **Problems** (errors and warnings, click to jump), **Output** (messages of the program and of
   Studio), **Variables**, **Watch** and **Breakpoints** (the debugger), **Memory** (a hex dump), **Memory Map** (how much of the code,
   data and external memory the program uses) and **Hardware** (layers, scrolling, palettes, sprites, synth registers).
