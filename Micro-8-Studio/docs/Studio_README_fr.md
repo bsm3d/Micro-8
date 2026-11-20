@@ -14,6 +14,13 @@ projets de jeux rétro. Ce manuel comporte trois parties :
 Le Micro-8 et son langage, Lofi, ont été créés par Franck Sauer. Le Micro-8 lui-même (son matériel, ses commandes, toute l'API Lofi) est décrit dans le *Micro-8 User's Manual*, que Studio
 ouvre avec `F1`. Ce manuel parle de Studio et renvoie à l'autre pour la machine.
 
+Studio embarque sa propre **aide IA** : l'AI Assistant répond à partir du manuel du Micro-8 et, avec votre accord à chaque fois,
+peut travailler dans Studio (lire le code, écrire, composer, dessiner, lancer). **Il n'y a aucune télémétrie :** Studio n'envoie rien
+sur vous ni sur votre travail, il n'a ni compte ni vérification de mise à jour, et tout reste sur votre ordinateur. La seule exception
+est un service d'IA distant que vous choisissez vous-même dans l'assistant, Mistral (une société européenne, soumise au RGPD) ou
+Anthropic : votre question, les sections du manuel trouvées pour elle et, si vous l'incluez, votre fichier ouvert sont alors envoyés
+à ce service, selon ses propres conditions. Avec un modèle de votre ordinateur (llama.cpp), rien ne le quitte.
+
 Pour en savoir plus sur le Micro-8, suivre son développement ou en acheter un, rendez-vous sur le site de son concepteur, Franck Sauer : **[www.micro-8.com](https://www.micro-8.com)**.
 
 ## Sommaire
@@ -106,6 +113,16 @@ l'appliquer), et un écran de démarrage à étapes réelles (`--no-splash` pour
   éditeur, un clic droit crée un dossier), **Assets** (tous les fichiers qu'utilise le programme au premier plan, ou le projet ouvert,
   groupés par genre, avec ce que contient chacun et une petite image : §9.9), **Outline** (les fonctions et variables du programme), **Search**, **API** (chaque fonction
   de la machine avec sa signature) et l'**AI Assistant**.
+- **Fournisseurs de l'AI Assistant.** Anthropic et Mistral (une clé d'API, gardée dans les réglages de Studio) ou un modèle de votre
+  ordinateur avec **llama.cpp**. Pour llama.cpp, choisissez *llama.cpp (local)* et appuyez sur **Server...** : Studio démarre et arrête
+  `llama-server` pour vous. Donnez-lui le programme (`llama-server`, trouvé dans le PATH ou choisi avec *Browse*) et un fichier modèle
+  (`.gguf`), puis réglez ce que vous voulez (le contexte `-c`, les slots `-np`, les couches GPU `-ngl`, la flash attention, les outils
+  avec `--jinja`, la réflexion coupée, d'autres arguments ; la ligne de commande qui sera lancée est affichée sous les réglages).
+  *Start* le lance, avec sa sortie dans la fenêtre ; il s'arrête avec *Stop* ou quand vous quittez Studio. Cochez *Start the server
+  when I ask the assistant a question* et l'assistant le démarre tout seul. Studio ne démarre un serveur que sur cet ordinateur
+  (`http://127.0.0.1:8080` par défaut) ; un serveur lancé à la main à cette adresse est utilisé et jamais arrêté par Studio. Un
+  contexte de 16384 est un bon début : plus il est grand, plus le manuel accompagne chaque question. Rien ne quitte l'ordinateur.
+  llama.cpp n'a pas de recherche web.
 - **Panneaux du bas :** **Problems** (erreurs et avertissements, un clic y mène), **Output** (messages du programme et de Studio),
   **Variables**, **Watch** et **Breakpoints** (le débogueur), **Memory** (un dump hexadécimal), **Memory Map** (ce que le programme
   occupe en code, données et mémoire externe) et **Hardware** (calques, défilement, palettes, sprites, registres du synthé).
