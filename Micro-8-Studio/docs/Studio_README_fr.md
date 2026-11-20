@@ -123,6 +123,8 @@ l'appliquer), et un écran de démarrage à étapes réelles (`--no-splash` pour
   (`http://127.0.0.1:8080` par défaut) ; un serveur lancé à la main à cette adresse est utilisé et jamais arrêté par Studio. Un
   contexte de 16384 est un bon début : plus il est grand, plus le manuel accompagne chaque question. Rien ne quitte l'ordinateur.
   llama.cpp n'a pas de recherche web.
+
+  ![La fenêtre du serveur llama.cpp : le programme, le modèle, le contexte, les couches GPU, la commande qui sera lancée et la sortie du serveur](img/10_llama_server.png)
 - **Panneaux du bas :** **Problems** (erreurs et avertissements, un clic y mène), **Output** (messages du programme et de Studio),
   **Variables**, **Watch** et **Breakpoints** (le débogueur), **Memory** (un dump hexadécimal), **Memory Map** (ce que le programme
   occupe en code, données et mémoire externe) et **Hardware** (calques, défilement, palettes, sprites, registres du synthé).

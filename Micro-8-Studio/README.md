@@ -48,8 +48,8 @@ No Python installation or other dependency is needed: everything is included.
 ### SHA-256 checksums
 
 ```
-d1f3ca0897b645b2f3030e3bf9b1f38da351d66a35251e1f58c44e6b67f1a5bb  Micro8Studio-1.3.0-win64-portable.zip
-7e8473bf87b7e9acb24f05a70de224e7e81440113ab9c8b9f4cb444a65000395  Micro8Studio-1.3.0-Setup.exe
+2708402805a0d24756c02d23fc42a740c7334ef79b25f03d342ce6d3b3ac053e  Micro8Studio-1.3.0-win64-portable.zip
+a99d225ce2d63ae7bd1268475feb337766d3450c21c08822db4c956c8e1c7a2c  Micro8Studio-1.3.0-Setup.exe
 ```
 
 ## Documentation
