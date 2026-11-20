@@ -7,14 +7,18 @@ analyzer for the Lofi language, debugger (breakpoints, step), hardware-accurate 
 digital synth, tiles, sprites, raster, mouse, gamepad, MIDI), and dedicated tools (music tracker, sprite / tile /
 screen / sound / image editors).
 
-Studio is made for the Micro-8 first, and it also serves other retro game projects, so that one program replaces
-several tools:
+Studio is dedicated to the Micro-8, and it can also serve as a development toolbox for other consoles and other
+projects (music, image converter, sprites, tile maps, icons), so that one program replaces several tools:
 
 - the **sprite editor** exports a PNG sheet with transparency and its JSON atlas (the TexturePacker and Aseprite
   format), the same sheet cut into sprites for Unity (`.png` + `.png.meta`), or a C header;
 - the **tile map editor** exports the map as text, CSV, JSON for the Tiled editor (with the tiles as a PNG sheet) or a
   C header, and reads text, CSV and Tiled maps back;
-- the **tracker** exports a song as WAV, WAV stems (one file a track) or MIDI;
+- the **tracker** exports a song as WAV, WAV stems (one file a track), MIDI, note events (JSON, CSV) or a VGM of its FM
+  tracks, with a guide to port it to another system;
+- the **image converter** and the **Paint** tool write PNG, GIF, TGA, PCX, IFF, C64 Koala, ZX Spectrum, tiles for the NES,
+  Game Boy, SNES, Mega Drive and Master System, and ICO icons in the official sizes; Paint has layers;
+- sprite sheets and maps from Aseprite, Unity, Godot and Tiled can be imported;
 - the **code editor** also opens Python, C, C++, assembly, JSON and text files, with their own colours;
 - the **Assets panel** lists every file a program or a project uses and opens each one in its editor.
 
@@ -40,8 +44,8 @@ No Python installation or other dependency is needed: everything is included.
 ### SHA-256 checksums
 
 ```
-114ecc9a0bfae2c5e1273de7f98ac12b050155923a6e13cff48c320d58157a12  Micro8Studio-1.3.0-win64-portable.zip
-cb535c74a286f72b1e25476bcc1bee39f5e02b2f98ecb5070fdff90d2c07f7e0  Micro8Studio-1.3.0-Setup.exe
+7d44c1cdf80770bd0c57a828368429f68ac2136ecd42079118e0ef5f677a546d  Micro8Studio-1.3.0-win64-portable.zip
+f3c9fcf64303f30403a12b5b7708489282ab56a4fe8d96f19e4baf868d4a34ef  Micro8Studio-1.3.0-Setup.exe
 ```
 
 ## Documentation

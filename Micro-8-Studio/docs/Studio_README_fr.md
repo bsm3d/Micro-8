@@ -67,7 +67,9 @@ Studio réunit quatre outils dans une seule fenêtre :
   les vrais fichiers octet pour octet, donc ce que vous enregistrez ici s'ouvre sur la machine, et inversement ;
 - un système de **projets** qui garde un programme et ses fichiers ensemble, les vérifie, et les envoie sur une carte ou vers la machine ;
 - des **exports pour d'autres machines et moteurs** : les sprites en planche PNG avec son atlas (§9.1), les cartes en texte, CSV, JSON
-  Tiled ou C (§9.2), la musique en WAV ou MIDI (§9.6), et un éditeur de code qui colore aussi Python, C, C++, l'assembleur et JSON (§6).
+  Tiled ou C (§9.2), la musique en WAV, MIDI, VGM ou événements de notes (§9.6, avec un guide pour porter un morceau vers un autre système),
+  les images en PNG, GIF, ICO, Amiga IFF, fichiers C64, ZX Spectrum, NES, SNES et Mega Drive (§8, §9.3), des imports de planches et de
+  cartes d'Aseprite, Unity, Godot et Tiled (§9.1, §9.2), et un éditeur de code qui colore aussi Python, C, C++, l'assembleur et JSON (§6).
 
 **Installation.** Décompressez la version portable n'importe où (disque, clé USB) et lancez `Micro8Studio.exe`, sans rien installer ;
 l'installeur place les mêmes fichiers dans Program Files ou le dossier de votre choix. Le dossier contient `Examples\` (le
@@ -102,7 +104,7 @@ l'appliquer), et un écran de démarrage à étapes réelles (`--no-splash` pour
   clavier : flèches, `Z` et `X` (les boutons A et B), `Enter` (Start), `Tab` (Select) forment la manette.
 - **Panneaux de gauche** (onglets en bas de la colonne) : **Files** (la carte en arbre : un double clic ouvre un fichier dans le bon
   éditeur, un clic droit crée un dossier), **Assets** (tous les fichiers qu'utilise le programme au premier plan, ou le projet ouvert,
-  groupés par genre : §9.9), **Outline** (les fonctions et variables du programme), **Search**, **API** (chaque fonction
+  groupés par genre, avec ce que contient chacun et une petite image : §9.9), **Outline** (les fonctions et variables du programme), **Search**, **API** (chaque fonction
   de la machine avec sa signature) et l'**AI Assistant**.
 - **Panneaux du bas :** **Problems** (erreurs et avertissements, un clic y mène), **Output** (messages du programme et de Studio),
   **Variables**, **Watch** et **Breakpoints** (le débogueur), **Memory** (un dump hexadécimal), **Memory Map** (ce que le programme
@@ -1081,7 +1083,7 @@ un réel passé là où la machine attend un entier est tronqué comme par `int(
 | Point d'arrêt | `F9` ou clic dans la marge (clic droit : condition, ex. `i==2`) |
 | Point d'arrêt mémoire | Debug > Ajouter un point d'arrêt mémoire, ou clic droit sur un octet dans Memory : le programme s'arrête dès que cet octet (ou cette plage, RAM ou SRAM externe) change, quel que soit l'auteur (affectation, `poke`, fonction de l'API, interruption raster) ; Output donne l'adresse, l'ancienne -> la nouvelle valeur et la ligne qui a écrit |
 
-Panneaux : **Variables** (pile d'appels, locaux et globaux, valeurs modifiées en orange), **Watch** (expressions
+Panneaux : **Variables** (pile d'appels, locaux et globaux, valeurs modifiées en rouge), **Watch** (expressions
 Lofi évaluées à l'arrêt, ex. `data[i]*10`), **Breakpoints** (lignes et mémoire), **Memory** (dump hexadécimal de la RAM ou de la SRAM
 externe, octets modifiés en surbrillance, raccourcis vers les zones utiles), **Hardware** (couches, défilement,
 pages, raster, palettes, sprites, registres du synthé).
@@ -1150,6 +1152,15 @@ Un programme qui déplace une carte plus grande que l'écran avec son propre dé
   automatiquement), boîtes de collision en magenta, export PNG. Les formats ont été vérifiés sur les ressources de
   la carte SD : le `.BMP` de MOUNTAIN se reconvertit à l'identique, les sprites de même.
 
+- **Les images d'autres systèmes entrent et sortent.** Outre PNG, JPG, GIF, TGA, PCX, ICO et WebP, le convertisseur ouvre les images
+  Amiga IFF (`.iff`), Commodore 64 Koala (`.kla`) et ZX Spectrum (`.scr`). **Export for other systems...** écrit l'image convertie en
+  PNG (indexé, avec transparence), GIF, BMP, TGA, PCX, JPEG, en icône **ICO** à plusieurs tailles, en **Amiga IFF ILBM** (32 couleurs au
+  plus), en **C64 Koala** (160×200, palette du C64, 4 couleurs par case), en **écran ZX Spectrum** (256×192, conflit de couleurs) ou en
+  planches de tuiles pour la **NES** (CHR, 2 bits), la **Game Boy** (2 bits), la **Super Nintendo** (4 bits planaire), la **Mega Drive**
+  (4 bits compacté) et la **Master System / Game Gear**, chacune avec sa palette dans les octets du système (les 3 bits par couleur du
+  Micro-8 sont la profondeur de la Mega Drive : la palette Mega Drive est exacte). La fenêtre dit avant d'écrire ce qui sera perdu (trop de
+  couleurs, côtés qui ne sont pas des multiples de 8, taille du pixel, indice 0 pour les pixels transparents, tramage).
+
 ## 9. Éditeurs d'assets
 
 Équivalents des outils de la carte SD (SPRITED, MAPED, IMAGED, SOUNDED, SCREENED, le tracker embarqué).
@@ -1171,7 +1182,12 @@ tests).
   précédent en transparence).
 - Annulation par sprite, éditeur de palette (512 couleurs, palettes A et B).
 - **Boîte de collision AABB** (champs, ajustement automatique), retournements, remplacement / échange de couleurs.
-- **Aperçu d'animation** (plage, images par seconde), import d'une planche PNG, export PNG.
+- **Aperçu d'animation** (plage, images par seconde), import d'une planche, export PNG.
+- **Importer une planche d'un autre outil** (le bouton d'import) : un **fichier Aseprite** (`.ase`, `.aseprite` : ses images, nommées d'après ses tags, calques aplatis), une image (PNG, GIF, ICO, IFF...) avec la description trouvée à côté
+  (JSON d'Aseprite ou de TexturePacker, `.png.meta` d'Unity, `.tres` de Godot, `.tsx` de Tiled), une grille régulière, ou le fichier de
+  tuiles d'une console (`.chr` NES, `.2bpp` Game Boy, `.4bpp` SNES, `.bin` Mega Drive ou Master System, avec le `.pal` à côté pour les
+  couleurs). La fenêtre compte les cellules trouvées et laisse régler la grille (taille de cellule, marge, espacement), omettre les
+  cellules vides et ajuster chaque cellule à 24×21 (l'agrandissement par nombres entiers garde les pixels nets).
 - **Export pour d'autres outils** (le menu du bouton d'export) : le jeu en **planche PNG transparente avec son atlas JSON**
   (`NOM.png` + `NOM.json`, le format « frames » de TexturePacker et d'Aseprite que lisent les moteurs 2D et leurs importeurs : la
   place de chaque sprite, nommé `NOM_00`, `NOM_01`..., et sa boîte de collision), la même planche **découpée en sprites pour Unity**
@@ -1193,7 +1209,11 @@ tests).
   Tiled, avec les tuiles écrites à côté en planche PNG `NOM_tiles.png` ; le numéro de tuile vaut un de plus que dans Studio, puisque
   0 veut dire pas de tuile pour Tiled, et les couches qui contiennent quelque chose deviennent des couches cachées de 0 et de 1) ou
   **en-tête C** (`.h` : carte, couches, tuiles et palette en tableaux). Le bouton d'import relit une carte depuis du texte, du CSV ou
-  du JSON (celui de Studio, ou une carte faite avec Tiled).
+  du JSON (celui de Studio, ou une carte faite avec Tiled), un `.tmx` de Tiled (couches en CSV, base64, zlib ou gzip) ou un `.tscn` de
+  Godot (Godot 4 demande le nombre de colonnes de tuiles de l'image du jeu de tuiles ; Godot 3 stocke les numéros de tuile). **A tile set
+  from a sheet...** (le même bouton) fabrique les tuiles depuis une image de jeu de tuiles avec sa description Tiled, Godot ou Unity, une
+  grille régulière, ou le fichier de tuiles d'une console ; les tuiles de 8×8 sont doublées en 16×16, ou groupées 2×2 (les métatuiles
+  d'une console) ; la carte est conservée.
 - Formats : `.TLS` brut (+ `.PAL`) ou forme de l'éditeur de tuiles (palette de 48 octets devant) ; `.LVL` avec
   en-tête de 4 octets (largeur, hauteur) ou brut (largeur demandée, comme le niveau 80×24 de la démo TILES).
 - **8 calques** sur la carte, comme le MAPED de la machine (collisions, chemins, déclencheurs : le sens d'un calque
@@ -1216,6 +1236,25 @@ tests).
 - Palette de 16 couleurs, grille guide 16×16.
 - Import d'une image avec ajustement, tramage et palette optimisée.
 - Coller une image du presse-papiers, export PNG.
+- **Calques.** Le groupe **Layers** tient une liste de calques (le premier est le fond) : nouveau, dupliquer, supprimer, monter,
+  descendre, fusionner vers le bas et aplatir ; cochez un calque pour l'afficher ou le masquer, double-cliquez pour le renommer. Les
+  outils dessinent sur le calque en cours ; au-dessus du fond la gomme fait des pixels transparents (le damier apparaît) et la pipette
+  prend la couleur visible. Sélection, déplacement et collage agissent sur le calque ; chaque changement des calques est une étape
+  d'annulation. Le résultat est ce qui s'enregistre : le `.BMP` contient l'image fusionnée (exactement ce que lit la machine), et
+  `NOM.LAYERS.json` à côté garde les calques, de sorte que le fichier se rouvre avec eux tant que l'image n'a pas été modifiée par un
+  autre outil (la machine l'ignore).
+- **Images sur des calques.** *Import > Picture on a new layer...* (ou *Clipboard picture on a new layer*) place un PNG, GIF, ICO, IFF,
+  Koala... sur un calque à part, ajusté au canevas, ce qu'il ne couvre pas restant vide : on compose ainsi une image avec plusieurs
+  images, puis on les déplace avec l'outil Select. L'image garde la palette actuelle, ou construit les 16 meilleures couleurs (ce qui
+  change aussi les autres calques).
+- **Icônes et autres tailles.** *Canvas size* règle l'image sur le bitmap Micro-8 (400×240), une icône (tailles officielles seulement : 16, 24, 32, 48, 64, 128, 256 ou 512), un sprite, une tuile
+  ou une taille quelconque jusqu'à 1024, et dit si le fond est transparent. Paint ouvre et enregistre l'**ICO** (écrit avec les tailles
+  officielles (16, 24, 32, 48, 64, 128, 256) qui tiennent dans l'image, celles du fichier ouvert gardées, centrée sur un carré si elle n'en est pas un ; un ICO s'arrête à 256, une icône
+  de 512 s'enregistre donc en PNG ; la transparence est gardée), PNG, GIF, TGA, PCX et Amiga IFF, et ouvre les images C64 Koala et ZX
+  Spectrum. Seule une image de 400×240 s'enregistre en `.BMP` Micro-8. Tout ce qui est ouvert est converti en 16 couleurs de 3 bits du
+  Micro-8, et l'enregistrement écrit cette version : utilisez Export pour garder le format d'origine.
+- **Export for other systems...** écrit l'image dans tous les formats du §8 (PNG, GIF, TGA, PCX, JPEG, ICO avec les tailles cochées, Amiga
+  IFF, C64, ZX Spectrum, NES, Game Boy, SNES, Mega Drive, Master System), avec un avertissement sur ce qui sera perdu.
 
 ### 9.4. Sound editor
 
@@ -1225,7 +1264,7 @@ tests).
 
 - Les 54 paramètres (4 opérateurs : detune, multiplicateur, niveau total, rate scaling, attaque, AM, decay,
   sustain rate, sustain level, release).
-- Algorithme avec **schéma** (porteuses en orange), feedback, LFO, opérateurs actifs.
+- Algorithme avec **schéma** (porteuses en rouge), feedback, LFO, opérateurs actifs.
 - **Courbe d'enveloppe** par opérateur, **clavier de test** (souris ou touches Z S X D C V… / Q 2 W 3 E R…) joué
   en direct par Nuked-OPN2, forme d'onde et spectre du son.
 - Copier / coller / initialiser / hasard / mutation, charger un `.INS` dans un emplacement, banque de 10 fichiers.
@@ -1289,6 +1328,14 @@ machine réelle.
 uniquement pour l'aperçu dans Studio, désactivables, la lecture sur machine reste celle du tracker embarqué. Export
 MIDI, WAV, pistes séparées (stems). `.EXT.json` : fichier annexe pour les longueurs de pattern et les effets, pas lu
 par la machine.
+
+**Exports pour un autre système.** Outre WAV, stems et MIDI (un fichier, ou un par piste), le menu d'export écrit les **événements de
+notes** du morceau en JSON ou CSV (le tempo, les pistes, les instruments FM en champs nommés, chaque note avec son instant, sa durée, sa
+note MIDI et sa hauteur en Hz ; arpèges et autres effets sont déjà des notes) et un fichier **VGM** : chaque écriture de registre du
+YM2612 des six pistes FM, avec un point de boucle, qui se joue tel quel sur une Mega Drive ou dans n'importe quel lecteur de VGM. Le guide
+*Porter une musique du tracker Micro-8 vers un autre système* (`PORTING_MUSIC_fr.md`, avec la carte des registres du YM2612 et une
+recette pour la Mega Drive, la NES, le C64, la Game Boy, l'Amiga et les moteurs de jeu) dit ce que contient chaque fichier et comment
+s'en servir.
 
 Testé octet pour octet contre les trackers embarqués (les deux versions et le lecteur) : un projet fait ici s'ouvre inchangé sur la machine réelle et inversement.
 
@@ -1406,7 +1453,10 @@ le programme principal, les fichiers du projet, les onglets ouverts, l'onglet co
   Sans projet, le panneau montre les fichiers du programme au premier plan : les noms écrits dans sa source (`"HERO.SPR"`,
   `songLoad("TUNE")`, `#include "game.h"`), leurs compagnons (les palettes d'un jeu de sprites, les couches et les tuiles d'une carte)
   et les fichiers qui portent le nom du programme. Un fichier que la source nomme et qui n'est pas sur le disque est listé en rouge,
-  comme manquant.
+  comme manquant. Le panneau lit tous les formats que Studio ouvre : une colonne *Details* dit ce que contient chaque fichier (3 sprites,
+  un bitmap 400 x 240, les tailles d'une icône, 133 BPM, la durée d'un wave...) et les images (bitmaps, sprites, tuiles, PNG, ICO, IFF,
+  Koala...) ont une vignette. Le bouton dossier passe la liste à **tous les fichiers que Studio ouvre dans le dossier** du projet ou du
+  programme, sous-dossiers compris (3 niveaux, 400 fichiers).
 - **Check Project** : ce que la vraie machine refuserait (noms non 8.3 de la FAT32, erreurs de compilation, code
   au-delà du segment de 32 Ko, fichiers du projet manquants) et les fichiers que le programme nomme dans ses textes
   mais qui ne sont pas dans le dossier (simple note : le programme peut les écrire lui-même).
@@ -1591,6 +1641,10 @@ Tous les fichiers ci-dessous sont au format de la machine, lus et écrits octet 
 | `.DPC` | DPCM Micro-8 brut : codes de 4 bits, deux par octet, le fort en premier, 32 kHz ou 16 kHz |
 | `.WAV` | audio PCM |
 | `.EXT.json`, `.NOTES.json` | compagnons propres à Studio d'un `.M8S` : longueurs de patterns et effets, notes de pas. La machine les ignore |
+| `.LAYERS.json` | compagnon propre à Studio d'une image de Paint : ses calques (zlib, base64), leurs noms, leur visibilité et la palette, et l'empreinte du fichier d'image auquel ils correspondent. La machine l'ignore |
+| `.events.json`, `.events.csv`, `.vgm` | exports du tracker pour un portage : événements de notes (§9.6), et un fichier VGM 1.50 des écritures de registre du YM2612 de FM1 à FM6 |
+| `.ico`, `.png`, `.gif`, `.tga`, `.pcx`, `.iff`, `.kla`, `.scr` | images que Paint et les Image tools ouvrent et écrivent : icône Windows, PNG, GIF, TGA, PCX, Amiga IFF ILBM, C64 Koala (10003 octets, 160 x 200), écran ZX Spectrum (6912 octets, 256 x 192) |
+| `.chr`, `.2bpp`, `.4bpp`, `.bin`, `.sms` | fichiers de tuiles de console que le convertisseur écrit et que les éditeurs de sprites et de tuiles lisent : NES (2 bits, 16 octets par tuile), Game Boy (2 bits), SNES (4 bits planaire, 32 octets), Mega Drive (4 bits compacté), Master System ; la palette va dans un `.pal` aux octets du système |
 | `.M8P` | un projet Studio : un petit manifeste JSON, au nom 8.3 |
 | `.ENT` | une table d'entités Studio (section 9.11) : du texte JSON, un enregistrement par sorte de chose. La machine ne la lit jamais |
 
