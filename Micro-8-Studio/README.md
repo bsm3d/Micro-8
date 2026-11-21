@@ -22,9 +22,11 @@ projects (music, image converter, sprites, tile maps, icons), so that one progra
 - the **code editor** also opens Python, C, C++, assembly, JSON and text files, with their own colours;
 - the **Assets panel** lists every file a program or a project uses and opens each one in its editor.
 
-Studio embeds an **AI help system**: the AI Assistant answers from the Micro-8 manual and can work in Studio, with your OK each
-time. **No telemetry:** Studio sends nothing about you or your work, and everything stays on your computer, unless you choose a
-remote AI service yourself, Mistral (under the GDPR) or Claude; with a local model (llama.cpp) nothing leaves your computer.
+Studio embeds an **AI help system**: the AI Assistant answers from the Micro-8 manual and can work in Studio (writing always waits for
+your OK). **No telemetry:** Studio sends nothing about you or your work, and everything stays on your computer, unless you choose a
+remote AI service yourself, Mistral (under the GDPR) or Claude. Then each question sends the question, the manual sections found for
+it, the recent conversation and the code of the open file, and, with the Studio and Web boxes ticked (the default), what the assistant
+reads in Studio and the provider's web search. With a local model (llama.cpp) nothing leaves your computer.
 
 This repository distributes the **compiled** application.
 
@@ -48,8 +50,8 @@ No Python installation or other dependency is needed: everything is included.
 ### SHA-256 checksums
 
 ```
-2708402805a0d24756c02d23fc42a740c7334ef79b25f03d342ce6d3b3ac053e  Micro8Studio-1.3.0-win64-portable.zip
-a99d225ce2d63ae7bd1268475feb337766d3450c21c08822db4c956c8e1c7a2c  Micro8Studio-1.3.0-Setup.exe
+cb2ce2b6c57fabb8ae9ebb139dfce5284bac4735e7dd7663a7b7fbf66b83679a  Micro8Studio-1.3.0-win64-portable.zip
+def26cb3684e5daaad8e0f91fc11e6200fc9b3c53c024790ca2eb7c133324542  Micro8Studio-1.3.0-Setup.exe
 ```
 
 ## Documentation

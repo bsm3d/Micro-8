@@ -13,12 +13,15 @@ code editor opens Python, C and C++ files, so Studio serves other retro game pro
 The Micro-8 and its language, Lofi, were created by Franck Sauer. The Micro-8 itself (its hardware, its commands, the whole Lofi API) is described in the *Micro-8 User's Manual*, which Studio
 opens with `F1`. This manual is about Studio and links to that one for the machine.
 
-Studio carries its own **AI help**: the AI Assistant answers from the Micro-8 manual and, with your OK each time, can work in Studio
-(read the code, write, compose, draw, run). **There is no telemetry:** Studio sends nothing about you or your work anywhere,
-it has no account and no update check, and everything stays on your computer. The one exception is a remote AI service that you
-choose yourself in the assistant, Mistral (a European company, under the GDPR) or Anthropic: your question, the manual sections
-found for it and, if you include it, your open file are then sent to that service, under its own terms. With a model of your own
-computer (llama.cpp) nothing leaves it.
+Studio carries its own **AI help**: the AI Assistant answers from the Micro-8 manual and can work in Studio (read the code, write,
+compose, draw, run the program). **There is no telemetry:** Studio sends nothing about you or your work anywhere, it has no account
+and no update check, and everything stays on your computer. The one exception is a remote AI service that you choose yourself in the
+assistant, Mistral (a European company, under the GDPR) or Anthropic. With one of them, each question sends the question itself, the
+manual sections found for it, the recent messages of the conversation (up to 20) and the code of the file open in the editor. With the
+*Studio* box ticked (it is by default) it also sends what the assistant reads in Studio: the code, the tracker project, the sprites,
+the tile map, and the list of the open tabs with their folders. With the *Web* box ticked (also by default) the provider may search
+the web, and Mistral then keeps the conversation on its side. Writing in Studio always waits for your Allow or Deny in the chat;
+reading does not. Untick *Studio* and *Web*, or use a model of your own computer (llama.cpp), and nothing leaves your computer.
 
 To learn more about the Micro-8, follow its development, or buy one, go to the website of its designer, Franck Sauer: **[www.micro-8.com](https://www.micro-8.com)**.
 

@@ -14,12 +14,16 @@ projets de jeux rétro. Ce manuel comporte trois parties :
 Le Micro-8 et son langage, Lofi, ont été créés par Franck Sauer. Le Micro-8 lui-même (son matériel, ses commandes, toute l'API Lofi) est décrit dans le *Micro-8 User's Manual*, que Studio
 ouvre avec `F1`. Ce manuel parle de Studio et renvoie à l'autre pour la machine.
 
-Studio embarque sa propre **aide IA** : l'AI Assistant répond à partir du manuel du Micro-8 et, avec votre accord à chaque fois,
-peut travailler dans Studio (lire le code, écrire, composer, dessiner, lancer). **Il n'y a aucune télémétrie :** Studio n'envoie rien
-sur vous ni sur votre travail, il n'a ni compte ni vérification de mise à jour, et tout reste sur votre ordinateur. La seule exception
-est un service d'IA distant que vous choisissez vous-même dans l'assistant, Mistral (une société européenne, soumise au RGPD) ou
-Anthropic : votre question, les sections du manuel trouvées pour elle et, si vous l'incluez, votre fichier ouvert sont alors envoyés
-à ce service, selon ses propres conditions. Avec un modèle de votre ordinateur (llama.cpp), rien ne le quitte.
+Studio embarque sa propre **aide IA** : l'AI Assistant répond à partir du manuel du Micro-8 et peut travailler dans Studio (lire le
+code, écrire, composer, dessiner, lancer le programme). **Il n'y a aucune télémétrie :** Studio n'envoie rien sur vous ni sur votre
+travail, il n'a ni compte ni vérification de mise à jour, et tout reste sur votre ordinateur. La seule exception est un service d'IA
+distant que vous choisissez vous-même dans l'assistant, Mistral (une société européenne, soumise au RGPD) ou Anthropic. Avec l'un
+d'eux, chaque question envoie la question elle-même, les sections du manuel trouvées pour elle, les derniers messages de la
+conversation (20 au plus) et le code du fichier ouvert dans l'éditeur. Avec la case *Studio* cochée (elle l'est par défaut), il envoie
+aussi ce que l'assistant lit dans Studio : le code, le projet du tracker, les sprites, la carte de tuiles et la liste des onglets
+ouverts avec leurs dossiers. Avec la case *Web* cochée (elle l'est aussi par défaut), le fournisseur peut chercher sur le web, et
+Mistral garde alors la conversation de son côté. Écrire dans Studio attend toujours votre Allow ou Deny dans le chat ; lire, non.
+Décochez *Studio* et *Web*, ou utilisez un modèle de votre ordinateur (llama.cpp), et rien ne quitte votre ordinateur.
 
 Pour en savoir plus sur le Micro-8, suivre son développement ou en acheter un, rendez-vous sur le site de son concepteur, Franck Sauer : **[www.micro-8.com](https://www.micro-8.com)**.
 
