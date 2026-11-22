@@ -926,6 +926,15 @@ text lvName[12]={"GRAVITY1.LVL","GRAVITY2.LVL","GRAVITY3.LVL","GRAVITY4.LVL","GR
 text layName[12]={"GRAVITY1.LAY","GRAVITY2.LAY","GRAVITY3.LAY","GRAVITY4.LAY","GRAVITY5.LAY","GRAVITY6.LAY",
 	"GRAVITY7.LAY","GRAVITY8.LAY","GRAVITY9.LAY","GRAVITY10.LAY","GRAVITY11.LAY","GRAVITY12.LAY"};
 text wName[5]={"EARTH","MOON","HEAVY","ICE","SPACE"};
+// the five worlds: gravity, drag, the speed of a jump, how hard the arrows push, the top speed
+int wGrav[5]={6,2,14,6,0};
+int wDrag[5]={2,1,6,0,3};
+int wJump[5]={88,88,140,88,0};
+int wAcc[5]={6,6,10,8,5};
+int wMax[5]={40,40,26,64,32};
+byte lvWorld[12]={0,0,0,1,1,2,2,3,3,0,4,4};   // the world each room starts in (room 10 changes it every six seconds)
+byte lvZone[12]={0,0,0,1,1,2,2,3,3,4,5,5};    // the place: EARTH, MOON, HEAVY, ICE, STORM, SPACE (a screen comes before the first room of each)
+
 // the pictures of the six places: behind the rooms (GRAVB) and on the screen shown before them (GRAVW), each with its palette
 text bgBmp[6]={"GRAVB1.BMP","GRAVB2.BMP","GRAVB3.BMP","GRAVB4.BMP","GRAVB5.BMP","GRAVB6.BMP"};
 text bgPal[6]={"GRAVB1.PAL","GRAVB2.PAL","GRAVB3.PAL","GRAVB4.PAL","GRAVB5.PAL","GRAVB6.PAL"};
@@ -935,14 +944,6 @@ text scPal[6]={"GRAVW1.PAL","GRAVW2.PAL","GRAVW3.PAL","GRAVW4.PAL","GRAVW5.PAL",
 text zTag[6]={"NORMAL GRAVITY","LOW GRAVITY: JUMP HIGH","HEAVY GRAVITY: SLOW AND LOW","ICE: NOTHING STOPS YOU",
 	"THE WORLD CHANGES EVERY SIX SECONDS","NO GRAVITY: FLY, BEWARE OF THE DRONES"};
 byte zCol[6]={33,29,26,29,22,21};
-// the five worlds: gravity, drag, the speed of a jump, how hard the arrows push, the top speed
-int wGrav[5]={6,2,14,6,0};
-int wDrag[5]={2,1,6,0,3};
-int wJump[5]={88,88,140,88,0};
-int wAcc[5]={6,6,10,8,5};
-int wMax[5]={40,40,26,64,32};
-byte lvWorld[12]={0,0,0,1,1,2,2,3,3,0,4,4};   // the world each room starts in (room 10 changes it every six seconds)
-byte lvZone[12]={0,0,0,1,1,2,2,3,3,4,5,5};    // the place: EARTH, MOON, HEAVY, ICE, STORM, SPACE (a screen comes before the first room of each)
 
 int lv;                          // the room, from 0
 int world;
@@ -1109,7 +1110,13 @@ void showTitle() {
 	loadBitmap("GRAVITY.BMP");                    // the word GRAVITY, in the flame font, over stars
 	loadScreen("GRAVITY.SCR");                    // the text over it
 	poke(0x2F00,0b00010001);                       // text and bitmap on, tiles and sprites off
-	hudNum(30,32,"HIGH SCORE ",hi);
+	nat m=hi;
+	int w=12;                                      // "HIGH SCORE 0": 12 characters, one more for each other digit
+	while(m>=10) {
+		m=m/10;
+		w++;
+	}
+	hudNum((80-w)/2,32,"HIGH SCORE ",hi);          // centred on the 80 columns
 }
 
 // the end of a game: the score, and the high score if it was beaten (kept in a file)
