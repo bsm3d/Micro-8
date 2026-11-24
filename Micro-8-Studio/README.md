@@ -69,6 +69,9 @@ The finished games of the two tutorials are in [`DungeonHunt/`](../DungeonHunt) 
 The [`Tracker/`](../Tracker) and [`SidRush/`](../SidRush) folders of this repository hold the corresponding
 Lofi sample programs.
 
+There are two trackers: the one in Studio, a professional and in-depth tracker, and its Micro-8 version, which runs on the
+machine. Songs are compatible both ways: a project made in Studio opens unchanged on the machine, and back.
+
 ## License
 
 © Benoit Saint-Moulin ([www.bsm3d.com](https://www.bsm3d.com)). All rights reserved. Free to use.
